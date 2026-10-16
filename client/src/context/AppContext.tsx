@@ -75,6 +75,7 @@ interface AppContextType {
   updateCartItemQuantity: (productId: string, quantity: number) => void;
   updateCartItemDiscount: (productId: string, discountPercent: number) => void;
   updateCartItemPrice: (productId: string, unitPrice: number) => void;
+  updateCartItemGrandTotal: (productId: string, grandTotal: number) => void;
   removeFromCart: (productId: string) => void;
   clearCart: () => void;
   
@@ -773,11 +774,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRawCart((prev) =>
       prev.map((item) => {
         if (item.productId === productId && !item.isGift) {
-          const totalAmount = item.netPrice * quantity;
+          const baseUnitPrice = item.originalUnitPrice || item.unitPrice;
+          const netPrice = baseUnitPrice * (1 - (item.discountPercent || 0) / 100);
+          const totalAmount = netPrice * quantity;
           const vatAmount = totalAmount * (item.vatRate / 100);
           return {
             ...item,
             quantity,
+            netPrice,
             totalAmount,
             vatAmount,
             grandTotal: totalAmount + vatAmount,
@@ -793,17 +797,82 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRawCart((prev) =>
       prev.map((item) => {
         if (item.productId === productId && !item.isGift) {
-          const netPrice = item.unitPrice * (1 - safeDiscount / 100);
+          const baseUnitPrice = item.originalUnitPrice || item.unitPrice;
+          const netPrice = baseUnitPrice * (1 - safeDiscount / 100);
           const totalAmount = netPrice * item.quantity;
           const vatAmount = totalAmount * (item.vatRate / 100);
           return {
             ...item,
+            unitPrice: baseUnitPrice,
+            originalUnitPrice: baseUnitPrice,
             discountPercent: safeDiscount,
             netPrice,
             totalAmount,
             vatAmount,
             grandTotal: totalAmount + vatAmount,
           };
+        }
+        return item;
+      })
+    );
+  };
+
+  const updateCartItemGrandTotal = (productId: string, grandTotal: number) => {
+    const safeGrandTotal = Math.max(0, grandTotal);
+    setRawCart((prev) =>
+      prev.map((item) => {
+        if (item.productId === productId && !item.isGift) {
+          const baseUnitPrice = item.originalUnitPrice || item.unitPrice;
+          const vatMultiplier = 1 + item.vatRate / 100;
+          const baseGrandTotal = item.quantity * baseUnitPrice * vatMultiplier;
+
+          if (baseGrandTotal <= 0) {
+            const totalAmount = safeGrandTotal / vatMultiplier;
+            const vatAmount = safeGrandTotal - totalAmount;
+            return {
+              ...item,
+              unitPrice: safeGrandTotal,
+              discountPercent: 0,
+              netPrice: safeGrandTotal,
+              totalAmount,
+              vatAmount,
+              grandTotal: safeGrandTotal,
+            };
+          }
+
+          if (safeGrandTotal <= baseGrandTotal) {
+            // İskonto hesapla: % = ((baseGrandTotal - safeGrandTotal) / baseGrandTotal) * 100
+            const rawDiscount = ((baseGrandTotal - safeGrandTotal) / baseGrandTotal) * 100;
+            const discountPercent = Math.round(rawDiscount * 100) / 100;
+            const netPrice = baseUnitPrice * (1 - discountPercent / 100);
+            const totalAmount = safeGrandTotal / vatMultiplier;
+            const vatAmount = safeGrandTotal - totalAmount;
+            return {
+              ...item,
+              unitPrice: baseUnitPrice,
+              originalUnitPrice: baseUnitPrice,
+              discountPercent,
+              netPrice,
+              totalAmount,
+              vatAmount,
+              grandTotal: safeGrandTotal,
+            };
+          } else {
+            // Liste fiyatından daha yüksek girildiyse (iskonto 0, birim fiyat artırılır)
+            const newUnitPrice = safeGrandTotal / (item.quantity * vatMultiplier);
+            const totalAmount = safeGrandTotal / vatMultiplier;
+            const vatAmount = safeGrandTotal - totalAmount;
+            return {
+              ...item,
+              unitPrice: newUnitPrice,
+              originalUnitPrice: baseUnitPrice,
+              discountPercent: 0,
+              netPrice: newUnitPrice,
+              totalAmount,
+              vatAmount,
+              grandTotal: safeGrandTotal,
+            };
+          }
         }
         return item;
       })
@@ -1136,6 +1205,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateCartItemQuantity,
         updateCartItemDiscount,
         updateCartItemPrice,
+        updateCartItemGrandTotal,
         removeFromCart,
         clearCart,
         submitCurrentOrder,

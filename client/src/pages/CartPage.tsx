@@ -1,7 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { db } from '../db';
-import type { Order } from '../types';
+import type { Order, OrderItem } from '../types';
 import { 
   Trash2, 
   Plus, 
@@ -26,6 +26,305 @@ import {
   Snowflake
 } from 'lucide-react';
 
+const formatCurrency = (val: number) => {
+  return new Intl.NumberFormat('tr-TR', {
+    style: 'currency',
+    currency: 'TRY',
+    minimumFractionDigits: 2,
+  }).format(val);
+};
+
+const parseTurkishFloat = (valStr: string): number => {
+  if (!valStr) return 0;
+  const normalized = valStr.replace(/\s/g, '').replace(',', '.');
+  const num = parseFloat(normalized);
+  return isNaN(num) ? 0 : num;
+};
+
+interface CartItemRowProps {
+  item: OrderItem;
+  userRole: string;
+  saleMode: 'hot' | 'cold';
+  removeFromCart: (productId: string) => void;
+  updateCartItemQuantity: (productId: string, quantity: number) => void;
+  updateCartItemDiscount: (productId: string, discountPercent: number) => void;
+  updateCartItemGrandTotal: (productId: string, grandTotal: number) => void;
+  getVanStockByCode: (productCode: string) => number;
+}
+
+const CartItemRow: React.FC<CartItemRowProps> = ({
+  item,
+  userRole,
+  saleMode,
+  removeFromCart,
+  updateCartItemQuantity,
+  updateCartItemDiscount,
+  updateCartItemGrandTotal,
+  getVanStockByCode,
+}) => {
+  // İskonto yerel metin durumu (0'ın silinebilmesi ve küsuratın rahat yazılabilmesi için)
+  const [discountStr, setDiscountStr] = useState<string>(
+    item.discountPercent > 0 ? String(item.discountPercent) : ''
+  );
+  const [isDiscountFocused, setIsDiscountFocused] = useState(false);
+
+  // KDV Dahil tutar yerel metin durumu
+  const [totalStr, setTotalStr] = useState<string>(
+    item.grandTotal > 0 ? (item.grandTotal % 1 === 0 ? String(item.grandTotal) : item.grandTotal.toFixed(2)) : ''
+  );
+  const [isTotalFocused, setIsTotalFocused] = useState(false);
+
+  // Input odaklı değilken güncel değeri senkronize et
+  useEffect(() => {
+    if (!isDiscountFocused) {
+      setDiscountStr(item.discountPercent > 0 ? String(item.discountPercent) : '');
+    }
+  }, [item.discountPercent, isDiscountFocused]);
+
+  useEffect(() => {
+    if (!isTotalFocused) {
+      setTotalStr(item.grandTotal > 0 ? (item.grandTotal % 1 === 0 ? String(item.grandTotal) : item.grandTotal.toFixed(2)) : '');
+    }
+  }, [item.grandTotal, isTotalFocused]);
+
+  const handleDiscountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setDiscountStr(raw);
+    if (raw.trim() === '') {
+      updateCartItemDiscount(item.productId, 0);
+      return;
+    }
+    const val = parseTurkishFloat(raw);
+    if (!isNaN(val) && val >= 0 && val <= 100) {
+      updateCartItemDiscount(item.productId, val);
+    }
+  };
+
+  const handleDiscountBlur = () => {
+    setIsDiscountFocused(false);
+    if (discountStr.trim() === '' || isNaN(parseTurkishFloat(discountStr))) {
+      updateCartItemDiscount(item.productId, 0);
+      setDiscountStr('');
+    }
+  };
+
+  const handleTotalChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setTotalStr(raw);
+    if (raw.trim() === '') {
+      updateCartItemDiscount(item.productId, 0);
+      return;
+    }
+    const val = parseTurkishFloat(raw);
+    if (!isNaN(val) && val >= 0) {
+      updateCartItemGrandTotal(item.productId, val);
+    }
+  };
+
+  const handleTotalBlur = () => {
+    setIsTotalFocused(false);
+    if (totalStr.trim() === '' || isNaN(parseTurkishFloat(totalStr))) {
+      updateCartItemDiscount(item.productId, 0);
+    }
+  };
+
+  return (
+    <div
+      className={`rounded-2xl p-3.5 border shadow-xs space-y-2 transition ${
+        item.isGift
+          ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800/80 ring-1 ring-emerald-500/20'
+          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+      }`}
+    >
+      <div className="flex justify-between items-start gap-2">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">{item.productCode}</span>
+            {item.isGift && (
+              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-600 text-white flex items-center gap-0.5">
+                <Gift className="w-3 h-3" />
+                <span>BEDELSİZ HEDİYE</span>
+              </span>
+            )}
+          </div>
+          <h4 className="font-bold text-xs text-slate-900 dark:text-white leading-snug mt-0.5">{item.productName}</h4>
+          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
+            {item.isGift ? (
+              <>
+                <span className="font-bold text-emerald-600 dark:text-emerald-400">0,00 ₺ (BEDELSİZ)</span>
+                {item.originalUnitPrice && (
+                  <span className="line-through text-slate-400 text-[10px]">
+                    Liste: {formatCurrency(item.originalUnitPrice)}
+                  </span>
+                )}
+              </>
+            ) : (
+              <>
+                <span>Birim: {formatCurrency(item.unitPrice)} | KDV: %{item.vatRate}</span>
+                {item.discountPercent > 0 && (
+                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold text-[10px]">
+                    (Net: {formatCurrency(item.netPrice * (1 + item.vatRate / 100))} Dahil)
+                  </span>
+                )}
+              </>
+            )}
+          </div>
+          {item.campaignTitle && (
+            <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold block mt-0.5">
+              🎁 {item.campaignTitle}
+            </span>
+          )}
+
+          {/* AŞAMA 8: Sıcak Satış Araç Stok Uyarısı */}
+          {userRole === 'plasiyer' && saleMode === 'hot' && (() => {
+            const inVan = getVanStockByCode(item.productCode);
+            const isSufficient = inVan >= item.quantity;
+            return (
+              <div className={`mt-1.5 text-[10px] font-bold px-2 py-1 rounded-lg flex items-center gap-1.5 ${
+                isSufficient
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
+                  : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
+              }`}>
+                <Truck className="w-3 h-3 shrink-0" />
+                {isSufficient ? (
+                  <span>Araçta Yeterli: {inVan} {item.unit} mevcut (Talep: {item.quantity})</span>
+                ) : (
+                  <span>⚠️ Araç Stoğu Yetersiz! Araçta sadece {inVan} {item.unit} var ({item.quantity - inVan} adet eksik)</span>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+
+        {!item.isGift ? (
+          <button
+            onClick={() => removeFromCart(item.productId)}
+            className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1 rounded-lg"
+            title="Ürünü Çıkar"
+          >
+            <Trash2 className="w-4 h-4" />
+          </button>
+        ) : (
+          <span className="text-emerald-600 dark:text-emerald-400 p-1" title="Otomatik Promosyon Ürünü">
+            <Gift className="w-4 h-4" />
+          </span>
+        )}
+      </div>
+
+      {/* İskonto & Miktar & Dahil Tutar Ayarı */}
+      <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs gap-1.5">
+        {/* SOL: İskonto Alanı */}
+        {item.isGift ? (
+          <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300">
+            %100 Promosyon İndirimi
+          </span>
+        ) : userRole === 'plasiyer' ? (
+          <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 px-1.5 py-1 rounded-lg transition-all">
+            <Percent className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">İsk:</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={discountStr}
+              placeholder="0"
+              onFocus={(e) => {
+                setIsDiscountFocused(true);
+                e.target.select();
+              }}
+              onChange={handleDiscountChange}
+              onBlur={handleDiscountBlur}
+              className="w-10 bg-transparent text-xs font-bold text-slate-800 dark:text-white text-center focus:outline-none placeholder:text-slate-400/60"
+            />
+            <span className="text-[11px] text-slate-400 font-medium">%</span>
+          </div>
+        ) : item.discountPercent > 0 ? (
+          <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-2 py-1 rounded-lg font-bold">
+            %{item.discountPercent} Bayi İndirimi
+          </span>
+        ) : <span />}
+
+        {/* ORTA: Miktar Stepper */}
+        <div className="flex items-center gap-1.5">
+          {item.isGift ? (
+            <div className="px-2.5 py-1 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 font-bold text-xs">
+              {item.quantity} {item.unit}
+            </div>
+          ) : (
+            <div className={`flex items-center rounded-xl p-0.5 ${
+              userRole === 'customer'
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60'
+                : 'bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60'
+            }`}>
+              <button
+                onClick={() => updateCartItemQuantity(item.productId, item.quantity - 1)}
+                className="w-6 h-6 bg-white dark:bg-slate-800 text-slate-700 dark:text-white rounded-lg flex items-center justify-center font-bold shadow-xs active:scale-90"
+              >
+                <Minus className="w-3 h-3" />
+              </button>
+              <span className="font-bold text-xs text-slate-900 dark:text-white w-7 text-center">
+                {item.quantity}
+              </span>
+              <button
+                onClick={() => updateCartItemQuantity(item.productId, item.quantity + 1)}
+                className={`w-6 h-6 text-white rounded-lg flex items-center justify-center font-bold shadow-xs active:scale-90 ${
+                  userRole === 'customer' ? 'bg-emerald-600' : 'bg-blue-600'
+                }`}
+              >
+                <Plus className="w-3 h-3" />
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* SAĞ: KDV Dahil Kalem Tutarı (Plasiyer için Manuel Düzenlenebilir) */}
+        <div className="text-right">
+          {item.isGift ? (
+            <div>
+              <span className="font-extrabold text-xs block text-emerald-600 dark:text-emerald-400">
+                0,00 ₺
+              </span>
+              <span className="text-[9px] text-slate-400 dark:text-slate-500 block">
+                Hediye
+              </span>
+            </div>
+          ) : userRole === 'plasiyer' ? (
+            <div className="flex flex-col items-end">
+              <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 px-1.5 py-1 rounded-lg transition-all">
+                <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">₺</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={totalStr}
+                  placeholder="0,00"
+                  onFocus={(e) => {
+                    setIsTotalFocused(true);
+                    e.target.select();
+                  }}
+                  onChange={handleTotalChange}
+                  onBlur={handleTotalBlur}
+                  className="w-16 sm:w-20 bg-transparent text-xs font-black text-right text-slate-900 dark:text-white focus:outline-none placeholder:text-slate-400/60"
+                />
+              </div>
+              <span className="text-[9px] font-semibold text-slate-400 dark:text-slate-500 mt-0.5 block">
+                KDV Dahil
+              </span>
+            </div>
+          ) : (
+            <div>
+              <span className="font-extrabold text-xs block text-slate-900 dark:text-white">
+                {formatCurrency(item.grandTotal)}
+              </span>
+              <span className="text-[9px] text-slate-400 dark:text-slate-500 block">
+                KDV Dahil
+              </span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 export const CartPage: React.FC = () => {
   const { 
     userRole,
@@ -35,6 +334,7 @@ export const CartPage: React.FC = () => {
     cartSummary, 
     updateCartItemQuantity, 
     updateCartItemDiscount, 
+    updateCartItemGrandTotal,
     removeFromCart, 
     clearCart,
     submitCurrentOrder,
@@ -64,14 +364,6 @@ export const CartPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const activeCustomer = userRole === 'customer' ? currentCustomerUser : selectedCustomer;
-
-  const formatCurrency = (val: number) => {
-    return new Intl.NumberFormat('tr-TR', {
-      style: 'currency',
-      currency: 'TRY',
-      minimumFractionDigits: 2,
-    }).format(val);
-  };
 
   const handleSubmit = async () => {
     if (!activeCustomer) {
@@ -305,154 +597,17 @@ export const CartPage: React.FC = () => {
       {/* Sepetteki Kalemler */}
       <div className="space-y-2">
         {cart.map((item) => (
-          <div
+          <CartItemRow
             key={item.productId}
-            className={`rounded-2xl p-3.5 border shadow-xs space-y-2 transition ${
-              item.isGift
-                ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800/80 ring-1 ring-emerald-500/20'
-                : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
-            }`}
-          >
-            <div className="flex justify-between items-start gap-2">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">{item.productCode}</span>
-                  {item.isGift && (
-                    <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-600 text-white flex items-center gap-0.5">
-                      <Gift className="w-3 h-3" />
-                      <span>BEDELSİZ HEDİYE</span>
-                    </span>
-                  )}
-                </div>
-                <h4 className="font-bold text-xs text-slate-900 dark:text-white leading-snug mt-0.5">{item.productName}</h4>
-                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5">
-                  {item.isGift ? (
-                    <>
-                      <span className="font-bold text-emerald-600 dark:text-emerald-400">0,00 ₺ (BEDELSİZ)</span>
-                      {item.originalUnitPrice && (
-                        <span className="line-through text-slate-400 text-[10px]">
-                          Liste: {formatCurrency(item.originalUnitPrice)}
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    <span>Birim: {formatCurrency(item.unitPrice)} | KDV: %{item.vatRate}</span>
-                  )}
-                </div>
-                {item.campaignTitle && (
-                  <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold block mt-0.5">
-                    🎁 {item.campaignTitle}
-                  </span>
-                )}
-
-                {/* AŞAMA 8: Sıcak Satış Araç Stok Uyarısı */}
-                {userRole === 'plasiyer' && saleMode === 'hot' && (() => {
-                  const inVan = getVanStockByCode(item.productCode);
-                  const isSufficient = inVan >= item.quantity;
-                  return (
-                    <div className={`mt-1.5 text-[10px] font-bold px-2 py-1 rounded-lg flex items-center gap-1.5 ${
-                      isSufficient
-                        ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                        : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-                    }`}>
-                      <Truck className="w-3 h-3 shrink-0" />
-                      {isSufficient ? (
-                        <span>Araçta Yeterli: {inVan} {item.unit} mevcut (Talep: {item.quantity})</span>
-                      ) : (
-                        <span>⚠️ Araç Stoğu Yetersiz! Araçta sadece {inVan} {item.unit} var ({item.quantity - inVan} adet eksik)</span>
-                      )}
-                    </div>
-                  );
-                })()}
-              </div>
-
-              {!item.isGift ? (
-                <button
-                  onClick={() => removeFromCart(item.productId)}
-                  className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1 rounded-lg"
-                  title="Ürünü Çıkar"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              ) : (
-                <span className="text-emerald-600 dark:text-emerald-400 p-1" title="Otomatik Promosyon Ürünü">
-                  <Gift className="w-4 h-4" />
-                </span>
-              )}
-            </div>
-
-            {/* İskonto & Miktar Ayarı */}
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs">
-              {item.isGift ? (
-                <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300">
-                  %100 Promosyon İndirimi
-                </span>
-              ) : userRole === 'plasiyer' ? (
-                <div className="flex items-center gap-1.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 px-2 py-1 rounded-lg">
-                  <Percent className="w-3.5 h-3.5 text-slate-400" />
-                  <span className="text-[11px] text-slate-500 dark:text-slate-400 font-medium">İsk:</span>
-                  <input
-                    type="number"
-                    min="0"
-                    max="100"
-                    value={item.discountPercent}
-                    onChange={(e) =>
-                      updateCartItemDiscount(item.productId, parseFloat(e.target.value) || 0)
-                    }
-                    className="w-10 bg-transparent text-xs font-bold text-slate-800 dark:text-white text-center focus:outline-none"
-                  />
-                  <span className="text-[11px] text-slate-400">%</span>
-                </div>
-              ) : item.discountPercent > 0 ? (
-                <span className="text-[10px] bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-2 py-1 rounded-lg font-bold">
-                  %{item.discountPercent} Bayi İndirimi
-                </span>
-              ) : <span />}
-
-              {/* Miktar Stepper */}
-              <div className="flex items-center gap-2">
-                {item.isGift ? (
-                  <div className="px-2.5 py-1 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 font-bold text-xs">
-                    {item.quantity} {item.unit}
-                  </div>
-                ) : (
-                  <div className={`flex items-center rounded-xl p-0.5 ${
-                    userRole === 'customer'
-                      ? 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60'
-                      : 'bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60'
-                  }`}>
-                    <button
-                      onClick={() => updateCartItemQuantity(item.productId, item.quantity - 1)}
-                      className="w-6 h-6 bg-white dark:bg-slate-800 text-slate-700 dark:text-white rounded-lg flex items-center justify-center font-bold shadow-xs active:scale-90"
-                    >
-                      <Minus className="w-3 h-3" />
-                    </button>
-                    <span className="font-bold text-xs text-slate-900 dark:text-white w-8 text-center">
-                      {item.quantity}
-                    </span>
-                    <button
-                      onClick={() => updateCartItemQuantity(item.productId, item.quantity + 1)}
-                      className={`w-6 h-6 text-white rounded-lg flex items-center justify-center font-bold shadow-xs active:scale-90 ${
-                        userRole === 'customer' ? 'bg-emerald-600' : 'bg-blue-600'
-                      }`}
-                    >
-                      <Plus className="w-3 h-3" />
-                    </button>
-                  </div>
-                )}
-
-                {/* Kalem Toplamı */}
-                <div className="text-right min-w-[70px]">
-                  <span className={`font-extrabold text-xs block ${item.isGift ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-white'}`}>
-                    {item.isGift ? '0,00 ₺' : formatCurrency(item.grandTotal)}
-                  </span>
-                  <span className="text-[9px] text-slate-400 dark:text-slate-500 block">
-                    {item.isGift ? 'Hediye' : 'KDV Dahil'}
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
+            item={item}
+            userRole={userRole}
+            saleMode={saleMode}
+            removeFromCart={removeFromCart}
+            updateCartItemQuantity={updateCartItemQuantity}
+            updateCartItemDiscount={updateCartItemDiscount}
+            updateCartItemGrandTotal={updateCartItemGrandTotal}
+            getVanStockByCode={getVanStockByCode}
+          />
         ))}
       </div>
 
