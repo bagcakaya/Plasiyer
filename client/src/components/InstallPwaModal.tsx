@@ -104,17 +104,17 @@ export const InstallPwaModal: React.FC = () => {
             </div>
 
             {/* Adım 2 */}
-            <div className="flex items-start gap-3 p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800">
-              <div className="w-7 h-7 rounded-xl bg-blue-600 text-white font-black flex items-center justify-center shrink-0 text-xs">
+            <div className="flex items-start gap-3 p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-800/80">
+              <div className="w-7 h-7 rounded-xl bg-amber-500 text-slate-950 font-black flex items-center justify-center shrink-0 text-xs">
                 2
               </div>
               <div className="space-y-0.5">
-                <div className="font-bold text-slate-900 dark:text-white flex items-center gap-1.5">
-                  <span>"Uygulamayı yükle" Seçeneğini Seçin</span>
-                  <Download className="w-3.5 h-3.5 text-blue-500" />
+                <div className="font-bold text-amber-900 dark:text-amber-200 flex items-center gap-1.5 flex-wrap">
+                  <span>"Yükle ve kısayol oluştur" Seçeneğini Seçin</span>
+                  <Download className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400" />
                 </div>
-                <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Açılan menüde <b>"Uygulamayı yükle"</b> (bazı cihazlarda <b>"Ana ekrana ekle"</b>) seçeneğine dokunun.
+                <p className="text-[11px] text-amber-800/90 dark:text-amber-300/90">
+                  Açılan menüde <b>"Yükle ve kısayol oluştur"</b> (veya <b>"Uygulamayı yükle" / "Ana ekrana ekle"</b>) seçeneğine dokunun.
                 </p>
               </div>
             </div>

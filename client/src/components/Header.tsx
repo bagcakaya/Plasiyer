@@ -21,7 +21,8 @@ import {
   Gift,
   Truck,
   Flame,
-  Trophy
+  Trophy,
+  Smartphone
 } from 'lucide-react';
 import { RoleSwitcherModal } from './RoleSwitcherModal';
 import { CompanyProfileModal } from './CompanyProfileModal';
@@ -33,6 +34,8 @@ export const Header: React.FC = () => {
     toggleTheme,
     userRole,
     currentCustomerUser,
+    isPwaInstalled,
+    promptPwaInstall,
     salesRep, 
     serverConfig, 
     updateServerConfig,
@@ -362,6 +365,18 @@ export const Header: React.FC = () => {
                 %{performanceSummary.revenueProgressPercent}
               </span>
             </button>
+
+            {/* 5. Ana Ekrana Ekleme Butonu */}
+            {!isPwaInstalled && (
+              <button
+                onClick={() => promptPwaInstall()}
+                className="flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white border border-blue-400/50 shadow-md shadow-blue-500/30 transition active:scale-95 whitespace-nowrap shrink-0 animate-pulse"
+                title="Android Cihaza Uygulama Olarak Yükle & Ana Ekrana Ekle"
+              >
+                <Smartphone className="w-3.5 h-3.5 text-amber-300" />
+                <span>📲 Ana Ekrana Ekle</span>
+              </button>
+            )}
           </div>
         )}
 
