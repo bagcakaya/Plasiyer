@@ -17,7 +17,9 @@ import {
   Sun,
   Moon,
   FileText,
-  Building2
+  Building2,
+  Smartphone,
+  Download
 } from 'lucide-react';
 import { CustomerStatementModal } from '../components/CustomerStatementModal';
 import { CompanyProfileModal } from '../components/CompanyProfileModal';
@@ -34,7 +36,9 @@ export const SettingsPage: React.FC = () => {
     setSalesRep, 
     triggerSync, 
     isSyncing,
-    logout
+    logout,
+    isPwaInstalled,
+    promptPwaInstall
   } = useApp();
 
   const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
@@ -260,6 +264,42 @@ export const SettingsPage: React.FC = () => {
         >
           {theme === 'dark' ? 'Aydınlık Yap' : 'Karanlık Yap'}
         </button>
+      </div>
+
+      {/* Android Mobil Kurulum (PWA) Kartı */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3 transition">
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+          <div className="flex items-center gap-2">
+            <Smartphone className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <h3 className="font-bold text-sm text-slate-900 dark:text-white">Android Mobil Kurulum (PWA)</h3>
+          </div>
+          {isPwaInstalled ? (
+            <span className="text-[10px] font-bold bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 px-2 py-0.5 rounded-full flex items-center gap-1">
+              <CheckCircle className="w-3 h-3" />
+              <span>Yüklendi (Tam Ekran)</span>
+            </span>
+          ) : (
+            <span className="text-[10px] font-bold bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300 px-2 py-0.5 rounded-full">
+              Tarayıcı Modu
+            </span>
+          )}
+        </div>
+
+        <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+          {isPwaInstalled
+            ? 'Uygulama başarıyla Android cihazınıza yüklendi. Cihazınızın ana ekranından bağımsız bir uygulama olarak tam ekran çalıştırılmaktadır.'
+            : 'Uygulamayı Android ana ekranınıza ekleyerek Google Chrome adres çubuğu olmadan tam ekran mobil uygulama deneyimi ve çevrimdışı kullanım sağlayabilirsiniz.'}
+        </p>
+
+        {!isPwaInstalled && (
+          <button
+            onClick={() => promptPwaInstall()}
+            className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white font-bold text-xs shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 transition active:scale-95"
+          >
+            <Download className="w-4 h-4" />
+            <span>Android Ana Ekrana Ekle & Kurulum Rehberi</span>
+          </button>
+        )}
       </div>
 
       {/* Çoklu Firma & Statik IP Profilleri Seçici Butonu */}

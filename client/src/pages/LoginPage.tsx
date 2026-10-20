@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   UserCheck, Lock, Delete, Store, 
-  ArrowRight, Sparkles, AlertCircle, Sun, Moon, Wifi, WifiOff 
+  ArrowRight, Sparkles, AlertCircle, Sun, Moon, Wifi, WifiOff,
+  Smartphone, Download
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useLiveQuery } from 'dexie-react-hooks';
@@ -9,7 +10,7 @@ import { db } from '../db';
 import type { AuthUser, Customer } from '../types';
 
 export const LoginPage: React.FC = () => {
-  const { login, theme, toggleTheme, isOnline } = useApp();
+  const { login, theme, toggleTheme, isOnline, isPwaInstalled, promptPwaInstall } = useApp();
   const [activeTab, setActiveTab] = useState<'plasiyer' | 'customer'>('plasiyer');
 
   // Plasiyer Form
@@ -193,6 +194,35 @@ export const LoginPage: React.FC = () => {
 
       {/* Ana Giriş Kutusu */}
       <div className="w-full max-w-sm mx-auto my-auto z-10 py-4">
+        {/* Android Ana Ekrana Ekleme Banner'ı (Cihaza yüklü değilse gösterilir) */}
+        {!isPwaInstalled && (
+          <div className="mb-4 p-3 rounded-2xl bg-gradient-to-r from-blue-900/80 via-indigo-900/80 to-slate-800/90 border border-blue-500/40 shadow-lg shadow-blue-500/10 flex items-center justify-between gap-3 backdrop-blur-xs">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <div className="w-9 h-9 rounded-xl bg-blue-600/30 border border-blue-400/40 flex items-center justify-center shrink-0">
+                <Smartphone className="w-5 h-5 text-amber-300 animate-pulse" />
+              </div>
+              <div className="min-w-0">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="font-extrabold text-xs text-white">Android Ana Ekrana Ekle</span>
+                  <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 font-black text-[9px] rounded-full">
+                    PWA
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-300 truncate">
+                  Tam ekran uygulama deneyimi ve çevrimdışı kullanım
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={() => promptPwaInstall()}
+              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-extrabold text-xs shrink-0 shadow-md shadow-blue-500/30 active:scale-95 transition flex items-center gap-1"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Yükle</span>
+            </button>
+          </div>
+        )}
+
         {/* Tab Seçimi: Plasiyer vs B2B */}
         <div className="grid grid-cols-2 p-1 bg-slate-800/90 rounded-2xl border border-slate-700/80 mb-5">
           <button

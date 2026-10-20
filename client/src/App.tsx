@@ -17,6 +17,7 @@ import { CampaignsModal } from './components/CampaignsModal';
 import { PerformanceDashboardModal } from './components/PerformanceDashboardModal';
 import { ThermalReceiptModal } from './components/ThermalReceiptModal';
 import { NotificationToast } from './components/NotificationToast';
+import { InstallPwaModal } from './components/InstallPwaModal';
 
 const GlobalModals: React.FC = () => {
   const {
@@ -75,6 +76,9 @@ const GlobalModals: React.FC = () => {
 
       {/* Canlı Sipariş & Tahsilat Bildirimi */}
       <NotificationToast />
+
+      {/* Android PWA Kurulum Modalı */}
+      <InstallPwaModal />
     </>
   );
 };

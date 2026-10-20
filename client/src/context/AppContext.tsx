@@ -173,6 +173,14 @@ interface AppContextType {
   quotaTarget: PlasiyerQuotaTarget;
   updateQuotaTarget: (target: Partial<PlasiyerQuotaTarget>) => void;
   performanceSummary: PlasiyerPerformanceSummary;
+
+  // PWA & Android Ana Ekrana Ekleme
+  isPwaInstalled: boolean;
+  canInstallPwa: boolean;
+  isPwaModalOpen: boolean;
+  openPwaModal: () => void;
+  closePwaModal: () => void;
+  promptPwaInstall: () => Promise<boolean>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -192,6 +200,65 @@ const DEFAULT_SERVER_CONFIG: ServerConfig = {
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+
+  // PWA & Android Ana Ekrana Ekleme Yönetimi
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [canInstallPwa, setCanInstallPwa] = useState<boolean>(false);
+  const [isPwaInstalled, setIsPwaInstalled] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return (
+        window.matchMedia('(display-mode: standalone)').matches ||
+        (window.navigator as any).standalone === true
+      );
+    }
+    return false;
+  });
+  const [isPwaModalOpen, setIsPwaModalOpen] = useState<boolean>(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setCanInstallPwa(true);
+    };
+
+    const handleAppInstalled = () => {
+      setIsPwaInstalled(true);
+      setCanInstallPwa(false);
+      setDeferredPrompt(null);
+      setIsPwaModalOpen(false);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, []);
+
+  const openPwaModal = () => setIsPwaModalOpen(true);
+  const closePwaModal = () => setIsPwaModalOpen(false);
+
+  const promptPwaInstall = async (): Promise<boolean> => {
+    if (deferredPrompt) {
+      try {
+        await deferredPrompt.prompt();
+        const choice = await deferredPrompt.userChoice;
+        if (choice && choice.outcome === 'accepted') {
+          setCanInstallPwa(false);
+          setDeferredPrompt(null);
+          setIsPwaModalOpen(false);
+          return true;
+        }
+      } catch (err) {
+        console.error('PWA install prompt error:', err);
+      }
+    }
+    setIsPwaModalOpen(true);
+    return false;
+  };
 
   // Tema Yönetimi (Dark / Light)
   const [theme, setTheme] = useState<AppTheme>(() => {
@@ -1267,6 +1334,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         quotaTarget,
         updateQuotaTarget,
         performanceSummary,
+        // PWA & Android Ana Ekrana Ekleme
+        isPwaInstalled,
+        canInstallPwa,
+        isPwaModalOpen,
+        openPwaModal,
+        closePwaModal,
+        promptPwaInstall,
       }}
     >
       {children}

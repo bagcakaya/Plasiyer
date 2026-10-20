@@ -10,26 +10,50 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      injectRegister: 'auto',
+      includeAssets: [
+        'favicon-64x64.png',
+        'apple-touch-icon.png',
+        'pwa-192x192.png',
+        'pwa-512x512.png',
+        'maskable-icon-512x512.png'
+      ],
       manifest: {
+        id: '/',
+        start_url: '/',
+        scope: '/',
         name: 'ERP12 Mobil Plasiyer',
         short_name: 'Plasiyer',
-        description: 'ERP12 Entegre Çevrimdışı Destekli Mobil Saha Satış Sistemi',
+        description: 'POLATLAR YAZILIM ERP12 Entegre Mobil Saha Satış ve B2B Portalı',
         theme_color: '#1d4ed8',
         background_color: '#0f172a',
         display: 'standalone',
         orientation: 'portrait',
+        categories: ['business', 'productivity', 'finance'],
         icons: [
           {
-            src: '/vite.svg',
+            src: '/pwa-192x192.png',
             sizes: '192x192',
-            type: 'image/svg+xml'
+            type: 'image/png',
+            purpose: 'any'
           },
           {
-            src: '/vite.svg',
+            src: '/pwa-512x512.png',
             sizes: '512x512',
-            type: 'image/svg+xml'
+            type: 'image/png',
+            purpose: 'any'
+          },
+          {
+            src: '/maskable-icon-512x512.png',
+            sizes: '512x512',
+            type: 'image/png',
+            purpose: 'maskable'
           }
         ]
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
+        navigateFallback: '/index.html'
       }
     })
   ],
