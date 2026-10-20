@@ -24,7 +24,8 @@ import {
   Gift,
   Truck,
   Flame,
-  Camera
+  Camera,
+  RefreshCw
 } from 'lucide-react';
 import { BarcodeScannerModal } from '../components/BarcodeScannerModal';
 import { ProductDetailModal } from '../components/ProductDetailModal';
@@ -46,7 +47,10 @@ export const CatalogPage: React.FC = () => {
     openCampaignsModal,
     saleMode,
     vanPlate,
-    getVanStockByCode
+    getVanStockByCode,
+    triggerSync,
+    isSyncing,
+    serverConfig
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -242,6 +246,32 @@ export const CatalogPage: React.FC = () => {
         </div>
       )}
 
+      {/* Canlı SQL / ERP12 Durum ve Eşitleme Çubuğu */}
+      {serverConfig.apiUrl && serverConfig.apiUrl !== 'demo' && (
+        <div className="bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 text-white p-3 rounded-2xl shadow-sm flex items-center justify-between gap-3 text-xs animate-in fade-in">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <div className="min-w-0">
+              <p className="font-bold truncate">
+                {serverConfig.companyTitle || 'OSMANLI GIDA'} (Canlı SQL)
+              </p>
+              <p className="text-[11px] text-blue-100/90 truncate">
+                Toplam <strong>{products.length}</strong> ürün hafızada
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => triggerSync()}
+            disabled={isSyncing}
+            className="px-3.5 py-1.5 bg-white text-blue-700 font-bold rounded-xl transition flex items-center gap-1.5 shrink-0 text-xs shadow-xs hover:bg-blue-50 active:scale-95 disabled:opacity-70"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-600' : ''}`} />
+            <span>{isSyncing ? 'Çekiliyor...' : 'Şimdi Eşitle'}</span>
+          </button>
+        </div>
+      )}
+
       {/* Arama Çubuğu & Görünüm Değiştirici & Kamera Barkod Okuyucu */}
       <div className="flex gap-2">
         <div className="relative flex-1">
@@ -262,6 +292,21 @@ export const CatalogPage: React.FC = () => {
             </button>
           )}
         </div>
+
+        {/* Canlı ERP12 Eşitleme Butonu */}
+        <button
+          type="button"
+          onClick={() => triggerSync()}
+          disabled={isSyncing}
+          className={`px-3 rounded-xl border flex items-center justify-center shadow-xs transition active:scale-95 shrink-0 ${
+            serverConfig.apiUrl && serverConfig.apiUrl !== 'demo'
+              ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 hover:bg-blue-100'
+              : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800'
+          }`}
+          title="ERP12 ile Eşitle (Stokları Çek)"
+        >
+          <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
+        </button>
 
         {/* Görünüm Modu: Vitrin (Grid) vs Liste */}
         <button

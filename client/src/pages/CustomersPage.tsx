@@ -18,12 +18,13 @@ import {
   Banknote,
   FileText,
   RotateCcw,
-  Navigation
+  Navigation,
+  RefreshCw
 } from 'lucide-react';
 import { CustomerStatementModal } from '../components/CustomerStatementModal';
 
 export const CustomersPage: React.FC = () => {
-  const { selectedCustomer, selectCustomer, setActiveTab, switchUserRole, openCollectionModal, openReturnModal, serverConfig } = useApp();
+  const { selectedCustomer, selectCustomer, setActiveTab, switchUserRole, openCollectionModal, openReturnModal, serverConfig, triggerSync, isSyncing } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'all' | 'debtors' | 'creditors'>('all');
   const [inspectCustomer, setInspectCustomer] = useState<Customer | null>(null);
@@ -100,6 +101,32 @@ export const CustomersPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Canlı SQL / ERP12 Durum ve Eşitleme Çubuğu */}
+      {serverConfig.apiUrl && serverConfig.apiUrl !== 'demo' && (
+        <div className="bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 text-white p-3 rounded-2xl shadow-sm flex items-center justify-between gap-3 text-xs animate-in fade-in">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <div className="min-w-0">
+              <p className="font-bold truncate">
+                {serverConfig.companyTitle || 'OSMANLI GIDA'} (Canlı SQL)
+              </p>
+              <p className="text-[11px] text-blue-100/90 truncate">
+                Toplam <strong>{customers.length}</strong> cari hafızada
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => triggerSync()}
+            disabled={isSyncing}
+            className="px-3.5 py-1.5 bg-white text-blue-700 font-bold rounded-xl transition flex items-center gap-1.5 shrink-0 text-xs shadow-xs hover:bg-blue-50 active:scale-95 disabled:opacity-70"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-600' : ''}`} />
+            <span>{isSyncing ? 'Çekiliyor...' : 'Şimdi Eşitle'}</span>
+          </button>
+        </div>
+      )}
 
       {/* Arama ve Filtreleme */}
       <div className="space-y-2">

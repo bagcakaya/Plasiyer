@@ -547,18 +547,28 @@ export const Header: React.FC = () => {
         isOpen={isCompanyModalOpen}
         onClose={() => setIsCompanyModalOpen(false)}
         currentConfig={serverConfig}
-        onSelectProfile={(profile) => {
+        onSelectProfile={async (profile) => {
           updateServerConfig({
             apiUrl: profile.serverUrl,
             companyCode: profile.code,
             period: profile.period,
+            companyTitle: profile.companyTitle,
+            sqlHost: profile.sqlHost,
+            sqlPort: profile.sqlPort,
+            sqlDatabase: profile.sqlDatabase,
+            sqlUser: profile.sqlUser,
+            sqlPassword: profile.sqlPassword,
+            licenseExpireDate: profile.licenseExpireDate,
           });
           setSyncToast({
             show: true,
             success: true,
-            message: `Firma profili "${profile.name}" olarak değiştirildi.`,
+            message: `Firma profili "${profile.name}" aktif edildi. Canlı veriler eşitleniyor...`,
           });
-          setTimeout(() => setSyncToast(null), 3000);
+          if (profile.serverUrl && profile.serverUrl !== 'demo') {
+            await triggerSync();
+          }
+          setTimeout(() => setSyncToast(null), 3500);
         }}
       />
     </>

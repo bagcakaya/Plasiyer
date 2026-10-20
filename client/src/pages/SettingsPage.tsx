@@ -130,6 +130,9 @@ export const SettingsPage: React.FC = () => {
     });
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);
+    if (isLive) {
+      triggerSync();
+    }
   };
 
   // Demo / Çevrimdışı test
@@ -923,6 +926,9 @@ export const SettingsPage: React.FC = () => {
           if (profile.sqlUser !== undefined) setSqlUser(profile.sqlUser);
           if (profile.sqlPassword !== undefined) setSqlPassword(profile.sqlPassword);
           if (profile.licenseExpireDate) setLicenseExpireDate(profile.licenseExpireDate);
+          if (profile.serverUrl && profile.serverUrl !== 'demo') {
+            triggerSync();
+          }
         }}
       />
     </div>

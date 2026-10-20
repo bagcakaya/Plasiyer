@@ -751,6 +751,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const updated = { ...serverConfig, ...newConfig };
     setServerConfig(updated);
     localStorage.setItem('plasiyer_server_config', JSON.stringify(updated));
+
+    // Canlı bir API'ye geçiş yapıldıysa hemen ürün ve carileri SQL'den çek
+    if (updated.apiUrl && updated.apiUrl !== 'demo' && !updated.apiUrl.includes('vercel.app')) {
+      setTimeout(() => {
+        syncService.pullDataFromERP(updated, salesRep.code).then((res) => {
+          if (res.success) {
+            const now = new Date();
+            setLastSyncTime(now);
+            localStorage.setItem('plasiyer_last_sync_time', now.toISOString());
+            setActiveToastNotification({
+              id: 'notif-sync-success-' + Date.now(),
+              type: 'system',
+              title: '✅ Gerçek SQL Verileri Yüklendi',
+              message: `${res.productsCount || 0} adet canlı ürün ve ${res.customersCount || 0} adet cari veritabanından aktarıldı.`,
+              timestamp: now.toISOString(),
+              read: false,
+            });
+            setTimeout(() => setActiveToastNotification(null), 6000);
+          }
+        }).catch((err) => {
+          console.warn('Otomatik canlı veri çekme hatası:', err);
+        });
+      }, 200);
+    }
   };
 
   const selectCustomer = (customer: Customer | null) => {
