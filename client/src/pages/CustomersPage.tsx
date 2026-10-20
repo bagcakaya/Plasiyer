@@ -218,6 +218,11 @@ export const CustomersPage: React.FC = () => {
                           <CheckCircle2 className="w-3 h-3" /> Aktif Cari
                         </span>
                       )}
+                      {customer.specialDiscount > 0 && (
+                        <span className="flex items-center gap-0.5 text-[10px] font-extrabold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/70 border border-purple-200 dark:border-purple-800/50 px-1.5 py-0.5 rounded-full">
+                          %{customer.specialDiscount} İsk.
+                        </span>
+                      )}
                     </div>
                     <h3 className="font-bold text-sm text-slate-900 dark:text-white mt-1 truncate">
                       {customer.name}

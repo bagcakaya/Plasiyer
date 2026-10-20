@@ -10,7 +10,21 @@ export const erpQueries = {
     }
 
     const query = `
-      SELECT TOP 300
+      WITH LastCustDiscount AS (
+        SELECT 
+          F.CARI,
+          TRY_CAST(REPLACE(
+            CASE 
+              WHEN CHARINDEX('+', FD.ISKONTO) > 0 THEN LEFT(FD.ISKONTO, CHARINDEX('+', FD.ISKONTO) - 1)
+              ELSE FD.ISKONTO 
+            END, ',', '.') AS float) AS last_discount,
+          ROW_NUMBER() OVER(PARTITION BY F.CARI ORDER BY F.FIS_TARIHI DESC, FD.ID DESC) as rn
+        FROM FIS_DETAY FD WITH(NOLOCK)
+        JOIN FIS F WITH(NOLOCK) ON F.ID = FD.FIS
+        WHERE FD.ISKONTO IS NOT NULL AND FD.ISKONTO <> '' AND FD.ISKONTO <> '0'
+          AND F.FIS_TURU IN (1, 2, 3, 4, 20, 21, 22)
+      )
+      SELECT TOP 1500
         C.ID AS id,
         C.KOD AS code,
         C.AD AS name,
@@ -24,10 +38,15 @@ export const erpQueries = {
           WHEN C.STOK_FIYAT_AD IN (449802, 449803) THEN 3
           ELSE 1 
         END AS priceList,
-        ISNULL(TRY_CAST(REPLACE(C.ISKONTO, ',', '.') AS float), 0) AS specialDiscount,
+        COALESCE(
+          NULLIF(TRY_CAST(REPLACE(C.ISKONTO, ',', '.') AS float), 0),
+          ROUND(LD.last_discount, 2),
+          0
+        ) AS specialDiscount,
         ISNULL(C.RISK, 0) AS riskLimit,
         ISNULL(B.BAKIYE, 0) AS balance
       FROM CARI C WITH(NOLOCK)
+      LEFT JOIN LastCustDiscount LD ON LD.CARI = C.ID AND LD.rn = 1
       LEFT JOIN CARI_BAKIYELER B WITH(NOLOCK) ON B.ID = C.ID
       LEFT JOIN CARI_ADRES A WITH(NOLOCK) ON A.CARI = C.ID AND A.VARSAYILAN = 1
       WHERE C.AKTIF = 1 ${whereRep}
@@ -57,7 +76,7 @@ export const erpQueries = {
   // 2. STOK KARTLARI, BARKODLAR, FİYATLAR VE MEVCUTLAR (OSMANLIGIDA + ERP12 GÖRSEL)
   async getProducts() {
     const query = `
-      SELECT TOP 400
+      SELECT TOP 1500
         S.ID AS id,
         S.KOD AS code,
         S.AD AS name,
