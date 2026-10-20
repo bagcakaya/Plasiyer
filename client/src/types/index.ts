@@ -122,9 +122,19 @@ export interface SalesRep {
 
 export interface ServerConfig {
   apiUrl: string; // örn: "http://192.168.1.50:4000/api" veya Statik IP
-  companyCode: string; // ERP12 Şirket No (örn: "01")
+  companyCode: string; // ERP12 Şirket No / Lisans Kodu (örn: "01" veya "AHMETGIDA")
   period: string; // Çalışma Dönemi (örn: "2026")
   autoSync: boolean;
+
+  // Görsel-1 Doğrudan SQL Server Bağlantı Parametreleri:
+  companyTitle?: string; // FİRMA TİCARİ UNVANI
+  sqlHost?: string; // SQL SERVER IP ADRESİ / HOST ADI (örn: localhost veya 85.105.xx.xx)
+  sqlPort?: string; // SQL PORTU (örn: 1433)
+  sqlDatabase?: string; // SQL SERVER VERİTABANI ADI (DB Name)
+  sqlUser?: string; // SQL KULLANICI ADI (Opsiyonel / SQL Auth)
+  sqlPassword?: string; // SQL KULLANICI ŞİFRESİ (Opsiyonel)
+  licenseExpireDate?: string; // LİSANS BİTİŞ TARİHİ (örn: 2027-12-31)
+  bridgePort?: string; // Node.js API Köprü Portu (Varsayılan: 4000)
 }
 
 export type PaymentMethod = 'nakit' | 'kredi_karti' | 'cek' | 'havale';
@@ -263,6 +273,13 @@ export interface CompanyProfile {
   warehouseId?: number;
   cashboxId?: number;
   isDefault?: boolean;
+  companyTitle?: string;
+  sqlHost?: string;
+  sqlPort?: string;
+  sqlDatabase?: string;
+  sqlUser?: string;
+  sqlPassword?: string;
+  licenseExpireDate?: string;
 }
 
 // AŞAMA 6 - C: İADE & DEĞİŞİM MODÜLÜ

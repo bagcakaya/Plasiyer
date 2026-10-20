@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { 
   Building2, CheckCircle2, Plus, Trash2, Globe, 
-  X, RefreshCw, Server
+  X, RefreshCw, Server, Network, Zap, Database,
+  User, Key, Save, AlertCircle
 } from 'lucide-react';
 import type { CompanyProfile, ServerConfig } from '../types';
 import { apiService } from '../services/apiService';
@@ -20,6 +21,10 @@ const DEFAULT_PROFILES: CompanyProfile[] = [
     code: '01',
     period: '2026',
     serverUrl: 'demo',
+    companyTitle: 'Polatlar Gıda San. ve Tic. Ltd. Şti.',
+    sqlHost: 'localhost',
+    sqlPort: '1433',
+    sqlDatabase: 'POLATLAR_GIDA',
     isDefault: true,
   },
   {
@@ -28,6 +33,10 @@ const DEFAULT_PROFILES: CompanyProfile[] = [
     code: '02',
     period: '2026',
     serverUrl: 'http://78.189.45.12:4000/api',
+    companyTitle: 'Polatlar Yazılım ve Bilişim Hizmetleri',
+    sqlHost: '78.189.45.12',
+    sqlPort: '1433',
+    sqlDatabase: 'ERP12_DB',
     isDefault: false,
   },
 ];
@@ -62,11 +71,19 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
   const [testingId, setTestingId] = useState<string | null>(null);
   const [testResults, setTestResults] = useState<Record<string, { success: boolean; message: string }>>({});
 
-  // Yeni profil form state
-  const [newName, setNewName] = useState('');
-  const [newUrl, setNewUrl] = useState('http://');
-  const [newCode, setNewCode] = useState('01');
+  // Yeni profil form state (Görsel-1 Doğrudan SQL Server Bağlantısı)
+  const [newCode, setNewCode] = useState('');
+  const [newTitle, setNewTitle] = useState('');
+  const [newSqlHost, setNewSqlHost] = useState('localhost');
+  const [newSqlPort, setNewSqlPort] = useState('1433');
+  const [newSqlDb, setNewSqlDb] = useState('');
+  const [newSqlUser, setNewSqlUser] = useState('');
+  const [newSqlPassword, setNewSqlPassword] = useState('');
+  const [newLicenseExpireDate, setNewLicenseExpireDate] = useState('2027-12-31');
   const [newPeriod, setNewPeriod] = useState('2026');
+  const [newBridgePort, setNewBridgePort] = useState('4000');
+  const [showAdvancedInModal, setShowAdvancedInModal] = useState(false);
+  const [formTestResult, setFormTestResult] = useState<{ testing: boolean; success?: boolean; message?: string }>({ testing: false });
   const [formError, setFormError] = useState('');
 
   // LocalStorage senkronizasyonu
@@ -113,35 +130,72 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
     }
   };
 
+  const handleTestNewSql = async () => {
+    setFormTestResult({ testing: true });
+    const host = newSqlHost.trim() || 'localhost';
+    const targetUrl = (host.startsWith('http://') || host.startsWith('https://'))
+      ? host
+      : `http://${host}:${newBridgePort.trim() || '4000'}/api`;
+
+    const res = await apiService.testSqlConnection({
+      apiUrl: targetUrl,
+      companyCode: newCode.trim() || '01',
+      period: newPeriod.trim() || '2026',
+      autoSync: true,
+      companyTitle: newTitle.trim(),
+      sqlHost: host,
+      sqlPort: newSqlPort.trim() || '1433',
+      sqlDatabase: newSqlDb.trim(),
+      sqlUser: newSqlUser.trim(),
+      sqlPassword: newSqlPassword,
+      licenseExpireDate: newLicenseExpireDate.trim(),
+      bridgePort: newBridgePort.trim(),
+    });
+
+    setFormTestResult({
+      testing: false,
+      success: res.success,
+      message: res.message,
+    });
+  };
+
   const handleAddProfile = (e: React.FormEvent) => {
     e.preventDefault();
     setFormError('');
 
-    if (!newName.trim()) {
-      setFormError('Lütfen firma adını giriniz.');
-      return;
-    }
-    if (!newUrl.trim() || newUrl === 'http://') {
-      setFormError('Lütfen geçerli bir Sunucu URL / Statik IP adresi giriniz.');
+    if (!newCode.trim()) {
+      setFormError('Lütfen Firma Kodunu giriniz (Örn: AHMETGIDA).');
       return;
     }
 
-    const cleanUrl = newUrl.endsWith('/') ? newUrl.slice(0, -1) : newUrl;
-    const finalUrl = cleanUrl.endsWith('/api') ? cleanUrl : `${cleanUrl}/api`;
+    const host = newSqlHost.trim() || 'localhost';
+    const finalUrl = (host.startsWith('http://') || host.startsWith('https://'))
+      ? host
+      : `http://${host}:${newBridgePort.trim() || '4000'}/api`;
 
     const newProfile: CompanyProfile = {
       id: 'prof-' + Date.now(),
-      name: newName.trim(),
-      code: newCode.trim() || '01',
+      name: newTitle.trim() || newCode.trim().toUpperCase(),
+      code: newCode.trim().toUpperCase(),
       period: newPeriod.trim() || '2026',
       serverUrl: finalUrl,
+      companyTitle: newTitle.trim() || newCode.trim().toUpperCase(),
+      sqlHost: host,
+      sqlPort: newSqlPort.trim() || '1433',
+      sqlDatabase: newSqlDb.trim(),
+      sqlUser: newSqlUser.trim(),
+      sqlPassword: newSqlPassword,
+      licenseExpireDate: newLicenseExpireDate.trim(),
       isDefault: false,
     };
 
     setProfiles(prev => [...prev, newProfile]);
     setIsAddingNew(false);
-    setNewName('');
-    setNewUrl('http://');
+    setNewCode('');
+    setNewTitle('');
+    setNewSqlDb('');
+    setNewSqlUser('');
+    setNewSqlPassword('');
     
     // Otomatik olarak yeni profili seç
     onSelectProfile(newProfile);
@@ -161,27 +215,44 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/70 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
       <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[90vh]">
         {/* Header */}
-        <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-2xl bg-blue-600/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 flex items-center justify-center">
-              <Building2 className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                Firma & Statik IP Profilleri
+        {isAddingNew ? (
+          <div className="px-5 py-4 bg-slate-900 border-b border-slate-800 flex items-center justify-between text-white">
+            <div className="flex items-center gap-2.5">
+              <span className="text-xl">🏬</span>
+              <h2 className="text-sm sm:text-base font-bold text-white">
+                Yeni Müşteri Firma & Doğrudan SQL Server Bağlantısı Ekle
               </h2>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                ERP12 Şube ve Sunucu Bağlantı Yöneticisi
-              </p>
             </div>
+            <button
+              onClick={() => setIsAddingNew(false)}
+              className="p-1.5 rounded-xl hover:bg-slate-800 text-slate-400 hover:text-white transition"
+            >
+              <X className="w-5 h-5" />
+            </button>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
+        ) : (
+          <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/80 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-blue-600/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 flex items-center justify-center">
+                <Building2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                  Firma & Statik IP Profilleri
+                </h2>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  ERP12 Şube ve Sunucu Bağlantı Yöneticisi
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={onClose}
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
+        )}
 
         {/* Content */}
         <div className="p-5 overflow-y-auto space-y-4 flex-1">
@@ -297,96 +368,241 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
               </div>
             </>
           ) : (
-            /* YENİ PROFİL FORMU */
-            <form onSubmit={handleAddProfile} className="space-y-4 animate-in fade-in">
-              <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800">
-                <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                  Yeni Firma / Statik IP Yapılandırması
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setIsAddingNew(false)}
-                  className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
-                >
-                  İptal
-                </button>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Firma / Şube Ünvanı *
-                </label>
-                <input
-                  type="text"
-                  placeholder="Örn: OSMANLI GIDA - İstanbul Depo"
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                  Statik IP / Sunucu Adresi *
-                </label>
-                <input
-                  type="text"
-                  placeholder="Örn: http://78.189.45.12:4000/api veya http://192.168.1.50:4000/api"
-                  value={newUrl}
-                  onChange={(e) => setNewUrl(e.target.value)}
-                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 font-mono"
-                />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  ERP12 entegrasyon servisinizin kurulu olduğu sunucunun statik IP adresini giriniz.
-                </p>
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
+            /* YENİ PROFİL FORMU (Görsel-1 Doğrudan SQL Server Bağlantısı) */
+            <form onSubmit={handleAddProfile} className="space-y-3.5 animate-in fade-in">
+              {/* Row 1: Firma Kodu & Firma Ticari Unvanı */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Şirket Kodu
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-1">
+                    FİRMA KODU (Giriş Lisans Kodu)
                   </label>
                   <input
                     type="text"
                     value={newCode}
-                    onChange={(e) => setNewCode(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono"
+                    onChange={(e) => setNewCode(e.target.value.toUpperCase())}
+                    placeholder="ÖRN: AHMETGIDA"
+                    className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 uppercase font-mono shadow-2xs"
                   />
                 </div>
-
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">
-                    Çalışma Dönemi
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-1">
+                    FİRMA TİCARİ UNVANI
                   </label>
                   <input
                     type="text"
-                    value={newPeriod}
-                    onChange={(e) => setNewPeriod(e.target.value)}
-                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl px-3.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:border-blue-500 font-mono"
+                    value={newTitle}
+                    onChange={(e) => setNewTitle(e.target.value)}
+                    placeholder="Örn: Ahmet Gıda San. ve Tic. Ltd. Şti."
+                    className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-medium text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 shadow-2xs"
                   />
                 </div>
               </div>
 
+              {/* Row 2: SQL Server IP Adresi / Host Adı & SQL Portu */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-1">
+                    SQL SERVER IP ADRESİ / HOST ADI
+                  </label>
+                  <div className="flex items-stretch border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-800 focus-within:border-blue-500 shadow-2xs">
+                    <div className="w-10 flex items-center justify-center border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 shrink-0">
+                      <Network className="w-4 h-4 text-blue-500" />
+                    </div>
+                    <input
+                      type="text"
+                      value={newSqlHost}
+                      onChange={(e) => setNewSqlHost(e.target.value)}
+                      placeholder="localhost"
+                      className="w-full bg-transparent px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none font-mono"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                    Uzak müşteri için <strong>Statik IP Adresi</strong> (örn: <span className="text-pink-600 dark:text-pink-400 font-mono font-bold">85.105.xx.xx</span>), aynı bilgisayardaysa <span className="text-pink-600 dark:text-pink-400 font-mono font-bold">localhost</span>.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-1">
+                    SQL PORTU
+                  </label>
+                  <div className="flex items-stretch border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-800 focus-within:border-blue-500 shadow-2xs">
+                    <div className="w-10 flex items-center justify-center border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 shrink-0">
+                      <Zap className="w-4 h-4 text-amber-500 fill-amber-500" />
+                    </div>
+                    <input
+                      type="text"
+                      value={newSqlPort}
+                      onChange={(e) => setNewSqlPort(e.target.value)}
+                      placeholder="1433"
+                      className="w-full bg-transparent px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none font-mono"
+                    />
+                  </div>
+                  <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
+                    Varsayılan SQL Portu: <span className="text-pink-600 dark:text-pink-400 font-mono font-bold">1433</span>
+                  </p>
+                </div>
+              </div>
+
+              {/* Row 3: SQL Server Veritabanı Adı (DB Name) & SQL Kullanıcı Adı */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-1">
+                    SQL SERVER VERİTABANI ADI (DB Name)
+                  </label>
+                  <div className="flex items-stretch border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-800 focus-within:border-blue-500 shadow-2xs">
+                    <div className="w-10 flex items-center justify-center border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 shrink-0">
+                      <Database className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+                    </div>
+                    <input
+                      type="text"
+                      value={newSqlDb}
+                      onChange={(e) => setNewSqlDb(e.target.value)}
+                      placeholder="Örn: AHMET_GIDA_DB"
+                      className="w-full bg-transparent px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-1">
+                    SQL KULLANICI ADI (Opsiyonel / SQL Auth)
+                  </label>
+                  <div className="flex items-stretch border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-800 focus-within:border-blue-500 shadow-2xs">
+                    <div className="w-10 flex items-center justify-center border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 shrink-0">
+                      <User className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+                    </div>
+                    <input
+                      type="text"
+                      value={newSqlUser}
+                      onChange={(e) => setNewSqlUser(e.target.value)}
+                      placeholder="Örn: sa (Boş ise Windows Auth)"
+                      className="w-full bg-transparent px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none font-mono"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Row 4: SQL Kullanıcı Şifresi & Lisans Bitiş Tarihi */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-1">
+                    SQL KULLANICI ŞİFRESİ (Opsiyonel)
+                  </label>
+                  <div className="flex items-stretch border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-800 focus-within:border-blue-500 shadow-2xs">
+                    <div className="w-10 flex items-center justify-center border-r border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/80 shrink-0">
+                      <Key className="w-4 h-4 text-slate-600 dark:text-slate-400" />
+                    </div>
+                    <input
+                      type="password"
+                      value={newSqlPassword}
+                      onChange={(e) => setNewSqlPassword(e.target.value)}
+                      placeholder="••••••••"
+                      className="w-full bg-transparent px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none font-mono"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-1">
+                    LİSANS BİTİŞ TARİHİ
+                  </label>
+                  <div className="flex items-stretch border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-800 focus-within:border-blue-500 shadow-2xs">
+                    <input
+                      type="date"
+                      value={newLicenseExpireDate}
+                      onChange={(e) => setNewLicenseExpireDate(e.target.value)}
+                      className="w-full bg-transparent px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Gelişmiş Entegrasyon & Dönem (Collapsible) */}
+              <div className="pt-1">
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedInModal(!showAdvancedInModal)}
+                  className="text-[11px] font-semibold text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1"
+                >
+                  <span>{showAdvancedInModal ? '▲ Gelişmiş Entegrasyon Ayarlarını Gizle' : '⚙️ Gelişmiş Entegrasyon & Dönem Ayarları'}</span>
+                </button>
+
+                {showAdvancedInModal && (
+                  <div className="mt-2 p-3 rounded-xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/60 space-y-2 animate-in fade-in">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="font-semibold text-slate-700 dark:text-slate-300 block text-[11px]">
+                          API Köprü Portu:
+                        </label>
+                        <input
+                          type="text"
+                          value={newBridgePort}
+                          onChange={(e) => setNewBridgePort(e.target.value)}
+                          placeholder="4000"
+                          className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2 font-mono text-xs text-slate-900 dark:text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="font-semibold text-slate-700 dark:text-slate-300 block text-[11px]">
+                          Çalışma Dönemi:
+                        </label>
+                        <input
+                          type="text"
+                          value={newPeriod}
+                          onChange={(e) => setNewPeriod(e.target.value)}
+                          placeholder="2026"
+                          className="w-full bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2 font-mono text-xs text-slate-900 dark:text-white"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Hata Uyarısı */}
               {formError && (
-                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-xs font-semibold border border-rose-200 dark:border-rose-800/60">
-                  {formError}
+                <div className="p-2.5 rounded-xl bg-rose-50 dark:bg-rose-950/40 text-rose-600 dark:text-rose-400 text-xs font-semibold border border-rose-200 dark:border-rose-800/60 flex items-center gap-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{formError}</span>
                 </div>
               )}
 
-              <div className="flex gap-2 pt-2">
+              {/* Test Sonuç Uyarısı */}
+              {formTestResult.message && (
+                <div className={`p-2.5 rounded-xl text-xs flex items-center gap-2 font-medium ${
+                  formTestResult.success
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800/60'
+                    : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800/60'
+                }`}>
+                  {formTestResult.success ? (
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+                  ) : (
+                    <X className="w-4 h-4 text-rose-500 shrink-0" />
+                  )}
+                  <span>{formTestResult.message}</span>
+                </div>
+              )}
+
+              {/* Action Buttons: Görsel-1 */}
+              <div className="pt-2 space-y-2">
+                {/* Buton 1: ⚡ SQL Bağlantısını Canlı Test Et */}
                 <button
                   type="button"
-                  onClick={() => setIsAddingNew(false)}
-                  className="flex-1 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-semibold rounded-xl text-xs transition"
+                  onClick={handleTestNewSql}
+                  disabled={formTestResult.testing}
+                  className="w-full border-2 border-cyan-400 dark:border-cyan-500 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400 font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition active:scale-[0.99] text-xs shadow-xs"
                 >
-                  Vazgeç
+                  <Zap className={`w-4 h-4 text-cyan-500 fill-cyan-500 ${formTestResult.testing ? 'animate-bounce' : ''}`} />
+                  <span>{formTestResult.testing ? 'SQL Bağlantısı Test Ediliyor...' : '⚡ SQL Bağlantısını Canlı Test Et'}</span>
                 </button>
+
+                {/* Buton 2: 💾 Firmayı Kaydet & Doğrudan SQL Veritabanını Bağla */}
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs shadow-md transition flex items-center justify-center gap-1.5"
+                  className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition active:scale-[0.99] text-xs shadow-md shadow-blue-500/20"
                 >
-                  <Plus className="w-4 h-4" />
-                  <span>Profili Kaydet ve Seç</span>
+                  <Save className="w-4 h-4" />
+                  <span>💾 Firmayı Kaydet & Doğrudan SQL Veritabanını Bağla</span>
                 </button>
               </div>
             </form>

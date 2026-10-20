@@ -58,6 +58,41 @@ export const apiService = {
     }
   },
 
+  // Doğrudan SQL Server Bağlantısını Canlı Test Et (Görsel-1)
+  async testSqlConnection(config: ServerConfig): Promise<{ success: boolean; message: string }> {
+    if (isDemoMode(config)) {
+      await new Promise(r => setTimeout(r, 600));
+      return {
+        success: true,
+        message: `SQL Server Bağlantısı Başarılı: ${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'} -> [${config.sqlDatabase || 'OSMANLIGIDA'}] veritabanına erişim doğrulandı.`,
+      };
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
+      const targetUrl = config.apiUrl || `http://${config.sqlHost || 'localhost'}:${config.bridgePort || '4000'}/api`;
+      const response = await fetch(`${targetUrl}/health`, { signal: controller.signal });
+      clearTimeout(timeoutId);
+
+      if (response.ok) {
+        return {
+          success: true,
+          message: `SQL Server ve ERP12 Servis Bağlantısı Aktif (${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'} -> ${config.sqlDatabase || 'ERP12_DB'}).`,
+        };
+      }
+      return { success: false, message: `Sunucu yanıt verdi ancak durum kodu: ${response.status}` };
+    } catch (err: any) {
+      return {
+        success: false,
+        message: err.name === 'AbortError'
+          ? `SQL Server bağlantısı zaman aşımına uğradı (${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'}). Statik IP ve güvenlik duvarı (Firewall 1433 / 4000) portlarını kontrol ediniz.`
+          : `SQL Server / Statik IP adresine bağlanılamadı (${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'}). Statik IP yönlendirmesini ve internet bağlantınızı kontrol ediniz.`,
+      };
+    }
+  },
+
   // ERP12'den Müşteri (Cari) listesini çek
   async fetchCustomers(config: ServerConfig, salesRepCode: string): Promise<Customer[]> {
     if (isDemoMode(config)) {
