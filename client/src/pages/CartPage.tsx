@@ -256,15 +256,35 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
                 : 'bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60'
             }`}>
               <button
+                type="button"
                 onClick={() => updateCartItemQuantity(item.productId, item.quantity - 1)}
                 className="w-6 h-6 bg-white dark:bg-slate-800 text-slate-700 dark:text-white rounded-lg flex items-center justify-center font-bold shadow-xs active:scale-90"
               >
                 <Minus className="w-3 h-3" />
               </button>
-              <span className="font-bold text-xs text-slate-900 dark:text-white w-7 text-center">
-                {item.quantity}
-              </span>
+              <input
+                type="text"
+                inputMode="decimal"
+                defaultValue={item.quantity}
+                key={`cart-qty-${item.productId}-${item.quantity}`}
+                onFocus={(e) => e.target.select()}
+                onBlur={(e) => {
+                  const val = parseFloat(e.target.value.replace(',', '.'));
+                  if (!isNaN(val) && val > 0) {
+                    updateCartItemQuantity(item.productId, val);
+                  } else {
+                    e.target.value = item.quantity.toString();
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    (e.target as HTMLInputElement).blur();
+                  }
+                }}
+                className="font-black text-xs text-slate-900 dark:text-white w-9 text-center bg-white dark:bg-slate-800 rounded border border-slate-200 dark:border-slate-700 py-0.5 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs"
+              />
               <button
+                type="button"
                 onClick={() => updateCartItemQuantity(item.productId, item.quantity + 1)}
                 className={`w-6 h-6 text-white rounded-lg flex items-center justify-center font-bold shadow-xs active:scale-90 ${
                   userRole === 'customer' ? 'bg-emerald-600' : 'bg-blue-600'

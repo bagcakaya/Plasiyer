@@ -22,6 +22,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 }) => {
   const { calculateCustomerPrice, addToCart, cart, userRole, activeCampaigns } = useApp();
   const [selectedQuantity, setSelectedQuantity] = useState(1);
+  const [quantityInput, setQuantityInput] = useState('1');
   const [addedAnimation, setAddedAnimation] = useState(false);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
   const [localImage, setLocalImage] = useState<string | undefined>(product?.image);
@@ -30,14 +31,79 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     setLocalImage(product?.image);
   }, [product]);
 
+  useEffect(() => {
+    if (isOpen && product) {
+      setSelectedQuantity(1);
+      setQuantityInput('1');
+    }
+  }, [product?.id, isOpen]);
+
   if (!isOpen || !product) return null;
 
   const priceInfo = calculateCustomerPrice(product, activeCustomer);
   const imageUrl = getProductImageUrl(product.name, product.category, localImage);
   const inCartQty = cart.find(i => i.productId === product.id)?.quantity || 0;
 
+  const handleQuantityInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const val = e.target.value;
+    setQuantityInput(val);
+
+    const normalized = val.replace(',', '.').trim();
+    if (normalized === '') {
+      setSelectedQuantity(0);
+      return;
+    }
+
+    const parsed = parseFloat(normalized);
+    if (!isNaN(parsed) && parsed > 0) {
+      setSelectedQuantity(parsed);
+    }
+  };
+
+  const handleQuantityBlur = () => {
+    const normalized = quantityInput.replace(',', '.').trim();
+    const parsed = parseFloat(normalized);
+    if (isNaN(parsed) || parsed <= 0) {
+      setSelectedQuantity(1);
+      setQuantityInput('1');
+    } else {
+      setSelectedQuantity(parsed);
+      setQuantityInput(parsed.toString());
+    }
+  };
+
+  const handleIncrement = (amount = 1) => {
+    const current = selectedQuantity > 0 ? selectedQuantity : (parseFloat(quantityInput.replace(',', '.')) || 0);
+    const next = Math.round((current + amount) * 100) / 100;
+    setSelectedQuantity(next);
+    setQuantityInput(next.toString());
+  };
+
+  const handleDecrement = (amount = 1) => {
+    const current = selectedQuantity > 0 ? selectedQuantity : (parseFloat(quantityInput.replace(',', '.')) || 1);
+    const next = Math.max(1, Math.round((current - amount) * 100) / 100);
+    setSelectedQuantity(next);
+    setQuantityInput(next.toString());
+  };
+
+  const handleAddQuick = (amount: number) => {
+    const current = selectedQuantity > 0 ? selectedQuantity : (parseFloat(quantityInput.replace(',', '.')) || 0);
+    const next = Math.round((current + amount) * 100) / 100;
+    setSelectedQuantity(next);
+    setQuantityInput(next.toString());
+  };
+
+  const handleSetPreset = (preset: number) => {
+    setSelectedQuantity(preset);
+    setQuantityInput(preset.toString());
+  };
+
+  const effectiveQty = selectedQuantity > 0 
+    ? selectedQuantity 
+    : (parseFloat(quantityInput.replace(',', '.')) > 0 ? parseFloat(quantityInput.replace(',', '.')) : 1);
+
   const handleAddToCart = () => {
-    addToCart(product, selectedQuantity);
+    addToCart(product, effectiveQty);
     setAddedAnimation(true);
     setTimeout(() => {
       setAddedAnimation(false);
@@ -53,7 +119,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     }).format(val);
   };
 
-  const lineTotal = priceInfo.customerPrice * selectedQuantity;
+  const lineTotal = priceInfo.customerPrice * effectiveQty;
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
@@ -184,48 +250,87 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             </div>
           </div>
 
-          {/* Hızlı Miktar Seçici */}
-          <div className="space-y-2">
-            <label className="block text-xs font-bold text-slate-700 dark:text-slate-300">
-              Sipariş Miktarı ({product.unit}):
-            </label>
+          {/* Sipariş Miktarı Bölümü */}
+          <div className="space-y-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wide">
+                Sipariş Miktarı ({product.unit}):
+              </label>
+              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                Elle yazabilir veya butonları kullanabilirsiniz
+              </span>
+            </div>
 
-            <div className="flex items-center gap-3">
-              <div className="flex items-center bg-slate-100 dark:bg-slate-800 rounded-2xl p-1 border border-slate-200 dark:border-slate-700">
-                <button
-                  onClick={() => setSelectedQuantity(Math.max(1, selectedQuantity - 1))}
-                  className="w-10 h-10 bg-white dark:bg-slate-700 rounded-xl flex items-center justify-center font-bold text-slate-800 dark:text-white shadow-xs active:scale-95 transition"
-                >
-                  <Minus className="w-4 h-4" />
-                </button>
+            {/* Büyük Elle Yazılabilir Kutu + Stepper */}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => handleDecrement(1)}
+                className="w-12 h-12 bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 active:scale-90 text-slate-800 dark:text-white rounded-2xl flex items-center justify-center font-bold border border-slate-200 dark:border-slate-600 shadow-xs transition"
+                title="1 Azalt"
+              >
+                <Minus className="w-5 h-5 stroke-[2.5]" />
+              </button>
+
+              <div className="relative flex-1">
                 <input
-                  type="number"
-                  min="1"
-                  value={selectedQuantity}
-                  onChange={(e) => setSelectedQuantity(Math.max(1, parseInt(e.target.value) || 1))}
-                  className="w-14 text-center font-black text-base bg-transparent text-slate-900 dark:text-white focus:outline-none"
+                  type="text"
+                  inputMode="decimal"
+                  value={quantityInput}
+                  onChange={handleQuantityInputChange}
+                  onBlur={handleQuantityBlur}
+                  onFocus={(e) => e.target.select()}
+                  placeholder="1"
+                  className="w-full h-12 px-4 text-center font-black text-2xl bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 border-2 border-blue-500/50 focus:border-blue-600 dark:border-blue-500/30 dark:focus:border-blue-400 rounded-2xl shadow-inner focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition tracking-wide"
                 />
-                <button
-                  onClick={() => setSelectedQuantity(selectedQuantity + 1)}
-                  className="w-10 h-10 bg-blue-600 hover:bg-blue-700 rounded-xl flex items-center justify-center font-bold text-white shadow-xs active:scale-95 transition"
-                >
-                  <Plus className="w-4 h-4" />
-                </button>
+                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 dark:text-slate-500 pointer-events-none uppercase">
+                  {product.unit}
+                </span>
               </div>
 
-              {/* Hızlı Preset Butonları */}
-              <div className="flex gap-1.5 flex-1">
-                {[5, 10, 20].map((preset) => (
+              <button
+                type="button"
+                onClick={() => handleIncrement(1)}
+                className="w-12 h-12 bg-blue-600 hover:bg-blue-700 active:scale-90 text-white rounded-2xl flex items-center justify-center font-bold shadow-md shadow-blue-600/30 transition"
+                title="1 Arttır"
+              >
+                <Plus className="w-5 h-5 stroke-[2.5]" />
+              </button>
+            </div>
+
+            {/* Hızlı Miktar Ekleme Butonları (+5, +10, +25, +50) */}
+            <div>
+              <div className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                <span>Hızlı Ekle (+):</span>
+                <span>Koli / Paket Presetleri:</span>
+              </div>
+              <div className="grid grid-cols-4 gap-1.5 mb-2">
+                {[5, 10, 25, 50].map((inc) => (
                   <button
-                    key={preset}
-                    onClick={() => setSelectedQuantity(preset)}
-                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold border transition active:scale-95 ${
-                      selectedQuantity === preset
-                        ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-slate-200'
+                    key={`inc-${inc}`}
+                    type="button"
+                    onClick={() => handleAddQuick(inc)}
+                    className="py-2 rounded-xl text-xs font-extrabold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 active:scale-95 transition flex items-center justify-center shadow-2xs"
+                  >
+                    +{inc}
+                  </button>
+                ))}
+              </div>
+
+              {/* Sabit Miktar Presetleri */}
+              <div className="flex gap-1.5">
+                {[1, 6, 12, 24, 60, 100].map((preset) => (
+                  <button
+                    key={`preset-${preset}`}
+                    type="button"
+                    onClick={() => handleSetPreset(preset)}
+                    className={`flex-1 py-1.5 rounded-xl text-[11px] font-bold border transition active:scale-95 ${
+                      effectiveQty === preset
+                        ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 border-slate-900 dark:border-white shadow-xs'
+                        : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
                     }`}
                   >
-                    +{preset}
+                    {preset}
                   </button>
                 ))}
               </div>
@@ -266,7 +371,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             ) : (
               <>
                 <ShoppingBag className="w-4 h-4" />
-                <span>Sepete Ekle ({selectedQuantity} {product.unit})</span>
+                <span>Sepete Ekle ({effectiveQty} {product.unit})</span>
               </>
             )}
           </button>

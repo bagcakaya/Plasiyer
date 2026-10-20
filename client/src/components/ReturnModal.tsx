@@ -362,9 +362,20 @@ export const ReturnModal: React.FC = () => {
                 <input
                   type="number"
                   min="1"
-                  step="1"
-                  value={quantity}
-                  onChange={(e) => setQuantity(Math.max(1, Number(e.target.value)))}
+                  step="any"
+                  value={quantity || ''}
+                  onFocus={(e) => e.target.select()}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    if (v === '') {
+                      setQuantity(0);
+                    } else {
+                      setQuantity(Number(v));
+                    }
+                  }}
+                  onBlur={() => {
+                    if (!quantity || quantity <= 0) setQuantity(1);
+                  }}
                   className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500 text-center"
                 />
               </div>
@@ -378,6 +389,7 @@ export const ReturnModal: React.FC = () => {
                   min="0"
                   step="0.01"
                   value={unitPrice}
+                  onFocus={(e) => e.target.select()}
                   onChange={(e) => setUnitPrice(Math.max(0, parseFloat(e.target.value) || 0))}
                   className="w-full px-2.5 py-1.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-rose-500 text-right font-mono"
                 />

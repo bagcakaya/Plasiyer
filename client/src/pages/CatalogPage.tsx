@@ -560,9 +560,14 @@ export const CatalogPage: React.FC = () => {
                         >
                           <Minus className="w-3 h-3" />
                         </button>
-                        <span className="font-extrabold text-xs text-slate-900 dark:text-white">
+                        <button
+                          type="button"
+                          onClick={() => setDetailProduct(product)}
+                          className="font-extrabold text-xs text-slate-900 dark:text-white px-1.5 py-0.5 rounded hover:bg-white/80 dark:hover:bg-slate-700/80 transition"
+                          title="Miktarı klavyeden girmek için dokunun"
+                        >
                           {inCartQty}
-                        </span>
+                        </button>
                         <button
                           onClick={() => updateCartItemQuantity(product.id, inCartQty + 1)}
                           className={`w-6 h-6 text-white rounded-lg flex items-center justify-center font-bold shadow-xs active:scale-90 transition ${
@@ -769,9 +774,14 @@ export const CatalogPage: React.FC = () => {
                         >
                           <Minus className="w-3.5 h-3.5" />
                         </button>
-                        <span className="font-extrabold text-sm text-slate-900 dark:text-white w-6 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setDetailProduct(product)}
+                          className="font-extrabold text-sm text-slate-900 dark:text-white px-2 py-0.5 rounded hover:bg-white/80 dark:hover:bg-slate-700/80 transition"
+                          title="Miktarı klavyeden girmek için dokunun"
+                        >
                           {inCartQty}
-                        </span>
+                        </button>
                         <button
                           onClick={() => updateCartItemQuantity(product.id, inCartQty + 1)}
                           className={`w-7 h-7 text-white rounded-lg flex items-center justify-center font-bold shadow-xs active:scale-90 transition ${
