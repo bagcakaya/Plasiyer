@@ -129,7 +129,7 @@ export const SettingsPage: React.FC = () => {
   // Müşteri / Bayi Görünümü
   if (userRole === 'customer' && currentCustomerUser) {
     return (
-      <div className="p-3 pb-24 space-y-4 max-w-lg mx-auto text-xs text-slate-900 dark:text-slate-100 w-full max-w-full overflow-x-hidden">
+      <div className="p-3 pb-24 space-y-4 max-w-lg mx-auto text-xs text-slate-900 dark:text-slate-100 w-full">
         {/* Bayi Kimlik Kartı */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
           <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
@@ -240,7 +240,7 @@ export const SettingsPage: React.FC = () => {
 
   // Plasiyer Görünümü
   return (
-    <div className="p-3 pb-24 space-y-4 max-w-lg mx-auto text-xs text-slate-900 dark:text-slate-100 w-full max-w-full overflow-x-hidden">
+    <div className="p-3 pb-24 space-y-4 max-w-lg mx-auto text-xs text-slate-900 dark:text-slate-100 w-full">
       {/* Başarı Bildirimi */}
       {saveSuccess && (
         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 rounded-2xl flex items-center gap-2 font-medium">

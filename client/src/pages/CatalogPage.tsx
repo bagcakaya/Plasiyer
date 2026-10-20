@@ -144,7 +144,7 @@ export const CatalogPage: React.FC = () => {
   }
 
   return (
-    <div className="p-3 pb-32 space-y-3 max-w-lg mx-auto w-full max-w-full overflow-x-hidden">
+    <div className="p-3 pb-32 space-y-3 max-w-lg mx-auto w-full">
       {/* Barkod Okuma Bildirimi Toast */}
       {scanToast && (
         <div

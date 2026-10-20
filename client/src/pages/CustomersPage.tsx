@@ -78,7 +78,7 @@ export const CustomersPage: React.FC = () => {
   };
 
   return (
-    <div className="p-3 pb-24 space-y-3 max-w-lg mx-auto text-slate-900 dark:text-slate-100 w-full max-w-full overflow-x-hidden">
+    <div className="p-3 pb-24 space-y-3 max-w-lg mx-auto text-slate-900 dark:text-slate-100 w-full">
       {/* Üst Bakiye Özeti Kartı */}
       <div className="bg-gradient-to-r from-slate-900 to-slate-800 dark:from-slate-950 dark:to-slate-900 text-white rounded-2xl p-4 shadow-sm border border-slate-700/80 dark:border-slate-800">
         <div className="flex justify-between items-center text-xs text-slate-400 mb-1">

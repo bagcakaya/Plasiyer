@@ -311,7 +311,7 @@ export const RoutePlanPage: React.FC = () => {
   const pendingVisits = visits.filter(v => v.status === 'pending').length;
 
   return (
-    <div className="p-3 pb-24 space-y-3 max-w-4xl mx-auto text-slate-900 dark:text-slate-100 animate-fadeIn w-full max-w-full overflow-x-hidden">
+    <div className="p-3 pb-24 space-y-3 max-w-4xl mx-auto text-slate-900 dark:text-slate-100 animate-fadeIn w-full">
       {/* Üst Başlık & Plasiyer Rut Özeti */}
       <div className="bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-950 text-white rounded-3xl p-5 shadow-sm border border-blue-800/60 dark:border-slate-800 space-y-3">
         <div className="flex flex-wrap justify-between items-center gap-2 text-xs text-blue-200">

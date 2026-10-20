@@ -104,9 +104,9 @@ export const Header: React.FC = () => {
 
   return (
     <>
-      <header className="sticky top-0 z-40 bg-slate-900 dark:bg-slate-950 text-white shadow-md border-b border-slate-800 dark:border-slate-800/80 transition-colors w-full max-w-full overflow-x-hidden">
+      <header className="sticky top-0 z-40 bg-slate-900 dark:bg-slate-950 text-white shadow-md border-b border-slate-800 dark:border-slate-800/80 transition-colors w-full">
         {/* Üst İnce Bilgi & Durum Satırı (iOS Çentik / Saat Alanı Uyumlu) */}
-        <div className="flex items-center justify-between px-3 pt-[max(env(safe-area-inset-top),0.35rem)] pb-1 text-xs bg-slate-950/80 border-b border-slate-800/80 w-full max-w-full overflow-x-hidden">
+        <div className="flex items-center justify-between px-3 pt-[max(env(safe-area-inset-top),0.35rem)] pb-1 text-xs bg-slate-950/80 border-b border-slate-800/80 w-full">
           <div 
             onClick={() => setIsCompanyModalOpen(true)}
             className="flex items-center gap-1.5 cursor-pointer hover:bg-slate-800/80 px-2 py-0.5 rounded-lg transition"

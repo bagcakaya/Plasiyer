@@ -149,7 +149,7 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-between p-4 sm:p-6 relative overflow-hidden">
+    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-between p-4 sm:p-6 relative overflow-y-auto">
       {/* Arka Plan Dekorasyonu */}
       <div className="absolute -top-32 -left-32 w-80 h-80 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
       <div className="absolute -bottom-32 -right-32 w-80 h-80 bg-emerald-600/15 rounded-full blur-3xl pointer-events-none" />
@@ -162,7 +162,7 @@ export const LoginPage: React.FC = () => {
           </div>
           <div>
             <h1 className="font-extrabold text-sm tracking-wide text-white leading-tight">
-              OSMANLI GIDA
+              POLATLAR YAZILIM
             </h1>
             <span className="text-[10px] text-blue-400 font-medium">
               Saha Satış & B2B Portalı

@@ -87,7 +87,7 @@ const MainContent: React.FC = () => {
   const { activeTab, userRole } = useApp();
 
   return (
-    <main className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 pb-16 transition-colors">
+    <main className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 pb-24 transition-colors">
       {/* Müşteri modunda cariler sekmesi yerine doğrudan vitrin açılır */}
       {activeTab === 'routes' && <RoutePlanPage />}
       {activeTab === 'customers' && (userRole === 'customer' ? <CatalogPage /> : <CustomersPage />)}
@@ -109,12 +109,10 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-black flex justify-center transition-colors w-full max-w-full overflow-x-hidden">
-      <div className="w-full max-w-lg bg-slate-50 dark:bg-slate-950 min-h-screen flex flex-col shadow-2xl relative border-x border-slate-200/50 dark:border-slate-800/80 max-w-full overflow-x-hidden">
+    <div className="min-h-screen bg-slate-100 dark:bg-black flex justify-center transition-colors w-full">
+      <div className="w-full max-w-lg bg-slate-50 dark:bg-slate-950 min-h-screen shadow-2xl relative border-x border-slate-200/50 dark:border-slate-800/80">
         <Header />
-        <div className="flex-1 w-full max-w-full overflow-x-hidden">
-          <MainContent />
-        </div>
+        <MainContent />
         <BottomNav />
       </div>
     </div>
