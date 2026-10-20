@@ -15,19 +15,19 @@ interface CompanyProfileModalProps {
 
 const DEFAULT_PROFILES: CompanyProfile[] = [
   {
-    id: 'prof-osmanli',
-    name: 'OSMANLI GIDA - Merkez (Erzurum)',
+    id: 'prof-demo',
+    name: 'POLATLAR GIDA - Demo & Çevrimdışı Mod',
     code: '01',
     period: '2026',
-    serverUrl: `http://${window.location.hostname || 'localhost'}:4000/api`,
+    serverUrl: 'demo',
     isDefault: true,
   },
   {
-    id: 'prof-anadolu',
-    name: 'ANADOLU GIDA - İstanbul Bölge Şube',
+    id: 'prof-live-sample',
+    name: 'POLATLAR YAZILIM - Canlı ERP12 (Örnek Statik IP)',
     code: '02',
     period: '2026',
-    serverUrl: 'http://192.168.1.150:4000/api',
+    serverUrl: 'http://78.189.45.12:4000/api',
     isDefault: false,
   },
 ];
@@ -42,7 +42,15 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
     const saved = localStorage.getItem('plasiyer_company_profiles');
     if (saved) {
       try {
-        return JSON.parse(saved);
+        const parsed: CompanyProfile[] = JSON.parse(saved);
+        // Clean up legacy profiles with vercel URL or broken hostname
+        const cleaned = parsed.map(p => {
+          if (p.serverUrl && (p.serverUrl.includes('vercel.app') || (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') && p.serverUrl.includes(window.location.hostname)))) {
+            return { ...p, serverUrl: 'demo' };
+          }
+          return p;
+        });
+        return cleaned.length > 0 ? cleaned : DEFAULT_PROFILES;
       } catch (e) {
         return DEFAULT_PROFILES;
       }
@@ -70,6 +78,18 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
 
   const handleTestConnection = async (profile: CompanyProfile) => {
     setTestingId(profile.id);
+
+    if (!profile.serverUrl || profile.serverUrl === 'demo') {
+      setTimeout(() => {
+        setTestResults(prev => ({
+          ...prev,
+          [profile.id]: { success: true, message: 'Demo / Çevrimdışı Profil: İnternetsiz tam fonksiyonel çalışır.' }
+        }));
+        setTestingId(null);
+      }, 400);
+      return;
+    }
+
     const testConfig: ServerConfig = {
       apiUrl: profile.serverUrl,
       companyCode: profile.code,
@@ -221,7 +241,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
 
                             <p className="text-xs font-mono text-slate-500 dark:text-slate-400 mt-1 break-all flex items-center gap-1">
                               <Globe className="w-3 h-3 text-slate-400 shrink-0" />
-                              <span>{profile.serverUrl}</span>
+                              <span>{profile.serverUrl === 'demo' ? '🟢 Çevrimdışı / Demo Modu (Tam Fonksiyon)' : profile.serverUrl}</span>
                             </p>
 
                             <div className="flex items-center gap-3 text-xs text-slate-500 dark:text-slate-400 mt-2 font-medium">

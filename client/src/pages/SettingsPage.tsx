@@ -89,9 +89,9 @@ export const SettingsPage: React.FC = () => {
         setTestResult({
           testing: false,
           success: true,
-          message: 'Demo modunda çalışılıyor.',
+          message: 'Demo / Çevrimdışı Mod Aktif: Tüm sipariş, iskonto ve tahsilat işlemleri yerel veritabanında (IndexedDB) tam fonksiyonel çalışmaktadır.',
         });
-      }, 500);
+      }, 400);
       return;
     }
 
@@ -325,9 +325,65 @@ export const SettingsPage: React.FC = () => {
 
       {/* Sunucu & Statik IP Ayarları */}
       <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3 transition">
-        <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
-          <Server className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-          <h3 className="font-bold text-sm text-slate-900 dark:text-white">ERP12 Sunucu Entegrasyonu</h3>
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
+          <div className="flex items-center gap-2">
+            <Server className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <h3 className="font-bold text-sm text-slate-900 dark:text-white">ERP12 Sunucu Entegrasyonu</h3>
+          </div>
+          <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+            !apiUrl || apiUrl === 'demo'
+              ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
+              : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
+          }`}>
+            {!apiUrl || apiUrl === 'demo' ? '🟢 Çevrimdışı / Demo' : '🔵 Canlı ERP12'}
+          </span>
+        </div>
+
+        {/* Mod Hızlı Seçim Butonları */}
+        <div className="grid grid-cols-2 gap-2 pt-1">
+          <button
+            type="button"
+            onClick={() => setApiUrl('demo')}
+            className={`py-2 px-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 border ${
+              !apiUrl || apiUrl === 'demo'
+                ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-300 dark:border-amber-700 text-amber-900 dark:text-amber-200 ring-2 ring-amber-400/20'
+                : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100'
+            }`}
+          >
+            <span>🟢 Çevrimdışı / Demo</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              if (!apiUrl || apiUrl === 'demo') {
+                setApiUrl('http://');
+              }
+            }}
+            className={`py-2 px-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 border ${
+              apiUrl && apiUrl !== 'demo'
+                ? 'bg-blue-50 dark:bg-blue-950/40 border-blue-300 dark:border-blue-700 text-blue-900 dark:text-blue-200 ring-2 ring-blue-400/20'
+                : 'bg-slate-50 dark:bg-slate-800 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100'
+            }`}
+          >
+            <span>🌐 Canlı Statik IP</span>
+          </button>
+        </div>
+
+        {/* Mod Bilgi Kartı */}
+        <div className={`p-2.5 rounded-xl text-[11px] leading-relaxed border ${
+          !apiUrl || apiUrl === 'demo'
+            ? 'bg-amber-50/60 dark:bg-amber-950/20 border-amber-200 dark:border-amber-900/40 text-amber-900 dark:text-amber-200'
+            : 'bg-blue-50/60 dark:bg-blue-950/20 border-blue-200 dark:border-blue-900/40 text-blue-900 dark:text-blue-200'
+        }`}>
+          {!apiUrl || apiUrl === 'demo' ? (
+            <span>
+              <strong>Çevrimdışı / Demo Modu:</strong> ERP sunucusuna ihtiyaç duymadan sipariş oluşturma, iskonto hesaplama, tahsilat ve araç stok işlemlerini cihazınızın yerel hafızasında anlık olarak yürütebilirsiniz. Senkronize Et butonu demo akışını başarıyla tamamlar.
+            </span>
+          ) : (
+            <span>
+              <strong>Canlı ERP12 Modu:</strong> Girilen Statik IP üzerinden ERP12 veri tabanına çift yönlü sipariş, tahsilat ve cari aktarımı yapılır.
+            </span>
+          )}
         </div>
 
         <div className="space-y-1">
@@ -338,7 +394,7 @@ export const SettingsPage: React.FC = () => {
             type="text"
             value={apiUrl}
             onChange={(e) => setApiUrl(e.target.value)}
-            placeholder="örn: http://localhost:4000/api veya http://STATIK_IP:4000/api"
+            placeholder="örn: demo veya http://78.189.45.12:4000/api"
             className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 font-mono text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none text-slate-900 dark:text-white"
           />
         </div>
@@ -370,7 +426,7 @@ export const SettingsPage: React.FC = () => {
         <div className="flex items-center justify-between pt-1">
           <div>
             <span className="font-semibold text-slate-800 dark:text-slate-200 block">Otomatik Senkronizasyon</span>
-            <span className="text-[10px] text-slate-400">İnternet geldiğinde bekleyen siparişleri ilet</span>
+            <span className="text-[10px] text-slate-400">Canlı sunucuda bağlantı olduğunda bekleyenleri ilet</span>
           </div>
           <input
             type="checkbox"

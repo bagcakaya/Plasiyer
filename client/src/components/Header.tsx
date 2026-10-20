@@ -75,10 +75,13 @@ export const Header: React.FC = () => {
   const handleSyncClick = async () => {
     if (isSyncing) return;
     const res = await triggerSync();
+    const isDemo = !serverConfig.apiUrl || serverConfig.apiUrl === 'demo';
     if (res.success) {
       setSyncToast({
         show: true,
-        message: `Senkronizasyon tamamlandı (${res.syncedOrdersCount ?? 0} sipariş iletildi).`,
+        message: isDemo
+          ? `Demo Senkronizasyonu Başarılı: Veriler eşitlendi (${res.syncedOrdersCount ?? 0} sipariş).`
+          : `Senkronizasyon tamamlandı (${res.syncedOrdersCount ?? 0} sipariş ERP12'ye iletildi).`,
         success: true,
       });
     } else {
@@ -88,7 +91,7 @@ export const Header: React.FC = () => {
         success: false,
       });
     }
-    setTimeout(() => setSyncToast(null), 3500);
+    setTimeout(() => setSyncToast(null), 4500);
   };
 
   const formatCurrency = (val: number) => {
@@ -115,6 +118,13 @@ export const Header: React.FC = () => {
             </span>
             <span className="text-slate-600">|</span>
             <span className="text-slate-300">Dönem: {serverConfig.period}</span>
+            <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
+              serverConfig.apiUrl === 'demo' || !serverConfig.apiUrl
+                ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
+                : 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+            }`}>
+              {serverConfig.apiUrl === 'demo' || !serverConfig.apiUrl ? 'Çevrimdışı/Demo' : 'ERP Canlı'}
+            </span>
             <span className="text-[10px] text-blue-400 underline ml-0.5 hidden sm:inline">Değiştir</span>
           </div>
 

@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef, useMemo 
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, seedInitialDataIfNeeded } from '../db';
 import { syncService, type SyncResult } from '../services/syncService';
-import { apiService } from '../services/apiService';
+import { apiService, isDemoMode } from '../services/apiService';
 import { soundNotification } from '../utils/soundNotification';
 import type { 
   Customer, 
@@ -191,11 +191,20 @@ const DEFAULT_SALES_REP: SalesRep = {
   title: 'Marmara Bölge Satış Temsilcisi',
 };
 
+const isRemoteHost = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return (
+    host.includes('vercel.app') ||
+    (host !== 'localhost' && host !== '127.0.0.1' && !host.match(/^\d+\.\d+\.\d+\.\d+$/))
+  );
+};
+
 const DEFAULT_SERVER_CONFIG: ServerConfig = {
-  apiUrl: `http://${window.location.hostname || 'localhost'}:4000/api`,
+  apiUrl: typeof window !== 'undefined' && isRemoteHost() ? 'demo' : `http://${typeof window !== 'undefined' ? window.location.hostname || 'localhost' : 'localhost'}:4000/api`,
   companyCode: '01',
   period: '2026',
-  autoSync: true,
+  autoSync: typeof window !== 'undefined' && !isRemoteHost(),
 };
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -302,11 +311,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [serverConfig, setServerConfig] = useState<ServerConfig>(() => {
     const saved = localStorage.getItem('plasiyer_server_config');
     if (saved) {
-      const parsed = JSON.parse(saved);
-      if (parsed.apiUrl === 'demo') {
-        parsed.apiUrl = `http://${window.location.hostname || 'localhost'}:4000/api`;
+      try {
+        const parsed = JSON.parse(saved);
+        // CRITICAL: Clean up legacy saved URLs pointing to vercel domain port 4000
+        if (
+          parsed.apiUrl &&
+          (parsed.apiUrl.includes('vercel.app') ||
+           (typeof window !== 'undefined' && isRemoteHost() && parsed.apiUrl.includes(window.location.hostname)))
+        ) {
+          parsed.apiUrl = 'demo';
+          localStorage.setItem('plasiyer_server_config', JSON.stringify(parsed));
+        }
+        return parsed;
+      } catch (e) {
+        return DEFAULT_SERVER_CONFIG;
       }
-      return parsed;
     }
     return DEFAULT_SERVER_CONFIG;
   });
@@ -602,7 +621,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // SSE Canlı Bildirim Dinleyicisi
   useEffect(() => {
-    if (!serverConfig.apiUrl || serverConfig.apiUrl === 'demo') return;
+    if (isDemoMode(serverConfig)) return;
 
     let eventSource: EventSource | null = null;
     try {
@@ -676,7 +695,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
-      if (autoSyncEnabled) {
+      if (autoSyncEnabled && !isDemoMode(serverConfig)) {
         syncService.pushPendingOrdersToERP(serverConfig);
         syncService.pushPendingCollectionsToERP(serverConfig);
         syncService.pushPendingReturnsToERP(serverConfig);
@@ -695,7 +714,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Aşama 6 - B: Arka Planda Canlı Çift Yönlü Otomatik Senkronizasyon (60 sn)
   useEffect(() => {
-    if (!autoSyncEnabled || !isOnline || !serverConfig.apiUrl || serverConfig.apiUrl === 'demo') {
+    if (!autoSyncEnabled || !isOnline || isDemoMode(serverConfig)) {
       return;
     }
 
@@ -1040,7 +1059,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       clearCart();
 
       // 3. Eğer online isek ve otomatik senkronizasyon açıksa hemen ERP12'ye göndermeyi dene
-      if (isOnline && serverConfig.autoSync) {
+      if (isOnline && serverConfig.autoSync && !isDemoMode(serverConfig)) {
         syncService.pushPendingOrdersToERP(serverConfig);
       }
 
@@ -1102,7 +1121,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       // 3. Online ise ERP12'ye gönder
-      if (isOnline && serverConfig.autoSync) {
+      if (isOnline && serverConfig.autoSync && !isDemoMode(serverConfig)) {
         syncService.pushPendingCollectionsToERP(serverConfig);
       }
 
@@ -1195,7 +1214,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
 
       // 3. Online ve otomatik senkronizasyon açıksa hemen ERP'ye ilet
-      if (isOnline && autoSyncEnabled) {
+      if (isOnline && autoSyncEnabled && !isDemoMode(serverConfig)) {
         syncService.pushPendingReturnsToERP(serverConfig);
       }
 

@@ -1,5 +1,5 @@
 import { db } from '../db';
-import { apiService } from './apiService';
+import { apiService, isDemoMode } from './apiService';
 import type { ServerConfig } from '../types';
 
 export interface SyncResult {
@@ -20,9 +20,9 @@ export const syncService = {
   async pullDataFromERP(config: ServerConfig, salesRepCode: string): Promise<SyncResult> {
     try {
       // Eğer API URL ayarlı değilse veya demo modundaysa
-      if (!config.apiUrl || config.apiUrl === 'demo') {
+      if (isDemoMode(config)) {
         // Demo senkronizasyon simülasyonu
-        await new Promise((r) => setTimeout(r, 900));
+        await new Promise((r) => setTimeout(r, 700));
         const cCount = await db.customers.count();
         const pCount = await db.products.count();
         return {
@@ -100,9 +100,9 @@ export const syncService = {
           // Durumu 'syncing' yap
           await db.orders.update(order.id, { status: 'syncing' });
 
-          if (!config.apiUrl || config.apiUrl === 'demo') {
+          if (isDemoMode(config)) {
             // Canlı API yokken akışı test etmek için gerçekçi demo simülasyonu
-            await new Promise((r) => setTimeout(r, 700));
+            await new Promise((r) => setTimeout(r, 500));
             const mockDocNo = 'ERP-' + Math.floor(100000 + Math.random() * 900000);
             await db.orders.update(order.id, {
               status: 'synced',
@@ -164,8 +164,8 @@ export const syncService = {
 
           await db.collections.update(col.id, { syncStatus: 'syncing' });
 
-          if (!config.apiUrl || config.apiUrl === 'demo') {
-            await new Promise((r) => setTimeout(r, 600));
+          if (isDemoMode(config)) {
+            await new Promise((r) => setTimeout(r, 400));
             const mockDocNo = 'THS-' + Math.floor(100000 + Math.random() * 900000);
             await db.collections.update(col.id, {
               syncStatus: 'synced',
@@ -226,8 +226,8 @@ export const syncService = {
 
           await db.returns.update(ret.id, { syncStatus: 'syncing' });
 
-          if (!config.apiUrl || config.apiUrl === 'demo') {
-            await new Promise((r) => setTimeout(r, 600));
+          if (isDemoMode(config)) {
+            await new Promise((r) => setTimeout(r, 400));
             const mockDocNo = 'IAD-' + Math.floor(100000 + Math.random() * 900000);
             await db.returns.update(ret.id, {
               syncStatus: 'synced',
@@ -287,7 +287,7 @@ export const syncService = {
       failedReturnsCount: pushReturnsRes.failedReturnsCount,
       customersCount: pullRes.customersCount,
       productsCount: pullRes.productsCount,
-      error: pushOrdersRes.error || pushCollectionsRes.error || pushReturnsRes.error || pullRes.error,
+      error: pullRes.error || pushOrdersRes.error || pushCollectionsRes.error || pushReturnsRes.error,
     };
   }
 };
