@@ -40,9 +40,14 @@ async function getPool() {
       connectionTimeout: 8000,
     };
 
-    poolPromise = sql.connect(config).catch((err) => {
-      console.warn('⚠️ Doğrudan MSSQL TCP bağlantısı kurulamadı, PowerShell fallback moduna geçiliyor:', err.message);
-      useMssqlPool = false;
+    poolPromise = sql.connect(config).then((pool) => {
+      pool.on('error', (err) => {
+        console.warn('⚠️ MSSQL havuz arka plan uyarısı:', err.message);
+        poolPromise = null;
+      });
+      return pool;
+    }).catch((err) => {
+      console.warn('⚠️ Doğrudan MSSQL TCP bağlantısı kurulamadı, anlık PowerShell fallback moduna geçiliyor:', err.message);
       poolPromise = null;
       return null;
     });
@@ -133,7 +138,11 @@ export async function executeJsonQuery(query) {
       return result.recordset;
     }
   } catch (directErr) {
-    console.warn('⚠️ MSSQL pool sorgu hatası, PowerShell ile deneniyor:', directErr.message);
+    console.warn('⚠️ MSSQL pool sorgu hatası, havuz sıfırlanıp PowerShell ile deneniyor:', directErr.message);
+    if (poolPromise) {
+      poolPromise.then(p => p && p.close().catch(() => {})).catch(() => {});
+    }
+    poolPromise = null;
   }
 
   // Fallback
@@ -151,7 +160,11 @@ export async function executeNonQuery(query) {
       return result.rowsAffected.reduce((a, b) => a + b, 0);
     }
   } catch (directErr) {
-    console.warn('⚠️ MSSQL pool nonQuery hatası, PowerShell ile deneniyor:', directErr.message);
+    console.warn('⚠️ MSSQL pool nonQuery hatası, havuz sıfırlanıp PowerShell ile deneniyor:', directErr.message);
+    if (poolPromise) {
+      poolPromise.then(p => p && p.close().catch(() => {})).catch(() => {});
+    }
+    poolPromise = null;
   }
 
   // Fallback
