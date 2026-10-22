@@ -1,3 +1,4 @@
+import sql from 'mssql';
 import { execFile } from 'child_process';
 import util from 'util';
 import dotenv from 'dotenv';
@@ -6,13 +7,53 @@ dotenv.config();
 const execFilePromise = util.promisify(execFile);
 
 const DB_SERVER = process.env.DB_SERVER || 'localhost';
+const DB_PORT = parseInt(process.env.DB_PORT, 10) || 1434;
+const DB_USER = process.env.DB_USER || 'sa';
+const DB_PASSWORD = process.env.DB_PASSWORD || 'polatlar4555.';
 const DB_NAME = process.env.DB_NAME || 'OSMANLIGIDA';
 
+let poolPromise = null;
+let useMssqlPool = true;
+
 /**
- * Windows Native Shared Memory / Integrated Security SQL Runner
- * MSSQL TCP/IP veya port yapılandırmasından bağımsız olarak doğrudan ve en yüksek hızda çalışır.
+ * MSSQL Native Connection Pool (Çok yüksek hız ve düşük gecikme)
  */
-export async function executeJsonQuery(query) {
+async function getPool() {
+  if (!useMssqlPool) return null;
+  if (!poolPromise) {
+    const config = {
+      user: DB_USER,
+      password: DB_PASSWORD,
+      server: DB_SERVER,
+      port: DB_PORT,
+      database: DB_NAME,
+      options: {
+        encrypt: false,
+        trustServerCertificate: true,
+      },
+      pool: {
+        max: 10,
+        min: 2,
+        idleTimeoutMillis: 30000,
+      },
+      requestTimeout: 25000,
+      connectionTimeout: 8000,
+    };
+
+    poolPromise = sql.connect(config).catch((err) => {
+      console.warn('⚠️ Doğrudan MSSQL TCP bağlantısı kurulamadı, PowerShell fallback moduna geçiliyor:', err.message);
+      useMssqlPool = false;
+      poolPromise = null;
+      return null;
+    });
+  }
+  return poolPromise;
+}
+
+/**
+ * PowerShell Fallback SQL Runner (Integrated Security)
+ */
+async function executeJsonQueryViaPowerShell(query) {
   const psScript = `
     $conn = New-Object System.Data.SqlClient.SqlConnection("Server=${DB_SERVER};Database=${DB_NAME};Integrated Security=True;TrustServerCertificate=True;");
     $conn.Open();
@@ -31,28 +72,23 @@ ${query}
     Write-Output $sb.ToString();
   `;
 
-  try {
-    const { stdout } = await execFilePromise('powershell.exe', [
-      '-NoProfile',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-Command',
-      psScript,
-    ], {
-      maxBuffer: 30 * 1024 * 1024,
-      encoding: 'utf8',
-    });
+  const { stdout } = await execFilePromise('powershell.exe', [
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    psScript,
+  ], {
+    maxBuffer: 30 * 1024 * 1024,
+    encoding: 'utf8',
+  });
 
-    const text = stdout.trim();
-    if (!text) return [];
-    return JSON.parse(text);
-  } catch (err) {
-    console.error('SQL JSON Query Error:', err.message);
-    throw err;
-  }
+  const text = stdout.trim();
+  if (!text) return [];
+  return JSON.parse(text);
 }
 
-export async function executeNonQuery(query) {
+async function executeNonQueryViaPowerShell(query) {
   const psScript = `
     $conn = New-Object System.Data.SqlClient.SqlConnection("Server=${DB_SERVER};Database=${DB_NAME};Integrated Security=True;TrustServerCertificate=True;");
     $conn.Open();
@@ -66,21 +102,60 @@ ${query}
     Write-Output $affected;
   `;
 
+  const { stdout } = await execFilePromise('powershell.exe', [
+    '-NoProfile',
+    '-ExecutionPolicy',
+    'Bypass',
+    '-Command',
+    psScript,
+  ], {
+    encoding: 'utf8',
+  });
+  return parseInt(stdout.trim(), 10);
+}
+
+/**
+ * Yüksek Performanslı JSON Sorgu Yürütücü
+ */
+export async function executeJsonQuery(query) {
   try {
-    const { stdout } = await execFilePromise('powershell.exe', [
-      '-NoProfile',
-      '-ExecutionPolicy',
-      'Bypass',
-      '-Command',
-      psScript,
-    ], {
-      encoding: 'utf8',
-    });
-    return parseInt(stdout.trim(), 10);
-  } catch (err) {
-    console.error('SQL NonQuery Error:', err.message);
-    throw err;
+    const pool = await getPool();
+    if (pool) {
+      const result = await pool.request().query(query);
+      if (!result.recordset || result.recordset.length === 0) return [];
+
+      const firstRow = result.recordset[0];
+      const firstCol = Object.keys(firstRow)[0];
+      if (firstCol && firstCol.startsWith('JSON_')) {
+        const jsonStr = result.recordset.map(row => Object.values(row)[0]).join('');
+        return JSON.parse(jsonStr || '[]');
+      }
+      return result.recordset;
+    }
+  } catch (directErr) {
+    console.warn('⚠️ MSSQL pool sorgu hatası, PowerShell ile deneniyor:', directErr.message);
   }
+
+  // Fallback
+  return executeJsonQueryViaPowerShell(query);
+}
+
+/**
+ * Yüksek Performanslı NonQuery Yürütücü
+ */
+export async function executeNonQuery(query) {
+  try {
+    const pool = await getPool();
+    if (pool) {
+      const result = await pool.request().query(query);
+      return result.rowsAffected.reduce((a, b) => a + b, 0);
+    }
+  } catch (directErr) {
+    console.warn('⚠️ MSSQL pool nonQuery hatası, PowerShell ile deneniyor:', directErr.message);
+  }
+
+  // Fallback
+  return executeNonQueryViaPowerShell(query);
 }
 
 export async function testConnection() {

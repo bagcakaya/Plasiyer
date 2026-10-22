@@ -2,6 +2,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import dotenv from 'dotenv';
 import { erpQueries } from './erpQueries.js';
 import { testConnection } from './db.js';
@@ -15,6 +16,7 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 4000;
 
+app.use(compression());
 app.use(cors());
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
@@ -81,10 +83,12 @@ app.get('/api/notifications/stream', (req, res) => {
 
 // 1. CARİ LİSTESİ VE BAKİYELERİ GETİR
 app.get('/api/customers', async (req, res) => {
+  const start = Date.now();
   try {
     const salesRepCode = req.query.rep;
     const customers = await erpQueries.getCustomers(salesRepCode);
     res.json(customers);
+    console.log(`⚡ [API] GET /api/customers - ${customers.length} cari teslim edildi (${Date.now() - start}ms)`);
   } catch (err) {
     console.error('Cari çekme hatası:', err.message);
     res.status(500).json({ error: 'Cariler alınamadı', detail: err.message });
@@ -111,9 +115,11 @@ app.get('/api/customers/:idOrCode/statement', async (req, res) => {
 
 // 2. STOK LİSTESİ VE GÜNCEL MEVCUTLARI GETİR
 app.get('/api/products', async (req, res) => {
+  const start = Date.now();
   try {
     const products = await erpQueries.getProducts();
     res.json(products);
+    console.log(`⚡ [API] GET /api/products - ${products.length} ürün teslim edildi (${Date.now() - start}ms)`);
   } catch (err) {
     console.error('Stok çekme hatası:', err.message);
     res.status(500).json({ error: 'Stoklar alınamadı', detail: err.message });
@@ -132,6 +138,7 @@ app.post('/api/products/:idOrCode/image', async (req, res) => {
     }
 
     const saveResult = await imageService.saveProductImage(targetCode, image);
+    erpQueries.invalidateProductCache();
 
     broadcastNotification({
       id: 'notif-img-' + Date.now(),
@@ -158,6 +165,7 @@ app.delete('/api/products/:idOrCode/image', async (req, res) => {
     const targetCode = code || idOrCode;
 
     imageService.deleteProductImage(targetCode);
+    erpQueries.invalidateProductCache();
 
     broadcastNotification({
       id: 'notif-img-del-' + Date.now(),

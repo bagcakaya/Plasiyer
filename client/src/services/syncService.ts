@@ -21,8 +21,7 @@ export const syncService = {
     try {
       // Eğer API URL ayarlı değilse veya demo modundaysa
       if (isDemoMode(config)) {
-        // Demo senkronizasyon simülasyonu
-        await new Promise((r) => setTimeout(r, 700));
+        await new Promise((r) => setTimeout(r, 80));
         const cCount = await db.customers.count();
         const pCount = await db.products.count();
         return {
@@ -32,18 +31,24 @@ export const syncService = {
         };
       }
 
-      // Canlı API'den verileri çek
+      // Canlı API'den verileri çek (Gzip ve SQL bağlantı havuzuyla son derece hızlı)
       const [customers, products] = await Promise.all([
         apiService.fetchCustomers(config, salesRepCode),
         apiService.fetchProducts(config),
       ]);
 
-      // IndexedDB'yi güncelle (Transaction ile atomik işlem & Fotoğrafları koruma)
+      // IndexedDB'yi güncelle (Diferansiyel ve Atomik: Arayüz titremesi veya sıfırlanma olmadan doğrudan güncelleme)
       await db.transaction('rw', [db.customers, db.products], async () => {
         if (customers && customers.length > 0) {
-          await db.customers.clear();
+          const newCustIds = new Set(customers.map((c) => String(c.id)));
+          const allCustKeys = await db.customers.toCollection().primaryKeys();
+          const obsoleteCustKeys = allCustKeys.filter((id) => !newCustIds.has(String(id)));
+          if (obsoleteCustKeys.length > 0) {
+            await db.customers.bulkDelete(obsoleteCustKeys as string[]);
+          }
           await db.customers.bulkPut(customers);
         }
+
         if (products && products.length > 0) {
           const existingProducts = await db.products.toArray();
           const localImageMap = new Map<string, string>();
@@ -62,7 +67,12 @@ export const syncService = {
             };
           });
 
-          await db.products.clear();
+          const newProdIds = new Set(mergedProducts.map((p) => String(p.id)));
+          const allProdKeys = await db.products.toCollection().primaryKeys();
+          const obsoleteProdKeys = allProdKeys.filter((id) => !newProdIds.has(String(id)));
+          if (obsoleteProdKeys.length > 0) {
+            await db.products.bulkDelete(obsoleteProdKeys as string[]);
+          }
           await db.products.bulkPut(mergedProducts);
         }
       });
@@ -101,8 +111,7 @@ export const syncService = {
           await db.orders.update(order.id, { status: 'syncing' });
 
           if (isDemoMode(config)) {
-            // Canlı API yokken akışı test etmek için gerçekçi demo simülasyonu
-            await new Promise((r) => setTimeout(r, 500));
+            await new Promise((r) => setTimeout(r, 60));
             const mockDocNo = 'ERP-' + Math.floor(100000 + Math.random() * 900000);
             await db.orders.update(order.id, {
               status: 'synced',
@@ -165,7 +174,7 @@ export const syncService = {
           await db.collections.update(col.id, { syncStatus: 'syncing' });
 
           if (isDemoMode(config)) {
-            await new Promise((r) => setTimeout(r, 400));
+            await new Promise((r) => setTimeout(r, 60));
             const mockDocNo = 'THS-' + Math.floor(100000 + Math.random() * 900000);
             await db.collections.update(col.id, {
               syncStatus: 'synced',
@@ -227,7 +236,7 @@ export const syncService = {
           await db.returns.update(ret.id, { syncStatus: 'syncing' });
 
           if (isDemoMode(config)) {
-            await new Promise((r) => setTimeout(r, 400));
+            await new Promise((r) => setTimeout(r, 60));
             const mockDocNo = 'IAD-' + Math.floor(100000 + Math.random() * 900000);
             await db.returns.update(ret.id, {
               syncStatus: 'synced',
@@ -270,11 +279,14 @@ export const syncService = {
     }
   },
 
-  // Tek tıkla tam senkronizasyon (Siparişler + Tahsilatlar + İadeler gönder, güncel cari ve stokları al)
+  // Tek tıkla tam senkronizasyon (Siparişler + Tahsilatlar + İadeler eşzamanlı gönderilir, güncel cari ve stoklar anında alınır)
   async fullSync(config: ServerConfig, salesRepCode: string): Promise<SyncResult> {
-    const pushOrdersRes = await this.pushPendingOrdersToERP(config);
-    const pushCollectionsRes = await this.pushPendingCollectionsToERP(config);
-    const pushReturnsRes = await this.pushPendingReturnsToERP(config);
+    const [pushOrdersRes, pushCollectionsRes, pushReturnsRes] = await Promise.all([
+      this.pushPendingOrdersToERP(config),
+      this.pushPendingCollectionsToERP(config),
+      this.pushPendingReturnsToERP(config),
+    ]);
+
     const pullRes = await this.pullDataFromERP(config, salesRepCode);
 
     return {

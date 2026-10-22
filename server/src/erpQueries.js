@@ -1,9 +1,30 @@
 import { executeJsonQuery, executeNonQuery } from './db.js';
 import { imageService } from './imageService.js';
 
+// Yüksek Performanslı Bellek İçi Önbellek (Hızlı Senkronizasyon & Düşük Veritabanı Yükü)
+const memCache = {
+  customers: new Map(), // key -> { data, expiresAt }
+  products: null,       // { data, expiresAt }
+};
+
 export const erpQueries = {
+  invalidateCustomerCache() {
+    memCache.customers.clear();
+  },
+
+  invalidateProductCache() {
+    memCache.products = null;
+  },
+
   // 1. CARİ HESAPLAR VE BAKİYELER (OSMANLIGIDA)
   async getCustomers(salesRepCode) {
+    const cacheKey = salesRepCode || 'ALL';
+    const now = Date.now();
+    const cached = memCache.customers.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+
     let whereRep = '';
     if (salesRepCode && salesRepCode !== 'ALL' && salesRepCode !== 'PLS01') {
       whereRep = `AND C.TEMSILCI = '${salesRepCode.replace(/'/g, "''")}'`;
@@ -55,7 +76,7 @@ export const erpQueries = {
     `;
 
     const rows = await executeJsonQuery(query);
-    return rows.map((row) => ({
+    const result = rows.map((row) => ({
       id: String(row.id),
       code: String(row.code),
       name: String(row.name),
@@ -71,10 +92,19 @@ export const erpQueries = {
       riskLimit: Number(row.riskLimit || 0),
       balance: Number(row.balance || 0),
     }));
+
+    // 30 saniye süreyle bellekte sakla
+    memCache.customers.set(cacheKey, { data: result, expiresAt: Date.now() + 30000 });
+    return result;
   },
 
   // 2. STOK KARTLARI, BARKODLAR, FİYATLAR VE MEVCUTLAR (OSMANLIGIDA + ERP12 GÖRSEL)
   async getProducts() {
+    const now = Date.now();
+    if (memCache.products && memCache.products.expiresAt > now) {
+      return memCache.products.data;
+    }
+
     const query = `
       SELECT TOP 1500
         S.ID AS id,
@@ -120,7 +150,7 @@ export const erpQueries = {
     const rows = await executeJsonQuery(query);
     const imageMap = imageService.getAllProductImagesMap();
 
-    return rows.map((row) => {
+    const result = rows.map((row) => {
       const code = String(row.code);
       const id = String(row.id);
       const barcode = String(row.barcode || row.code);
@@ -141,10 +171,16 @@ export const erpQueries = {
         image: matchedImage,
       };
     });
+
+    // 60 saniye süreyle bellekte sakla
+    memCache.products = { data: result, expiresAt: Date.now() + 60000 };
+    return result;
   },
 
   // 3. MOBİLDEN GELEN SİPARİŞİ ERP12'YE YAZMA
   async createOrder({ order }) {
+    erpQueries.invalidateCustomerCache();
+    erpQueries.invalidateProductCache();
     const now = new Date();
     const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
     const timePart = now.toTimeString().slice(0, 8).replace(/:/g, '');
@@ -229,6 +265,7 @@ export const erpQueries = {
 
   // 4. MOBİLDEN GELEN TAHSİLATI ERP12'YE YAZMA
   async createCollection({ collection }) {
+    erpQueries.invalidateCustomerCache();
     const now = new Date();
     const datePart = now.toISOString().slice(0, 10).replace(/-/g, '');
     const timePart = now.toTimeString().slice(0, 8).replace(/:/g, '');
@@ -437,6 +474,8 @@ export const erpQueries = {
 
   // 7. MOBİLDEN GELEN SAHA İADE / DEĞİŞİM FİŞİNİ ERP12'YE KAYDET
   async createReturn({ companyCode, period, returnRecord }) {
+    erpQueries.invalidateCustomerCache();
+    erpQueries.invalidateProductCache();
     const docNo = returnRecord.receiptNo || 'IAD-' + Date.now().toString().slice(-6);
     const safeCustCode = (returnRecord.customerCode || '').replace(/'/g, "''");
     const safeReceiptNo = docNo.replace(/'/g, "''");

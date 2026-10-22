@@ -100,13 +100,20 @@ export const apiService = {
       return local.length > 0 ? local : initialCustomers;
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
-      const response = await fetch(`${config.apiUrl}/customers?rep=${encodeURIComponent(salesRepCode)}&company=${config.companyCode}`);
+      const response = await fetch(`${config.apiUrl}/customers?rep=${encodeURIComponent(salesRepCode)}&company=${config.companyCode}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
       if (!response.ok) {
         throw new Error(`Cari listesi alınamadı: HTTP ${response.status}`);
       }
       return await response.json();
     } catch (err: any) {
+      clearTimeout(timeoutId);
       throw handleFetchError(err);
     }
   },
@@ -118,13 +125,20 @@ export const apiService = {
       return local.length > 0 ? local : initialProducts;
     }
 
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
     try {
-      const response = await fetch(`${config.apiUrl}/products?company=${config.companyCode}`);
+      const response = await fetch(`${config.apiUrl}/products?company=${config.companyCode}`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
       if (!response.ok) {
         throw new Error(`Stok listesi alınamadı: HTTP ${response.status}`);
       }
       return await response.json();
     } catch (err: any) {
+      clearTimeout(timeoutId);
       throw handleFetchError(err);
     }
   },
