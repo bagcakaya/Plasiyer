@@ -40,13 +40,13 @@ export const RouteMap: React.FC<RouteMapProps> = ({
         center: [currentLocation.latitude, currentLocation.longitude],
         zoom: 14,
         zoomControl: true,
+        attributionControl: false, // Leaflet filigranını kaldırıyoruz; orijinal Google marka ve telifini özel olarak ekliyoruz
       });
 
-      // Google Maps Standart Yol Haritası Katmanı
+      // Google Maps Standart Yol Haritası Katmanı (mt0-mt3 tile sunucuları)
       const googleTileLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
-        maxZoom: 20,
+        maxZoom: 21,
         subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
-        attribution: '&copy; Google Maps',
       }).addTo(map);
 
       tileLayerRef.current = googleTileLayer;
@@ -299,6 +299,33 @@ export const RouteMap: React.FC<RouteMapProps> = ({
     }
   };
 
+  // Google Haritalar uygulamasında tüm rotayı çoklu durak olarak başlat
+  const handleOpenGoogleMapsRoute = () => {
+    const validStops = visits
+      .map((v) => customerMap.get(v.customerId))
+      .filter((c): c is Customer => !!c && !!c.latitude && !!c.longitude);
+
+    if (validStops.length === 0) {
+      window.open(
+        `https://www.google.com/maps/@${currentLocation.latitude},${currentLocation.longitude},15z`,
+        '_blank'
+      );
+      return;
+    }
+
+    const origin = `${currentLocation.latitude},${currentLocation.longitude}`;
+    const destination = `${validStops[validStops.length - 1].latitude},${validStops[validStops.length - 1].longitude}`;
+    const waypoints = validStops
+      .slice(0, validStops.length - 1)
+      .map((s) => `${s.latitude},${s.longitude}`)
+      .join('|');
+
+    const url = `https://www.google.com/maps/dir/?api=1&origin=${origin}&destination=${destination}${
+      waypoints ? `&waypoints=${encodeURIComponent(waypoints)}` : ''
+    }&travelmode=driving`;
+    window.open(url, '_blank');
+  };
+
   return (
     <div className="relative w-full h-full min-h-[380px] rounded-3xl overflow-hidden shadow-inner border border-slate-200 dark:border-slate-800">
       <div ref={mapContainerRef} className="w-full h-full z-0 min-h-[380px]" />
@@ -346,20 +373,39 @@ export const RouteMap: React.FC<RouteMapProps> = ({
       {/* Sol Üst Harita Bilgi Rozeti & Google Maps Markası */}
       <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
         <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
           <span>Canlı Rut: {visits.length} Durak</span>
-        </div>
-        <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-2.5 py-1.5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 text-[10px] font-extrabold text-blue-600 dark:text-blue-400 flex items-center gap-1">
-          <span>Google Maps</span>
         </div>
       </div>
 
-      {/* Harita Kontrol Butonu: Konumuma Git */}
-      <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2">
+      {/* Sol Alt: Orijinal Google Logo & Telif */}
+      <div className="absolute bottom-2 left-3 z-10 pointer-events-none flex items-center gap-2 bg-white/90 dark:bg-slate-900/90 px-2 py-0.5 rounded shadow-xs backdrop-blur-xs border border-slate-200/50 dark:border-slate-700/50">
+        <img
+          src="https://maps.gstatic.com/mapfiles/api-3/images/google4.png"
+          alt="Google"
+          className="h-4 object-contain"
+        />
+        <span className="text-[10px] text-slate-500 dark:text-slate-400 font-sans hidden sm:inline">
+          Harita verileri &copy;{new Date().getFullYear()} Google
+        </span>
+      </div>
+
+      {/* Sağ Alt Harita Kontrolleri: Rotayı Google Maps'te Aç & Konumuma Odaklan */}
+      <div className="absolute bottom-3 right-3 z-10 flex flex-col sm:flex-row gap-2 items-end sm:items-center">
+        <button
+          type="button"
+          onClick={handleOpenGoogleMapsRoute}
+          className="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-2xl shadow-lg transition active:scale-95 flex items-center gap-1.5 text-xs font-bold"
+          title="Google Haritalar Uygulamasında Çoklu Durak Navigasyonu Başlat"
+        >
+          <span>🧭</span>
+          <span>Google Haritalar'da Rotayı Aç</span>
+        </button>
+
         <button
           type="button"
           onClick={handleCenterOnUser}
-          className="bg-white dark:bg-slate-900 text-slate-800 dark:text-white p-2.5 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition active:scale-95 flex items-center gap-1.5 text-xs font-bold"
+          className="bg-white dark:bg-slate-900 text-slate-800 dark:text-white p-2 sm:px-3 sm:py-2 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition active:scale-95 flex items-center gap-1.5 text-xs font-bold"
           title="Haritayı Benim Konumuma Odakla"
         >
           <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse"></span>
