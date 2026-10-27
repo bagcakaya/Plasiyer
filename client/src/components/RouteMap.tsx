@@ -43,9 +43,9 @@ export const RouteMap: React.FC<RouteMapProps> = ({
         attributionControl: false, // Leaflet filigranını kaldırıyoruz; orijinal Google marka ve telifini özel olarak ekliyoruz
       });
 
-      // Google Maps Standart Yol Haritası Katmanı (mt0-mt3 tile sunucuları)
-      const googleTileLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
-        maxZoom: 21,
+      // Google Maps Standart Yol Haritası Katmanı (mt0-mt3 tile sunucuları, Türkçe dil desteği hl=tr)
+      const googleTileLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=m&hl=tr&x={x}&y={y}&z={z}', {
+        maxZoom: 22,
         subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
       }).addTo(map);
 
@@ -75,11 +75,11 @@ export const RouteMap: React.FC<RouteMapProps> = ({
 
     // Google Maps Harita Katman Parametreleri:
     // m = Sokak Haritası, y = Uydu + Hibrit (Sokak İsimli), p = Arazi (Topoğrafya)
+    // hl=tr = Türkçe yer ve cadde adları
     const lyrs = mapType === 'hybrid' ? 'y' : mapType === 'terrain' ? 'p' : 'm';
-    const newTileLayer = L.tileLayer(`https://{s}.google.com/vt/lyrs=${lyrs}&x={x}&y={y}&z={z}`, {
-      maxZoom: 20,
+    const newTileLayer = L.tileLayer(`https://{s}.google.com/vt/lyrs=${lyrs}&hl=tr&x={x}&y={y}&z={z}`, {
+      maxZoom: 22,
       subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
-      attribution: '&copy; Google Maps',
     }).addTo(map);
 
     // Harita katmanını en alta gönder ki pinler ve rota çizgileri her zaman üstte kalsın
@@ -299,6 +299,23 @@ export const RouteMap: React.FC<RouteMapProps> = ({
     }
   };
 
+  // Önbelleği temizle ve sayfayı tam yenile (Google Maps güncellemesini zorla uygula)
+  const handleHardRefresh = async () => {
+    try {
+      if ('caches' in window) {
+        const keys = await caches.keys();
+        await Promise.all(keys.map((k) => caches.delete(k)));
+      }
+      if ('serviceWorker' in navigator) {
+        const regs = await navigator.serviceWorker.getRegistrations();
+        await Promise.all(regs.map((r) => r.unregister()));
+      }
+    } catch {
+      // ignore
+    }
+    window.location.reload();
+  };
+
   // Google Haritalar uygulamasında tüm rotayı çoklu durak olarak başlat
   const handleOpenGoogleMapsRoute = () => {
     const validStops = visits
@@ -410,6 +427,16 @@ export const RouteMap: React.FC<RouteMapProps> = ({
         >
           <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse"></span>
           <span>Konumuma Odaklan</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={handleHardRefresh}
+          className="bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-300 p-2 sm:px-3 sm:py-2 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition active:scale-95 flex items-center gap-1.5 text-xs font-bold"
+          title="Önbelleği temizle ve Google Haritasını yeniden yükle"
+        >
+          <span>🔄</span>
+          <span>Haritayı Yenile</span>
         </button>
       </div>
     </div>

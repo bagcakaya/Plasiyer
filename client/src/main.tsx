@@ -4,20 +4,30 @@ import './index.css'
 import App from './App.tsx'
 import { registerSW } from 'virtual:pwa-register'
 
+let refreshing = false;
+if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!refreshing) {
+      refreshing = true;
+      console.log('🔄 Yeni Service Worker aktifleşti, sayfa yenileniyor...');
+      window.location.reload();
+    }
+  });
+}
+
 // Auto-register service worker for PWA offline & Android WebAPK support
 const updateSW = registerSW({
   immediate: true,
   onNeedRefresh() {
-    // Yeni sürüm algılandığında derhal yeni servis worker'ı devreye al ve sayfayı yenile
-    console.log('🔄 Yeni sürüm yüklendi, sayfa güncelleniyor...');
+    console.log('🔄 Yeni sürüm algılandı, güncelleniyor...');
     updateSW(true);
   },
   onRegistered(registration) {
     if (registration) {
-      // 15 saniyede bir yeni sürüm kontrolü yap
+      // 5 saniyede bir yeni sürüm kontrolü yap
       setInterval(() => {
-        registration.update();
-      }, 15000);
+        registration.update().catch(() => {});
+      }, 5000);
     }
   },
 });
