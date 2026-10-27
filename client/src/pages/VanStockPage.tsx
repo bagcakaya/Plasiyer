@@ -175,7 +175,7 @@ export const VanStockPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-4 pb-20 animate-fadeIn w-full p-3">
+    <div className="space-y-4 pb-20 md:pb-8 animate-fadeIn w-full max-w-7xl mx-auto p-3 md:p-6">
       {/* Üst Araç & Sıcak Satış Durum Kartı */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">

@@ -445,7 +445,7 @@ export const CartPage: React.FC = () => {
   }
 
   return (
-    <div className="p-3 pb-28 space-y-3 max-w-lg mx-auto w-full">
+    <div className="p-3 md:p-6 pb-28 space-y-4 max-w-7xl mx-auto w-full">
       {/* Cari Bilgisi Uyarısı veya Başlığı */}
       {!activeCustomer ? (
         <div className="bg-amber-500/10 dark:bg-amber-950/30 border border-amber-500/30 dark:border-amber-800/50 rounded-xl p-3 flex items-center justify-between text-xs text-amber-900 dark:text-amber-300">

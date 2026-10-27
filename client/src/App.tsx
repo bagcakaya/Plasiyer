@@ -18,6 +18,7 @@ import { PerformanceDashboardModal } from './components/PerformanceDashboardModa
 import { ThermalReceiptModal } from './components/ThermalReceiptModal';
 import { NotificationToast } from './components/NotificationToast';
 import { InstallPwaModal } from './components/InstallPwaModal';
+import { DesktopSidebar } from './components/DesktopSidebar';
 
 const GlobalModals: React.FC = () => {
   const {
@@ -87,7 +88,7 @@ const MainContent: React.FC = () => {
   const { activeTab, userRole } = useApp();
 
   return (
-    <main className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 pb-24 transition-colors">
+    <main className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 pb-24 md:pb-8 transition-colors">
       {/* Müşteri modunda cariler sekmesi yerine doğrudan vitrin açılır */}
       {activeTab === 'routes' && <RoutePlanPage />}
       {activeTab === 'customers' && (userRole === 'customer' ? <CatalogPage /> : <CustomersPage />)}
@@ -109,10 +110,16 @@ const AppContent: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-black flex justify-center transition-colors w-full">
-      <div className="w-full max-w-lg bg-slate-50 dark:bg-slate-950 min-h-screen shadow-2xl relative border-x border-slate-200/50 dark:border-slate-800/80">
+    <div className="min-h-screen bg-slate-100 dark:bg-black flex transition-colors w-full">
+      {/* Masaüstü Sol Menü (md ve üzeri ekranlarda görünür) */}
+      <DesktopSidebar />
+
+      {/* Ana Uygulama & Çalışma Alanı (Mobil için tam ekran, Masaüstü için esnek genişlik) */}
+      <div className="flex-1 flex flex-col min-w-0 min-h-screen bg-slate-50 dark:bg-slate-950 relative">
         <Header />
-        <MainContent />
+        <div className="flex-1 overflow-y-auto">
+          <MainContent />
+        </div>
         <BottomNav />
       </div>
     </div>

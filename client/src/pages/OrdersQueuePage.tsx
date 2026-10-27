@@ -146,7 +146,7 @@ export const OrdersQueuePage: React.FC = () => {
   };
 
   return (
-    <div className="p-3 pb-24 space-y-3 max-w-lg mx-auto text-slate-900 dark:text-slate-100 animate-fadeIn w-full">
+    <div className="p-3 md:p-6 pb-24 space-y-4 max-w-7xl mx-auto text-slate-900 dark:text-slate-100 animate-fadeIn w-full">
       {/* Plasiyer için Üst Sekmeler: Siparişler vs. Tahsilatlar vs. İadeler */}
       {userRole === 'plasiyer' && (
         <div className="grid grid-cols-3 p-1 bg-slate-200/80 dark:bg-slate-800/80 rounded-2xl text-xs font-bold shadow-inner">
@@ -336,7 +336,7 @@ export const OrdersQueuePage: React.FC = () => {
 
       {/* SİPARİŞ LİSTESİ */}
       {activeTabSub === 'orders' && (
-        <div className="space-y-2">
+        <div className="space-y-2.5 md:space-y-0 md:grid md:grid-cols-2 xl:grid-cols-3 md:gap-3.5">
           {filteredOrders.length === 0 ? (
             <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
               <FileText className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
@@ -452,7 +452,7 @@ export const OrdersQueuePage: React.FC = () => {
 
       {/* TAHSİLATLAR LİSTESİ */}
       {activeTabSub === 'collections' && (
-        <div className="space-y-2">
+        <div className="space-y-2.5 md:space-y-0 md:grid md:grid-cols-2 xl:grid-cols-3 md:gap-3.5">
           {filteredCollections.length === 0 ? (
             <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
               <Banknote className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
@@ -565,7 +565,7 @@ export const OrdersQueuePage: React.FC = () => {
 
       {/* İADELER LİSTESİ */}
       {activeTabSub === 'returns' && (
-        <div className="space-y-2">
+        <div className="space-y-2.5 md:space-y-0 md:grid md:grid-cols-2 xl:grid-cols-3 md:gap-3.5">
           {filteredReturns.length === 0 ? (
             <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
               <RotateCcw className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />

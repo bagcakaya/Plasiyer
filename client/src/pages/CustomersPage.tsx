@@ -97,7 +97,7 @@ export const CustomersPage: React.FC = () => {
   };
 
   return (
-    <div className="p-3 pb-24 space-y-3 max-w-lg mx-auto text-slate-900 dark:text-slate-100 w-full">
+    <div className="p-3 md:p-6 pb-24 space-y-4 max-w-7xl mx-auto text-slate-900 dark:text-slate-100 w-full">
       {/* Üst Bakiye Özeti Kartı */}
       <div className="bg-gradient-to-r from-slate-900 to-slate-800 dark:from-slate-950 dark:to-slate-900 text-white rounded-2xl p-4 shadow-sm border border-slate-700/80 dark:border-slate-800">
         <div className="flex justify-between items-center text-xs text-slate-400 mb-1">
@@ -213,8 +213,8 @@ export const CustomersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Cari Listesi */}
-      <div className="space-y-2.5">
+      {/* Cari Listesi (Mobilde tek sütun, Masaüstünde 2 veya 3 sütun ızgara) */}
+      <div className="space-y-2.5 md:space-y-0 md:grid md:grid-cols-2 xl:grid-cols-3 md:gap-3.5">
         {filteredCustomers.length === 0 ? (
           <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
             <Building className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />

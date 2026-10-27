@@ -148,7 +148,7 @@ export const CatalogPage: React.FC = () => {
   }
 
   return (
-    <div className="p-3 pb-32 space-y-3 max-w-lg mx-auto w-full">
+    <div className="p-3 md:p-6 pb-32 space-y-4 max-w-7xl mx-auto w-full">
       {/* Barkod Okuma Bildirimi Toast */}
       {scanToast && (
         <div
@@ -413,8 +413,8 @@ export const CatalogPage: React.FC = () => {
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Lütfen arama terimini veya kategoriyi değiştirin.</p>
         </div>
       ) : viewMode === 'grid' ? (
-        /* VİTRİN / GRID MODU (B2B E-Ticaret Arayüzü) */
-        <div className="grid grid-cols-2 gap-2.5">
+        /* VİTRİN / GRID MODU (B2B E-Ticaret & Masaüstü Çoklu Izgara) */
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 md:gap-4">
           {filteredProducts.map((product) => {
             const inCartQty = getItemQuantityInCart(product.id);
             const isOutOfStock = product.stockQuantity <= 0;
@@ -602,8 +602,8 @@ export const CatalogPage: React.FC = () => {
           })}
         </div>
       ) : (
-        /* KOMPAKT LİSTE MODU (Plasiyer Hızlı Raf Tarama) */
-        <div className="space-y-2.5">
+        /* KOMPAKT LİSTE MODU (Plasiyer Hızlı Raf Tarama & Masaüstü Çoklu Sütun) */
+        <div className="space-y-2.5 md:space-y-0 md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-3">
           {filteredProducts.map((product) => {
             const inCartQty = getItemQuantityInCart(product.id);
             const isOutOfStock = product.stockQuantity <= 0;
@@ -834,7 +834,7 @@ export const CatalogPage: React.FC = () => {
 
       {/* Yüzen Hızlı Sepet Özeti Çubuğu (Sepette ürün varsa görünür) */}
       {cartSummary.totalItems > 0 && (
-        <div className="fixed bottom-20 left-3 right-3 max-w-lg mx-auto z-30">
+        <div className="fixed bottom-20 md:bottom-6 left-3 right-3 md:left-auto md:right-8 md:w-96 max-w-lg z-30">
           <div
             onClick={() => setActiveTab('cart')}
             className={`text-white rounded-2xl p-3.5 shadow-2xl flex items-center justify-between cursor-pointer border active:scale-[0.99] transition ${
