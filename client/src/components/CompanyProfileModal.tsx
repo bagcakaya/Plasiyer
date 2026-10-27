@@ -75,7 +75,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
   const [newCode, setNewCode] = useState('');
   const [newTitle, setNewTitle] = useState('');
   const [newSqlHost, setNewSqlHost] = useState('localhost');
-  const [newSqlPort, setNewSqlPort] = useState('1433');
+  const [newSqlPort, setNewSqlPort] = useState('1434');
   const [newSqlDb, setNewSqlDb] = useState('');
   const [newSqlUser, setNewSqlUser] = useState('');
   const [newSqlPassword, setNewSqlPassword] = useState('');
@@ -370,6 +370,28 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
           ) : (
             /* YENİ PROFİL FORMU (Görsel-1 Doğrudan SQL Server Bağlantısı) */
             <form onSubmit={handleAddProfile} className="space-y-3.5 animate-in fade-in">
+              {/* Hızlı Bilgisayar / Yerel SQL Doldurma Butonu */}
+              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-2.5 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-xs">
+                <span className="text-blue-800 dark:text-blue-300 font-semibold text-[11px]">
+                  💡 Bu bilgisayardaki ERP12 veritabanına bağlanmak için:
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewCode('OSMANLI');
+                    setNewTitle('OSMANLI GIDA');
+                    setNewSqlHost('localhost');
+                    setNewSqlPort('1434');
+                    setNewSqlDb('OSMANLIGIDA');
+                    setNewSqlUser('sa');
+                    setNewSqlPassword('polatlar4555.');
+                  }}
+                  className="px-2.5 py-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-[11px] transition shadow-xs shrink-0"
+                >
+                  💻 Yerel SQL (1434) Doldur
+                </button>
+              </div>
+
               {/* Row 1: Firma Kodu & Firma Ticari Unvanı */}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
@@ -433,12 +455,12 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                       type="text"
                       value={newSqlPort}
                       onChange={(e) => setNewSqlPort(e.target.value)}
-                      placeholder="1433"
+                      placeholder="1434"
                       className="w-full bg-transparent px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none font-mono"
                     />
                   </div>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
-                    Varsayılan SQL Portu: <span className="text-pink-600 dark:text-pink-400 font-mono font-bold">1433</span>
+                    ERP12 SQL Portu: <span className="text-pink-600 dark:text-pink-400 font-mono font-bold">1434</span> (Standart SQL: 1433)
                   </p>
                 </div>
               </div>
