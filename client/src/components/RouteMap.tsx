@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import type { VisitRecord, Customer, GeoLocationState } from '../types';
@@ -26,6 +26,10 @@ export const RouteMap: React.FC<RouteMapProps> = ({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const layerGroupRef = useRef<L.LayerGroup | null>(null);
+  const tileLayerRef = useRef<L.TileLayer | null>(null);
+
+  // Google Maps Görünüm Tipi: roadmap (Sokak), hybrid (Uydu+Yol), terrain (Arazi)
+  const [mapType, setMapType] = useState<'roadmap' | 'hybrid' | 'terrain'>('roadmap');
 
   // Haritayı başlat
   useEffect(() => {
@@ -34,15 +38,18 @@ export const RouteMap: React.FC<RouteMapProps> = ({
     if (!mapInstanceRef.current) {
       const map = L.map(mapContainerRef.current, {
         center: [currentLocation.latitude, currentLocation.longitude],
-        zoom: 13,
+        zoom: 14,
         zoomControl: true,
       });
 
-      // CartoDB Positron / OSM fayansları
-      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors',
-        maxZoom: 19,
+      // Google Maps Standart Yol Haritası Katmanı
+      const googleTileLayer = L.tileLayer('https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', {
+        maxZoom: 20,
+        subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+        attribution: '&copy; Google Maps',
       }).addTo(map);
+
+      tileLayerRef.current = googleTileLayer;
 
       const layerGroup = L.layerGroup().addTo(map);
       layerGroupRef.current = layerGroup;
@@ -56,6 +63,30 @@ export const RouteMap: React.FC<RouteMapProps> = ({
       }
     };
   }, []);
+
+  // Harita Tipi Değiştiğinde (Google Sokak / Google Uydu / Google Arazi)
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    if (!map) return;
+
+    if (tileLayerRef.current) {
+      map.removeLayer(tileLayerRef.current);
+    }
+
+    // Google Maps Harita Katman Parametreleri:
+    // m = Sokak Haritası, y = Uydu + Hibrit (Sokak İsimli), p = Arazi (Topoğrafya)
+    const lyrs = mapType === 'hybrid' ? 'y' : mapType === 'terrain' ? 'p' : 'm';
+    const newTileLayer = L.tileLayer(`https://{s}.google.com/vt/lyrs=${lyrs}&x={x}&y={y}&z={z}`, {
+      maxZoom: 20,
+      subdomains: ['mt0', 'mt1', 'mt2', 'mt3'],
+      attribution: '&copy; Google Maps',
+    }).addTo(map);
+
+    // Harita katmanını en alta gönder ki pinler ve rota çizgileri her zaman üstte kalsın
+    newTileLayer.bringToBack();
+
+    tileLayerRef.current = newTileLayer;
+  }, [mapType]);
 
   // Katmanları ve pinleri güncelle
   useEffect(() => {
@@ -72,8 +103,8 @@ export const RouteMap: React.FC<RouteMapProps> = ({
       className: 'custom-plasiyer-pin',
       html: `
         <div style="position: relative; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
-          <div style="position: absolute; width: 28px; height: 28px; border-radius: 9999px; background-color: rgba(59, 130, 246, 0.35); animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
-          <div style="width: 14px; height: 14px; border-radius: 9999px; background-color: #2563eb; border: 2.5px solid #ffffff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3);"></div>
+          <div style="position: absolute; width: 28px; height: 28px; border-radius: 9999px; background-color: rgba(37, 99, 235, 0.4); animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+          <div style="width: 14px; height: 14px; border-radius: 9999px; background-color: #1d4ed8; border: 2.5px solid #ffffff; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.4);"></div>
         </div>
       `,
       iconSize: [28, 28],
@@ -113,20 +144,20 @@ export const RouteMap: React.FC<RouteMapProps> = ({
       );
 
       // Duruma göre renk ve içerik
-      let bgColor = '#3b82f6'; // Mavi (pending)
+      let bgColor = '#2563eb'; // Mavi (pending)
       let statusText = 'Bekliyor';
       let iconContent = `${index + 1}`;
 
       if (visit.status === 'completed') {
-        bgColor = '#10b981'; // Yeşil
+        bgColor = '#059669'; // Yeşil
         statusText = 'Ziyaret Tamamlandı';
         iconContent = '✓';
       } else if (visit.status === 'in_progress') {
-        bgColor = '#f59e0b'; // Amber / Turuncu
+        bgColor = '#d97706'; // Amber / Turuncu
         statusText = 'Ziyarette (İşlemde)';
         iconContent = '▶';
       } else if (visit.status === 'skipped') {
-        bgColor = '#94a3b8'; // Gri
+        bgColor = '#64748b'; // Gri
         statusText = 'Siparişsiz Geçildi';
         iconContent = '✕';
       }
@@ -135,7 +166,7 @@ export const RouteMap: React.FC<RouteMapProps> = ({
 
       const customerPinHtml = `
         <div style="position: relative; width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; cursor: pointer;">
-          ${isSelected ? '<div style="position: absolute; width: 44px; height: 44px; border-radius: 9999px; border: 3px dashed #f59e0b; animation: spin 8s linear infinite;"></div>' : ''}
+          ${isSelected ? '<div style="position: absolute; width: 44px; height: 44px; border-radius: 9999px; border: 3px dashed #d97706; animation: spin 8s linear infinite;"></div>' : ''}
           <div style="
             width: 30px; 
             height: 30px; 
@@ -148,7 +179,7 @@ export const RouteMap: React.FC<RouteMapProps> = ({
             font-size: 12px; 
             font-weight: 800; 
             border: 2px solid white; 
-            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.35);
           ">
             ${iconContent}
           </div>
@@ -170,9 +201,9 @@ export const RouteMap: React.FC<RouteMapProps> = ({
       if (isSelected || visit.status === 'in_progress') {
         L.circle([cust.latitude, cust.longitude], {
           radius: cust.geofenceRadiusMeters || 150,
-          color: geofence.isWithin ? '#10b981' : '#f59e0b',
-          fillColor: geofence.isWithin ? '#10b981' : '#f59e0b',
-          fillOpacity: 0.15,
+          color: geofence.isWithin ? '#059669' : '#d97706',
+          fillColor: geofence.isWithin ? '#059669' : '#d97706',
+          fillOpacity: 0.18,
           weight: 1.5,
           dashArray: '4, 4',
         }).addTo(layerGroup);
@@ -183,7 +214,7 @@ export const RouteMap: React.FC<RouteMapProps> = ({
       const yandexNavUrl = getNavigationUrl(cust.latitude, cust.longitude, cust.name, 'yandex');
 
       const popupDiv = document.createElement('div');
-      popupDiv.className = 'p-1 text-slate-800 space-y-2 text-xs font-sans min-w-[220px]';
+      popupDiv.className = 'p-1 text-slate-800 space-y-2 text-xs font-sans min-w-[230px]';
       popupDiv.innerHTML = `
         <div style="border-bottom: 1px solid #e2e8f0; padding-bottom: 6px;">
           <div style="font-size: 10px; color: #64748b; font-weight: bold; text-transform: uppercase;">Sıra: #${index + 1} &bull; ${cust.code}</div>
@@ -207,10 +238,10 @@ export const RouteMap: React.FC<RouteMapProps> = ({
 
         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding-top: 4px;">
           <a href="${googleNavUrl}" target="_blank" rel="noopener noreferrer" style="background: #2563eb; color: white; text-align: center; padding: 6px 4px; border-radius: 8px; font-weight: bold; text-decoration: none; font-size: 10px;">
-            🧭 Google Yol
+            🧭 Google Harita
           </a>
           <a href="${yandexNavUrl}" target="_blank" rel="noopener noreferrer" style="background: #ea580c; color: white; text-align: center; padding: 6px 4px; border-radius: 8px; font-weight: bold; text-decoration: none; font-size: 10px;">
-            🚗 Yandex Yol
+            🚗 Yandex Navigasyon
           </a>
         </div>
       `;
@@ -244,9 +275,9 @@ export const RouteMap: React.FC<RouteMapProps> = ({
     // 3. Rota Çizgisi (Polyline)
     if (routePoints.length > 1) {
       L.polyline(routePoints, {
-        color: '#6366f1',
-        weight: 3.5,
-        opacity: 0.7,
+        color: '#2563eb',
+        weight: 4,
+        opacity: 0.8,
         dashArray: '6, 8',
       }).addTo(layerGroup);
     }
@@ -262,15 +293,66 @@ export const RouteMap: React.FC<RouteMapProps> = ({
     if (mapInstanceRef.current) {
       mapInstanceRef.current.flyTo(
         [currentLocation.latitude, currentLocation.longitude],
-        15,
+        16,
         { duration: 1 }
       );
     }
   };
 
   return (
-    <div className="relative w-full h-full min-h-[360px] rounded-3xl overflow-hidden shadow-inner border border-slate-200 dark:border-slate-800">
-      <div ref={mapContainerRef} className="w-full h-full z-0 min-h-[360px]" />
+    <div className="relative w-full h-full min-h-[380px] rounded-3xl overflow-hidden shadow-inner border border-slate-200 dark:border-slate-800">
+      <div ref={mapContainerRef} className="w-full h-full z-0 min-h-[380px]" />
+
+      {/* Harita Katman Seçici (Google Sokak / Google Uydu / Google Arazi) */}
+      <div className="absolute top-3 right-3 z-10 flex bg-white/95 dark:bg-slate-900/95 backdrop-blur-md p-1 rounded-2xl shadow-md border border-slate-200 dark:border-slate-800 gap-1 text-[11px] font-bold">
+        <button
+          type="button"
+          onClick={() => setMapType('roadmap')}
+          className={`px-2.5 py-1 rounded-xl transition flex items-center gap-1 ${
+            mapType === 'roadmap'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          title="Google Standart Yol / Sokak Haritası"
+        >
+          <span>🗺️ Google Sokak</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setMapType('hybrid')}
+          className={`px-2.5 py-1 rounded-xl transition flex items-center gap-1 ${
+            mapType === 'hybrid'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          title="Google Uydu ve Cadde Hibrit Haritası"
+        >
+          <span>🛰️ Google Uydu</span>
+        </button>
+        <button
+          type="button"
+          onClick={() => setMapType('terrain')}
+          className={`px-2.5 py-1 rounded-xl transition flex items-center gap-1 ${
+            mapType === 'terrain'
+              ? 'bg-blue-600 text-white shadow-xs'
+              : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+          }`}
+          title="Google Arazi ve Yükselti Haritası"
+        >
+          <span>⛰️ Arazi</span>
+        </button>
+      </div>
+
+      {/* Sol Üst Harita Bilgi Rozeti & Google Maps Markası */}
+      <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
+        <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
+          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
+          <span>Canlı Rut: {visits.length} Durak</span>
+        </div>
+        <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-md px-2.5 py-1.5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 text-[10px] font-extrabold text-blue-600 dark:text-blue-400 flex items-center gap-1">
+          <span>Google Maps</span>
+        </div>
+      </div>
 
       {/* Harita Kontrol Butonu: Konumuma Git */}
       <div className="absolute bottom-4 right-4 z-10 flex flex-col gap-2">
@@ -278,17 +360,11 @@ export const RouteMap: React.FC<RouteMapProps> = ({
           type="button"
           onClick={handleCenterOnUser}
           className="bg-white dark:bg-slate-900 text-slate-800 dark:text-white p-2.5 rounded-2xl shadow-lg border border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800 transition active:scale-95 flex items-center gap-1.5 text-xs font-bold"
-          title="Konumuma Git"
+          title="Haritayı Benim Konumuma Odakla"
         >
           <span className="w-2.5 h-2.5 rounded-full bg-blue-600 animate-pulse"></span>
           <span>Konumuma Odaklan</span>
         </button>
-      </div>
-
-      {/* Harita Bilgi Rozeti */}
-      <div className="absolute top-3 left-3 z-10 bg-white/90 dark:bg-slate-900/90 backdrop-blur-md px-3 py-1.5 rounded-2xl shadow-sm border border-slate-200 dark:border-slate-800 text-[11px] font-bold text-slate-700 dark:text-slate-300 flex items-center gap-2">
-        <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-        <span>Canlı Rut Rotası: {visits.length} Durak</span>
       </div>
     </div>
   );
