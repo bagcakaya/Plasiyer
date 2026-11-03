@@ -50,11 +50,12 @@ export const CatalogPage: React.FC = () => {
     getVanStockByCode,
     triggerSync,
     isSyncing,
-    serverConfig
+    serverConfig,
+    selectedCategory,
+    setSelectedCategory,
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedB2BCategory, setSelectedB2BCategory] = useState<string>('all');
   const [showOnlyCampaigns, setShowOnlyCampaigns] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scanToast, setScanToast] = useState<{ message: string; success: boolean } | null>(null);
@@ -79,17 +80,22 @@ export const CatalogPage: React.FC = () => {
 
       if (!matchesSearch) return false;
 
-      // B2B Bağımsız Kategori Filtresi
-      if (selectedB2BCategory !== 'all') {
-        const catObj = b2bStoreCategories.find((c) => c.id === selectedB2BCategory);
-        if (catObj?.filterKeyword) {
-          const kw = catObj.filterKeyword.toLowerCase();
-          const matchCat = product.category.toLowerCase().includes(kw) || product.name.toLowerCase().includes(kw);
+      // B2B & Instagram Stories Kategori Filtresi
+      if (selectedCategory && selectedCategory !== 'all') {
+        if (selectedCategory.startsWith('cat-')) {
+          const rawCat = decodeURIComponent(selectedCategory.slice(4)).toLowerCase();
+          const matchCat = product.category.toLowerCase().includes(rawCat) || product.name.toLowerCase().includes(rawCat);
           if (!matchCat) return false;
-        } else if (selectedB2BCategory === 'special-deals') {
-          // İndirimli / özel fırsat ürünleri
-          const priceInfo = calculateCustomerPrice(product, activeCustomer);
-          if (!priceInfo.hasSpecialPrice) return false;
+        } else {
+          const catObj = b2bStoreCategories.find((c) => c.id === selectedCategory);
+          if (catObj?.filterKeyword) {
+            const kw = catObj.filterKeyword.toLowerCase();
+            const matchCat = product.category.toLowerCase().includes(kw) || product.name.toLowerCase().includes(kw);
+            if (!matchCat) return false;
+          } else if (selectedCategory === 'special-deals') {
+            const priceInfo = calculateCustomerPrice(product, activeCustomer);
+            if (!priceInfo.hasSpecialPrice) return false;
+          }
         }
       }
 
@@ -102,7 +108,7 @@ export const CatalogPage: React.FC = () => {
     }
 
     return result;
-  }, [products, searchTerm, selectedB2BCategory, showOnlyCampaigns, activeCampaigns, activeCustomer, calculateCustomerPrice]);
+  }, [products, searchTerm, selectedCategory, showOnlyCampaigns, activeCampaigns, activeCustomer, calculateCustomerPrice]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('tr-TR', {
@@ -360,12 +366,12 @@ export const CatalogPage: React.FC = () => {
         </button>
 
         {b2bStoreCategories.map((cat) => {
-          const isSelected = selectedB2BCategory === cat.id;
+          const isSelected = selectedCategory === cat.id;
 
           return (
             <button
               key={cat.id}
-              onClick={() => setSelectedB2BCategory(cat.id)}
+              onClick={() => setSelectedCategory(selectedCategory === cat.id ? 'all' : cat.id)}
               className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
                 isSelected
                   ? userRole === 'customer'

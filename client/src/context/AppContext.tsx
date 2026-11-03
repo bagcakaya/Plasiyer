@@ -68,6 +68,10 @@ interface AppContextType {
   // Fiyat Hesaplama
   calculateCustomerPrice: (product: Product, customCustomer?: Customer | null) => CustomerPriceInfo;
   
+  // Kategori Filtresi (Instagram Hikayeleri - Görsel-2)
+  selectedCategory: string;
+  setSelectedCategory: (category: string) => void;
+
   // Cart
   cart: OrderItem[];
   cartSummary: CartSummary;
@@ -381,6 +385,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [cartEvaluation.appliedCampaigns]);
 
   const [activeTab, setActiveTab] = useState<'customers' | 'catalog' | 'cart' | 'orders' | 'routes' | 'settings' | 'van_stock'>('catalog');
+  const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
   // AŞAMA 8: Sıcak Satış & Araç İçi Stok Yönetimi
@@ -1321,6 +1326,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         submitCurrentOrder,
         activeTab,
         setActiveTab,
+        selectedCategory,
+        setSelectedCategory,
         createCollection,
         pendingCollectionsCount,
         isCollectionModalOpen,

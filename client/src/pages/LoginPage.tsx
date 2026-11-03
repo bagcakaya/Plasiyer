@@ -1,447 +1,330 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
-  UserCheck, Lock, Delete, Store, 
-  ArrowRight, Sparkles, AlertCircle, Sun, Moon, Wifi, WifiOff,
-  Smartphone, Download
+  Building2, 
+  User, 
+  Lock, 
+  Eye, 
+  EyeOff, 
+  ArrowRight, 
+  MapPin, 
+  Phone, 
+  Mail, 
+  Sun, 
+  Moon, 
+  Wifi, 
+  WifiOff, 
+  AlertCircle
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
-import type { AuthUser, Customer } from '../types';
+import type { AuthUser } from '../types';
 
 export const LoginPage: React.FC = () => {
-  const { login, theme, toggleTheme, isOnline, isPwaInstalled, promptPwaInstall } = useApp();
-  const [activeTab, setActiveTab] = useState<'plasiyer' | 'customer'>('plasiyer');
+  const { login, theme, toggleTheme, isOnline, updateServerConfig } = useApp();
 
-  // Plasiyer Form
-  const [selectedRepCode, setSelectedRepCode] = useState('PLS01');
-  const [pin, setPin] = useState('');
-  const [pinError, setPinError] = useState('');
-
-  // B2B Customer Form
-  const [customerSearch, setCustomerSearch] = useState('');
-  const [selectedCustCode, setSelectedCustCode] = useState('');
+  const [companyCode, setCompanyCode] = useState(() => {
+    return localStorage.getItem('polatlar_login_company') || 'OSMANLI';
+  });
+  const [username, setUsername] = useState(() => {
+    return localStorage.getItem('polatlar_login_user') || 'PLS01';
+  });
   const [password, setPassword] = useState('');
-  const [custError, setCustError] = useState('');
+  const [rememberMe, setRememberMe] = useState(() => {
+    return localStorage.getItem('polatlar_remember_me') === 'true';
+  });
+  const [showPassword, setShowPassword] = useState(false);
+  const [error, setError] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
   const customers = useLiveQuery(() => db.customers.toArray(), []) || [];
 
-  // Keypad button click
-  const handleKeyClick = (val: string) => {
-    if (pin.length < 4) {
-      const newPin = pin + val;
-      setPin(newPin);
-      setPinError('');
-      if (newPin.length === 4) {
-        // Otomatik giriş kontrolü
-        verifyAndLoginPlasiyer(newPin);
-      }
-    }
-  };
-
-  const handleDeleteKey = () => {
-    setPin((prev) => prev.slice(0, -1));
-    setPinError('');
-  };
-
-  const handleClearPin = () => {
-    setPin('');
-    setPinError('');
-  };
-
-  // Keyboard support for PIN
-  useEffect(() => {
-    if (activeTab !== 'plasiyer') return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key >= '0' && e.key <= '9') {
-        handleKeyClick(e.key);
-      } else if (e.key === 'Backspace') {
-        handleDeleteKey();
-      } else if (e.key === 'Escape') {
-        handleClearPin();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab, pin]);
-
-  const verifyAndLoginPlasiyer = (inputPin = pin) => {
-    if (inputPin.length !== 4) {
-      setPinError('Lütfen 4 haneli PIN kodunuzu giriniz.');
-      return;
-    }
-
-    // Demo PIN kontrolü: 1234 veya herhangi 4 haneli PIN kabul edilir
-    const repName = selectedRepCode === 'PLS01' ? 'Ahmet Yılmaz' : 'Mehmet Demir';
-    const authUser: AuthUser = {
-      id: `rep-${selectedRepCode}`,
-      role: 'plasiyer',
-      code: selectedRepCode,
-      name: repName,
-      salesRepCode: selectedRepCode,
-    };
-
-    login(authUser);
-  };
-
-  const handleCustomerLogin = (e: React.FormEvent) => {
+  const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    setCustError('');
+    setError('');
 
-    if (!selectedCustCode && !customerSearch) {
-      setCustError('Lütfen bir müşteri/bayi seçiniz veya cari kodu giriniz.');
+    const trimmedCompany = companyCode.trim().toUpperCase();
+    const trimmedUser = username.trim();
+
+    if (!trimmedCompany) {
+      setError('Lütfen Kurum Kodunu giriniz (Örn: OSMANLI).');
       return;
     }
 
-    // Cariler içinden bul
-    const found = customers.find(
-      (c) => 
-        c.code.toLowerCase() === (selectedCustCode || customerSearch).toLowerCase() ||
-        c.taxNumber === customerSearch ||
-        c.name.toLowerCase().includes(customerSearch.toLowerCase())
-    );
-
-    if (!found) {
-      setCustError('Girdiğiniz bilgilerle eşleşen cari hesap bulunamadı.');
+    if (!trimmedUser) {
+      setError('Lütfen Kullanıcı Adınızı giriniz.');
       return;
     }
 
-    const authUser: AuthUser = {
-      id: `cust-${found.id}`,
-      role: 'customer',
-      code: found.code,
-      name: found.name,
-      customerId: found.id,
-      customerCode: found.code,
-    };
+    setIsLoading(true);
 
-    login(authUser);
+    // Beni Hatırla durumunu kaydet
+    if (rememberMe) {
+      localStorage.setItem('polatlar_login_company', trimmedCompany);
+      localStorage.setItem('polatlar_login_user', trimmedUser);
+      localStorage.setItem('polatlar_remember_me', 'true');
+    } else {
+      localStorage.removeItem('polatlar_login_company');
+      localStorage.removeItem('polatlar_login_user');
+      localStorage.setItem('polatlar_remember_me', 'false');
+    }
+
+    // Server konfigürasyonunu güncelle
+    updateServerConfig({ companyCode: trimmedCompany });
+
+    // Kullanıcı eşleştirme (Plasiyer veya Müşteri)
+    setTimeout(() => {
+      // Eğer kullanıcı adı bir müşteriye aitse B2B olarak aç
+      const foundCustomer = customers.find(
+        (c) =>
+          c.code.toLowerCase() === trimmedUser.toLowerCase() ||
+          c.id === trimmedUser ||
+          c.name.toLowerCase().includes(trimmedUser.toLowerCase())
+      );
+
+      if (foundCustomer) {
+        const authUser: AuthUser = {
+          id: `cust-${foundCustomer.id}`,
+          role: 'customer',
+          code: foundCustomer.code,
+          name: foundCustomer.name,
+          customerId: foundCustomer.id,
+          customerCode: foundCustomer.code,
+        };
+        login(authUser);
+        setIsLoading(false);
+        return;
+      }
+
+      // Varsayılan: Plasiyer (PLS01, Ahmet Yılmaz vb.)
+      const isPls02 = trimmedUser.toUpperCase() === 'PLS02';
+      const authUser: AuthUser = {
+        id: `rep-${trimmedUser.toUpperCase()}`,
+        role: 'plasiyer',
+        code: trimmedUser.toUpperCase(),
+        name: isPls02 ? 'Mehmet Demir' : 'Ahmet Yılmaz',
+        salesRepCode: trimmedUser.toUpperCase(),
+      };
+
+      login(authUser);
+      setIsLoading(false);
+    }, 350);
   };
 
-  // Hızlı Demo Giriş Fonksiyonları
-  const handleQuickPlasiyer = () => {
-    login({
-      id: 'rep-PLS01',
-      role: 'plasiyer',
-      code: 'PLS01',
-      name: 'Ahmet Yılmaz',
-      salesRepCode: 'PLS01',
-    });
-  };
-
-  const handleQuickCustomer = (cust?: Customer) => {
-    const target = cust || customers[0] || {
-      id: '444154',
-      code: '120-00308',
-      name: 'BERAT YEMEK TEM.MED.TAR.HAYV.SAN. VE TİC.LTD.ŞTİ.',
-    };
-
-    login({
-      id: `cust-${target.id}`,
-      role: 'customer',
-      code: target.code,
-      name: target.name,
-      customerId: target.id,
-      customerCode: target.code,
-    });
+  // Hızlı Demo Doldurma
+  const handleQuickFill = (comp: string, usr: string, pass: string) => {
+    setCompanyCode(comp);
+    setUsername(usr);
+    setPassword(pass);
+    setError('');
   };
 
   return (
-    <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col justify-between p-4 sm:p-6 relative overflow-y-auto">
-      {/* Arka Plan Dekorasyonu */}
-      <div className="absolute -top-32 -left-32 w-80 h-80 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-32 -right-32 w-80 h-80 bg-emerald-600/15 rounded-full blur-3xl pointer-events-none" />
+    <div className="min-h-screen bg-gradient-to-br from-[#009fd9] via-[#0284c7] to-[#0369a1] text-slate-100 flex flex-col justify-between p-4 sm:p-6 relative overflow-x-hidden select-none">
+      {/* Arka Plan Yumuşak Işık Efektleri */}
+      <div className="absolute -top-32 -left-32 w-96 h-96 bg-white/20 rounded-full blur-3xl pointer-events-none" />
+      <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-blue-900/40 rounded-full blur-3xl pointer-events-none" />
 
-      {/* Üst Çubuk */}
-      <div className="flex items-center justify-between z-10">
-        <div className="flex items-center gap-2">
-          <div className="w-9 h-9 rounded-xl bg-blue-600 flex items-center justify-center font-black text-white shadow-lg shadow-blue-500/30">
-            12
-          </div>
-          <div>
-            <h1 className="font-extrabold text-sm tracking-wide text-white leading-tight">
-              POLATLAR YAZILIM
-            </h1>
-            <span className="text-[10px] text-blue-400 font-medium">
-              Saha Satış & B2B Portalı
-            </span>
-          </div>
+      {/* Üst Durum Barı (Tema & Çevrimiçi) */}
+      <div className="flex items-center justify-between z-10 w-full max-w-md mx-auto">
+        <div className="flex items-center gap-1.5 text-xs text-white/90 bg-white/15 backdrop-blur-md px-3 py-1 rounded-full border border-white/20 shadow-xs">
+          {isOnline ? <Wifi className="w-3.5 h-3.5 text-emerald-300" /> : <WifiOff className="w-3.5 h-3.5 text-amber-300 animate-pulse" />}
+          <span className="font-semibold">{isOnline ? 'ERP12 Çevrimiçi' : 'Çevrimdışı Mod'}</span>
         </div>
 
-        <div className="flex items-center gap-2">
-          {/* Çevrimiçi Durumu */}
-          <span className={`flex items-center gap-1 text-[11px] px-2.5 py-1 rounded-full font-semibold border ${
-            isOnline 
-              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/30' 
-              : 'bg-amber-500/10 text-amber-400 border-amber-500/30'
-          }`}>
-            {isOnline ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-            <span>{isOnline ? 'ERP12 Çevrimiçi' : 'Çevrimdışı'}</span>
-          </span>
-
-          {/* Tema Değiştir */}
-          <button
-            onClick={toggleTheme}
-            className="p-2 rounded-xl bg-slate-800/80 text-slate-300 hover:text-white border border-slate-700/80 transition"
-            title="Tema Değiştir"
-          >
-            {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4 text-slate-300" />}
-          </button>
-        </div>
+        <button
+          onClick={toggleTheme}
+          className="p-2 rounded-full bg-white/15 backdrop-blur-md text-white hover:bg-white/25 border border-white/20 transition"
+          title="Tema Değiştir"
+        >
+          {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-300" /> : <Moon className="w-4 h-4 text-white" />}
+        </button>
       </div>
 
-      {/* Ana Giriş Kutusu */}
-      <div className="w-full max-w-sm mx-auto my-auto z-10 py-4">
-        {/* Android Ana Ekrana Ekleme Banner'ı (Cihaza yüklü değilse gösterilir) */}
-        {!isPwaInstalled && (
-          <div className="mb-4 p-3 rounded-2xl bg-gradient-to-r from-blue-900/80 via-indigo-900/80 to-slate-800/90 border border-blue-500/40 shadow-lg shadow-blue-500/10 flex items-center justify-between gap-3 backdrop-blur-xs">
-            <div className="flex items-center gap-2.5 min-w-0">
-              <div className="w-9 h-9 rounded-xl bg-blue-600/30 border border-blue-400/40 flex items-center justify-center shrink-0">
-                <Smartphone className="w-5 h-5 text-amber-300 animate-pulse" />
+      {/* Ana Giriş Kartı */}
+      <div className="w-full max-w-md mx-auto my-auto z-10 py-4">
+        <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/40 dark:border-slate-800 text-slate-900 dark:text-slate-100 transition-all">
+          {/* Görsel-5 Logo: POLATLAR YAZILIM */}
+          <div className="text-center mb-6">
+            <div className="inline-block relative">
+              <div className="flex items-baseline justify-center tracking-tight">
+                <span className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-700 via-sky-600 to-indigo-700 dark:from-sky-400 dark:via-blue-400 dark:to-indigo-400 font-sans">
+                  POLATLAR
+                </span>
               </div>
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="font-extrabold text-xs text-white">Android Ana Ekrana Ekle</span>
-                  <span className="px-1.5 py-0.2 bg-amber-400 text-slate-950 font-black text-[9px] rounded-full">
-                    PWA
-                  </span>
-                </div>
-                <p className="text-[10px] text-slate-300 truncate">
-                  Tam ekran uygulama deneyimi ve çevrimdışı kullanım
-                </p>
+              <div className="text-[13px] font-serif italic text-sky-600 dark:text-sky-400 tracking-widest text-right -mt-1 font-semibold">
+                yazılım
               </div>
             </div>
-            <button
-              onClick={() => promptPwaInstall()}
-              className="px-3 py-1.5 rounded-xl bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-extrabold text-xs shrink-0 shadow-md shadow-blue-500/30 active:scale-95 transition flex items-center gap-1"
-            >
-              <Download className="w-3.5 h-3.5" />
-              <span>Yükle</span>
-            </button>
+
+            {/* Görsel-5 Başlık: Giriş Yapın */}
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-4 tracking-tight">
+              Giriş Yapın
+            </h2>
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              ERP12 Mobil Saha Satış Portalı
+            </p>
           </div>
-        )}
 
-        {/* Tab Seçimi: Plasiyer vs B2B */}
-        <div className="grid grid-cols-2 p-1 bg-slate-800/90 rounded-2xl border border-slate-700/80 mb-5">
-          <button
-            onClick={() => setActiveTab('plasiyer')}
-            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl font-bold text-xs transition ${
-              activeTab === 'plasiyer'
-                ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <UserCheck className="w-4 h-4" />
-            <span>Plasiyer Girişi</span>
-          </button>
+          {/* Hata Mesajı */}
+          {error && (
+            <div className="mb-4 p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2 animate-in fade-in">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+              <span>{error}</span>
+            </div>
+          )}
 
-          <button
-            onClick={() => setActiveTab('customer')}
-            className={`flex items-center justify-center gap-2 py-2.5 rounded-xl font-bold text-xs transition ${
-              activeTab === 'customer'
-                ? 'bg-emerald-600 text-white shadow-md shadow-emerald-600/30'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Store className="w-4 h-4" />
-            <span>B2B Bayi Girişi</span>
-          </button>
-        </div>
-
-        {/* TAB 1: PLASİYER PIN GİRİŞİ */}
-        {activeTab === 'plasiyer' && (
-          <div className="bg-slate-800/90 border border-slate-700/80 rounded-3xl p-5 shadow-2xl backdrop-blur-md">
-            {/* Plasiyer Temsilci Seçimi */}
-            <div className="mb-4">
-              <label className="block text-[11px] font-semibold text-slate-400 mb-1.5 uppercase tracking-wider">
-                Satış Temsilcisi
+          {/* Giriş Formu (Görsel-5) */}
+          <form onSubmit={handleLogin} className="space-y-4">
+            {/* 1. Kurum Kodu */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
+                Kurum Kodu
               </label>
-              <select
-                value={selectedRepCode}
-                onChange={(e) => setSelectedRepCode(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-white focus:outline-none focus:border-blue-500"
-              >
-                <option value="PLS01">PLS01 - Ahmet Yılmaz (Marmara)</option>
-                <option value="PLS02">PLS02 - Mehmet Demir (Erzurum Merkez)</option>
-                <option value="PLS03">PLS03 - Ali Kaya (Doğu Anadolu)</option>
-              </select>
+              <div className="relative">
+                <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={companyCode}
+                  onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
+                  placeholder="Örn: OSMANLI"
+                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-xs sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 uppercase font-mono shadow-2xs transition"
+                  required
+                />
+              </div>
             </div>
 
-            {/* PIN Gösterge Noktaları */}
-            <div className="text-center my-3">
-              <div className="text-xs text-slate-400 mb-2 flex items-center justify-center gap-1.5 font-medium">
-                <Lock className="w-3.5 h-3.5 text-blue-400" />
-                <span>4 Haneli PIN Kodunuzu Giriniz</span>
+            {/* 2. Kullanıcı Adı */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
+                Kullanıcı Adı
+              </label>
+              <div className="relative">
+                <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                  placeholder="Örn: PLS01 veya Ahmet"
+                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-2xs transition"
+                  required
+                />
               </div>
-
-              <div className="flex justify-center items-center gap-3 my-2">
-                {[0, 1, 2, 3].map((idx) => {
-                  const isFilled = pin.length > idx;
-                  return (
-                    <div
-                      key={idx}
-                      className={`w-4 h-4 rounded-full transition-all duration-200 ${
-                        isFilled
-                          ? 'bg-blue-500 scale-110 shadow-md shadow-blue-500/50'
-                          : 'bg-slate-700 border border-slate-600'
-                      }`}
-                    />
-                  );
-                })}
-              </div>
-
-              {pinError && (
-                <div className="text-rose-400 text-[11px] font-semibold mt-1">
-                  {pinError}
-                </div>
-              )}
             </div>
 
-            {/* On-Screen Touch Numpad */}
-            <div className="grid grid-cols-3 gap-2 mt-4 max-w-[260px] mx-auto">
-              {['1', '2', '3', '4', '5', '6', '7', '8', '9'].map((digit) => (
+            {/* 3. Şifre */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
+                Şifre
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-10 py-3 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-2xs transition"
+                />
                 <button
-                  key={digit}
-                  onClick={() => handleKeyClick(digit)}
-                  className="h-12 rounded-2xl bg-slate-700/60 hover:bg-slate-700 text-white font-bold text-lg border border-slate-600/50 active:scale-95 transition shadow-sm"
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition"
+                  title={showPassword ? 'Şifreyi Gizle' : 'Şifreyi Göster'}
                 >
-                  {digit}
+                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
-              ))}
-              <button
-                onClick={handleClearPin}
-                className="h-12 rounded-2xl bg-slate-800 hover:bg-slate-750 text-slate-400 font-semibold text-xs border border-slate-700 active:scale-95 transition"
-              >
-                Temizle
-              </button>
-              <button
-                onClick={() => handleKeyClick('0')}
-                className="h-12 rounded-2xl bg-slate-700/60 hover:bg-slate-700 text-white font-bold text-lg border border-slate-600/50 active:scale-95 transition shadow-sm"
-              >
-                0
-              </button>
-              <button
-                onClick={handleDeleteKey}
-                className="h-12 rounded-2xl bg-slate-800 hover:bg-slate-750 text-rose-400 font-bold flex items-center justify-center border border-slate-700 active:scale-95 transition"
-              >
-                <Delete className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Giriş Butonu */}
-            <button
-              onClick={() => verifyAndLoginPlasiyer()}
-              className="w-full mt-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-blue-600/30 active:scale-95 transition flex items-center justify-center gap-1.5"
-            >
-              <span>Saha Ekranını Aç</span>
-              <ArrowRight className="w-4 h-4" />
-            </button>
-          </div>
-        )}
-
-        {/* TAB 2: B2B BAYİ GİRİŞİ */}
-        {activeTab === 'customer' && (
-          <form onSubmit={handleCustomerLogin} className="bg-slate-800/90 border border-slate-700/80 rounded-3xl p-5 shadow-2xl backdrop-blur-md space-y-3.5">
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-400 mb-1 uppercase tracking-wider">
-                Kayıtlı Bayi / Cari Seçimi
-              </label>
-              <select
-                value={selectedCustCode}
-                onChange={(e) => {
-                  setSelectedCustCode(e.target.value);
-                  setCustomerSearch(e.target.value);
-                  setCustError('');
-                }}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-semibold text-white focus:outline-none focus:border-emerald-500"
-              >
-                <option value="">-- Listeden Cari Seçiniz --</option>
-                {customers.slice(0, 30).map((c) => (
-                  <option key={c.id} value={c.code}>
-                    {c.code} - {c.name}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-400 mb-1 uppercase tracking-wider">
-                Veya Vergi No / Cari Kodu Girin
-              </label>
-              <input
-                type="text"
-                placeholder="Örn: 120-00308 veya Vergi No"
-                value={customerSearch}
-                onChange={(e) => {
-                  setCustomerSearch(e.target.value);
-                  setCustError('');
-                }}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-400 mb-1 uppercase tracking-wider">
-                Şifre / PIN Kodu
-              </label>
-              <input
-                type="password"
-                placeholder="Şifreniz (Varsayılan: 1234)"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500"
-              />
-            </div>
-
-            {custError && (
-              <div className="flex items-center gap-1.5 text-rose-400 text-xs font-medium">
-                <AlertCircle className="w-4 h-4 shrink-0" />
-                <span>{custError}</span>
               </div>
-            )}
+            </div>
 
+            {/* 4. Beni Hatırla (Görsel-5) */}
+            <div className="flex items-center justify-between pt-1">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  className="w-4 h-4 rounded text-sky-600 focus:ring-sky-500 border-slate-300 dark:border-slate-700"
+                />
+                <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Beni Hatırla
+                </span>
+              </label>
+
+              <span className="text-[11px] text-sky-600 dark:text-sky-400 font-bold hover:underline cursor-pointer">
+                Şifremi Unuttum?
+              </span>
+            </div>
+
+            {/* 5. Görsel-5: Giriş Yap Butonu */}
             <button
               type="submit"
-              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-lg shadow-emerald-600/30 active:scale-95 transition flex items-center justify-center gap-1.5 mt-2"
+              disabled={isLoading}
+              className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white font-black py-3.5 px-4 rounded-2xl shadow-xl shadow-blue-600/30 transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2 text-sm tracking-wide disabled:opacity-50"
             >
-              <Store className="w-4 h-4" />
-              <span>B2B Bayi Portalı Girişi</span>
+              {isLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <span>Doğrulanıyor...</span>
+                </>
+              ) : (
+                <>
+                  <span>Giriş Yap</span>
+                  <ArrowRight className="w-4 h-4" />
+                </>
+              )}
             </button>
           </form>
-        )}
 
-        {/* Hızlı Demo Giriş Alanı */}
-        <div className="mt-5 p-3 rounded-2xl bg-slate-800/50 border border-slate-700/50 text-center">
-          <div className="text-[11px] text-slate-400 font-semibold mb-2 flex items-center justify-center gap-1">
-            <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-            <span>Hızlı Test / Demo Girişi</span>
-          </div>
-
-          <div className="flex flex-col sm:flex-row gap-2">
-            <button
-              onClick={handleQuickPlasiyer}
-              className="flex-1 py-1.5 px-2 bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border border-blue-500/30 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1"
-            >
-              <UserCheck className="w-3 h-3 text-blue-400" />
-              <span>Plasiyer (Ahmet Y.)</span>
-            </button>
-
-            <button
-              onClick={() => handleQuickCustomer()}
-              className="flex-1 py-1.5 px-2 bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/30 rounded-xl text-[11px] font-bold transition flex items-center justify-center gap-1"
-            >
-              <Store className="w-3 h-3 text-emerald-400" />
-              <span>B2B Bayi Girişi</span>
-            </button>
+          {/* Hızlı Demo Giriş Kısayolları */}
+          <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 text-center">
+            <span className="text-[11px] text-slate-400 font-semibold block mb-2">
+              ⚡ Hızlı Test Girişi
+            </span>
+            <div className="flex gap-2 justify-center">
+              <button
+                type="button"
+                onClick={() => handleQuickFill('OSMANLI', 'PLS01', '1234')}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300 transition"
+              >
+                👤 Plasiyer (PLS01)
+              </button>
+              <button
+                type="button"
+                onClick={() => handleQuickFill('OSMANLI', '120-00894', '1234')}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300 transition"
+              >
+                🏢 Bayi / Müşteri
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Alt Bilgi */}
-      <div className="text-center text-[11px] text-slate-500 z-10">
-        POLATLAR YAZILIM Entegre Satış & ERP12 Dağıtım Ağı • v4.0 Enterprise
+      {/* Görsel-5: Alt İletişim & Adres Footer */}
+      <div className="w-full max-w-md mx-auto z-10 text-white/95 text-center text-xs space-y-2 pt-2 pb-1 font-medium">
+        <div className="flex items-center justify-center gap-2 text-center text-[11px] sm:text-xs leading-relaxed">
+          <MapPin className="w-4 h-4 shrink-0 text-amber-300" />
+          <span>Muratpaşa Mah. Uzun Sk. Sina İş Merkezi K:5 N:10 Yakutiye/ERZURUM</span>
+        </div>
+
+        <div className="flex items-center justify-center gap-4 text-[11px] sm:text-xs">
+          <a
+            href="tel:05336082353"
+            className="flex items-center gap-1.5 hover:text-amber-200 transition font-bold"
+          >
+            <Phone className="w-3.5 h-3.5 text-emerald-300" />
+            <span>0533 608 2353</span>
+          </a>
+
+          <a
+            href="mailto:info@polatlaryazilim.com"
+            className="flex items-center gap-1.5 hover:text-amber-200 transition font-bold"
+          >
+            <Mail className="w-3.5 h-3.5 text-sky-200" />
+            <span>info@polatlaryazilim.com</span>
+          </a>
+        </div>
       </div>
     </div>
   );

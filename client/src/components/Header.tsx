@@ -5,27 +5,23 @@ import {
   WifiOff, 
   RefreshCw, 
   Building2, 
-  CheckCircle2, 
-  AlertCircle,
-  Sun,
-  Moon,
-  UserCheck,
-  Store,
-  Users,
-  Repeat,
-  Banknote,
-  Bell,
-  LogOut,
-  RotateCcw,
-  TrendingUp,
+  Sun, 
+  Moon, 
+  UserCheck, 
+  Store, 
+  Users, 
+  Repeat, 
+  Bell, 
+  LogOut, 
   Gift,
-  Truck,
-  Flame,
-  Trophy,
-  Download
+  CheckCircle2,
+  AlertCircle,
+  Banknote,
+  RotateCcw
 } from 'lucide-react';
 import { RoleSwitcherModal } from './RoleSwitcherModal';
 import { CompanyProfileModal } from './CompanyProfileModal';
+import { CategoryStoriesBar } from './CategoryStoriesBar';
 
 export const Header: React.FC = () => {
   const { 
@@ -34,13 +30,11 @@ export const Header: React.FC = () => {
     toggleTheme,
     userRole,
     currentCustomerUser,
-    isPwaInstalled,
-    promptPwaInstall,
     salesRep, 
     serverConfig, 
     updateServerConfig,
     selectedCustomer, 
-    selectCustomer, 
+    selectCustomer,
     pendingOrdersCount,
     pendingCollectionsCount,
     pendingReturnsCount,
@@ -49,7 +43,6 @@ export const Header: React.FC = () => {
     logout,
     openCollectionModal,
     openReturnModal,
-    openDailyReportModal,
     lastSyncTime,
     autoSyncEnabled,
     toggleAutoSync,
@@ -60,11 +53,7 @@ export const Header: React.FC = () => {
     requestNotificationPermission,
     setActiveTab,
     openCampaignsModal,
-    activeCampaigns,
-    saleMode,
-    vanPlate,
-    openPerformanceModal,
-    performanceSummary
+    activeCampaigns
   } = useApp();
 
   const [syncToast, setSyncToast] = useState<{ show: boolean; message: string; success: boolean } | null>(null);
@@ -317,78 +306,8 @@ export const Header: React.FC = () => {
           )}
         </div>
 
-        {/* Plasiyer Hızlı Aksiyon & Mod Şeridi (Taşmayı Önleyen Yatay Bar) */}
-        {userRole === 'plasiyer' && (
-          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-950/80 border-t border-slate-800/80 overflow-x-auto no-scrollbar w-full max-w-full">
-            {/* 1. Kampanyalar */}
-            <button
-              onClick={openCampaignsModal}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold bg-purple-950/70 hover:bg-purple-900 text-purple-200 border border-purple-800/60 shadow-xs transition active:scale-95 whitespace-nowrap shrink-0"
-              title="Aktif Saha Kampanyalarını İncele"
-            >
-              <Gift className="w-3.5 h-3.5 text-purple-400" />
-              <span>Kampanya</span>
-              {activeCampaigns.length > 0 && (
-                <span className="bg-purple-600 text-white text-[9px] px-1.5 py-0.2 rounded-full font-black">
-                  {activeCampaigns.length}
-                </span>
-              )}
-            </button>
-
-            {/* 2. Sıcak Satış / Araç Stoğu */}
-            <button
-              onClick={() => setActiveTab('van_stock')}
-              className={`flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold shadow-xs transition active:scale-95 whitespace-nowrap shrink-0 ${
-                saleMode === 'hot'
-                  ? 'bg-amber-600 hover:bg-amber-500 text-white shadow-amber-600/30 ring-1 ring-amber-300'
-                  : 'bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700'
-              }`}
-              title={`Satış Modu: ${saleMode === 'hot' ? 'Sıcak Satış (Araçtan Anında Teslim)' : 'Soğuk Satış'} - Araç: ${vanPlate}`}
-            >
-              {saleMode === 'hot' ? (
-                <Flame className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
-              ) : (
-                <Truck className="w-3.5 h-3.5 text-blue-300" />
-              )}
-              <span>{saleMode === 'hot' ? `Sıcak (${vanPlate})` : 'Araç Stoğu'}</span>
-            </button>
-
-            {/* 3. Gün Sonu Z Raporu */}
-            <button
-              onClick={openDailyReportModal}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold bg-slate-800 hover:bg-slate-700 text-amber-400 border border-slate-700 shadow-xs transition active:scale-95 whitespace-nowrap shrink-0"
-              title="Gün Sonu Kapanış (Z Raporu)"
-            >
-              <TrendingUp className="w-3.5 h-3.5" />
-              <span>Z Raporu</span>
-            </button>
-
-            {/* 4. Kota & Prim Paneli (Aşama 10) */}
-            <button
-              onClick={openPerformanceModal}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-xl text-xs font-bold bg-gradient-to-r from-amber-500/20 to-yellow-500/20 hover:from-amber-500/30 hover:to-yellow-500/30 text-amber-300 border border-amber-500/30 shadow-xs transition active:scale-95 whitespace-nowrap shrink-0"
-              title={`Aylık Ciro Gerçekleşme: %${performanceSummary.revenueProgressPercent} - ${performanceSummary.activeTier.badge}`}
-            >
-              <Trophy className="w-3.5 h-3.5 text-yellow-400" />
-              <span>Kota & Prim</span>
-              <span className="bg-amber-500/30 text-yellow-300 text-[10px] px-1.5 py-0.2 rounded-full font-black">
-                %{performanceSummary.revenueProgressPercent}
-              </span>
-            </button>
-
-            {/* 5. Ana Ekrana Ekleme Butonu */}
-            {!isPwaInstalled && (
-              <button
-                onClick={() => promptPwaInstall()}
-                className="flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-black bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white border border-blue-400/50 shadow-md shadow-blue-500/30 transition active:scale-95 whitespace-nowrap shrink-0 animate-pulse"
-                title="Uygulamayı Cihazınıza / Bilgisayarınıza Yükleyin"
-              >
-                <Download className="w-3.5 h-3.5 text-amber-300" />
-                <span>Uygulamayı Yükle</span>
-              </button>
-            )}
-          </div>
-        )}
+        {/* Görsel-2: Instagram Hikayeleri Tarzı Üst Kategori Çubuğu */}
+        <CategoryStoriesBar />
 
         {/* Plasiyer Modunda Aktif Cari Bilgisi Barı */}
         {userRole === 'plasiyer' && (

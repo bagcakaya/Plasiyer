@@ -22,6 +22,7 @@ export interface Customer {
   id: string; // Cari Kodu veya ID
   code: string;
   name: string;
+  logo?: string;
   city: string;
   district: string;
   address: string;
