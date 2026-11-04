@@ -372,6 +372,7 @@ export const CartPage: React.FC = () => {
     isOnline,
     setActiveTab,
     openPrintSlip,
+    activeCampaigns,
     openCampaignsModal,
     saleMode,
     setSaleMode,
@@ -608,13 +609,15 @@ export const CartPage: React.FC = () => {
           Sipariş Kalemleri ({cartSummary.totalItems} Adet)
         </span>
         <div className="flex items-center gap-3">
-          <button
-            onClick={() => openCampaignsModal()}
-            className="text-xs text-purple-600 dark:text-purple-400 hover:text-purple-700 font-bold flex items-center gap-1"
-          >
-            <Gift className="w-3.5 h-3.5" />
-            <span>Kampanyalar</span>
-          </button>
+          {activeCampaigns.length > 0 && (
+            <button
+              onClick={() => openCampaignsModal()}
+              className="text-xs text-purple-600 dark:text-purple-400 hover:text-purple-700 font-bold flex items-center gap-1"
+            >
+              <Gift className="w-3.5 h-3.5" />
+              <span>Kampanyalar</span>
+            </button>
+          )}
           <button
             onClick={clearCart}
             className="text-xs text-rose-600 dark:text-rose-400 hover:text-rose-700 font-medium flex items-center gap-1"

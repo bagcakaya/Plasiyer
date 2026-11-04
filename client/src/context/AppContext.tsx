@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useRef, useMemo } from 'react';
+import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, seedInitialDataIfNeeded } from '../db';
 import { syncService, type SyncResult } from '../services/syncService';
@@ -349,40 +349,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const openCampaignsModal = () => setIsCampaignsModalOpen(true);
   const closeCampaignsModal = () => setIsCampaignsModalOpen(false);
 
-  // Aşama 7: Kampanyalar ve Ürünler
-  const dbCampaigns = useLiveQuery(() => db.campaigns.toArray(), []) || [];
+  // Aşama 7: Kampanyalar şimdilik devre dışı bırakıldı (saf sepet hesaplaması)
   const dbProducts = useLiveQuery(() => db.products.toArray(), []) || [];
+  const activeCampaigns = useMemo<Campaign[]>(() => [], []);
 
-  const activeCampaigns = useMemo(() => {
-    return dbCampaigns.filter((c) => c.isActive);
-  }, [dbCampaigns]);
-
-  // Akıllı Kampanya & Promosyon Değerlendirme Motoru
   const cartEvaluation = useMemo(() => {
-    return campaignService.evaluateCart(rawCart, dbCampaigns, dbProducts);
-  }, [rawCart, dbCampaigns, dbProducts]);
+    return campaignService.evaluateCart(rawCart, [], dbProducts);
+  }, [rawCart, dbProducts]);
 
   const cart = cartEvaluation.processedCart;
   const cartSummary = cartEvaluation.summary;
-
-  const prevCampaignCountRef = useRef(0);
-  useEffect(() => {
-    const curCount = cartEvaluation.appliedCampaigns.length;
-    if (curCount > prevCampaignCountRef.current && curCount > 0) {
-      const latest = cartEvaluation.appliedCampaigns[cartEvaluation.appliedCampaigns.length - 1];
-      soundNotification.playOrderChime();
-      setActiveToastNotification({
-        id: 'notif-camp-' + Date.now(),
-        type: 'system',
-        title: `${latest.badge} Kampanya Kazanıldı!`,
-        message: `${latest.campaignTitle}: ${latest.benefitDescription}`,
-        timestamp: new Date().toISOString(),
-        read: false,
-      });
-      setTimeout(() => setActiveToastNotification(null), 6000);
-    }
-    prevCampaignCountRef.current = curCount;
-  }, [cartEvaluation.appliedCampaigns]);
 
   const [activeTab, setActiveTab] = useState<'customers' | 'catalog' | 'cart' | 'orders' | 'routes' | 'settings' | 'van_stock'>('catalog');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
@@ -1360,7 +1336,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         pendingOrdersCount,
         isSyncing,
         triggerSync,
-        campaigns: dbCampaigns,
+        campaigns: activeCampaigns,
         activeCampaigns,
         isCampaignsModalOpen,
         openCampaignsModal,

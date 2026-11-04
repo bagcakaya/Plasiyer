@@ -261,20 +261,20 @@ export const DesktopSidebar: React.FC = () => {
             </div>
 
             {/* Kampanyalar */}
-            <button
-              onClick={openCampaignsModal}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold text-purple-300 hover:bg-purple-950/40 transition text-left"
-            >
-              <span className="flex items-center gap-2">
-                <Gift className="w-4 h-4 text-purple-400" />
-                <span>Kampanyalar</span>
-              </span>
-              {activeCampaigns.length > 0 && (
+            {activeCampaigns.length > 0 && (
+              <button
+                onClick={openCampaignsModal}
+                className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-semibold text-purple-300 hover:bg-purple-950/40 transition text-left"
+              >
+                <span className="flex items-center gap-2">
+                  <Gift className="w-4 h-4 text-purple-400" />
+                  <span>Kampanyalar</span>
+                </span>
                 <span className="bg-purple-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-bold">
                   {activeCampaigns.length}
                 </span>
-              )}
-            </button>
+              </button>
+            )}
 
             {/* Z Raporu */}
             <button
