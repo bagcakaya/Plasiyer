@@ -6,6 +6,8 @@
  * 3. Yüksek Kaliteli Vektör Kategori Rozeti (SVG): Çevrimdışı garantili, sıfır hatalı, profesyonel
  */
 
+const svgBadgeCache = new Map<string, string>();
+
 function createCategorySvgBadge(
   title: string,
   category: string,
@@ -15,6 +17,9 @@ function createCategorySvgBadge(
 ): string {
   const safeTitle = (title || 'Ürün').slice(0, 24).replace(/[<>&"']/g, '');
   const safeCategory = (category || 'Genel').slice(0, 22).replace(/[<>&"']/g, '');
+  const cacheKey = `${safeTitle}|${safeCategory}|${c1}|${c2}`;
+  const cached = svgBadgeCache.get(cacheKey);
+  if (cached) return cached;
 
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300">
     <defs>
@@ -55,7 +60,12 @@ function createCategorySvgBadge(
     </g>
   </svg>`;
 
-  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  const encoded = `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+  if (svgBadgeCache.size > 600) {
+    svgBadgeCache.clear();
+  }
+  svgBadgeCache.set(cacheKey, encoded);
+  return encoded;
 }
 
 // Kategori İkon SVG Yolları (Lucide tabanlı temiz vektörler)

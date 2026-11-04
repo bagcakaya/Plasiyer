@@ -37,6 +37,8 @@ export const CustomersPage: React.FC = () => {
 
   const [searchTerm, setSearchTerm] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
+  const CUSTOMERS_PAGE_SIZE = 30;
+  const [visibleCustomerCount, setVisibleCustomerCount] = useState<number>(CUSTOMERS_PAGE_SIZE);
 
   // Modallar
   const [receiptsModalCustomer, setReceiptsModalCustomer] = useState<Customer | null>(null);
@@ -67,12 +69,18 @@ export const CustomersPage: React.FC = () => {
   // Arama değiştiğinde başa sar
   useEffect(() => {
     setActiveIndex(0);
+    setVisibleCustomerCount(CUSTOMERS_PAGE_SIZE);
     if (containerRef.current) {
       containerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
   }, [searchTerm]);
 
-  // Reels kaydırma olayını dinleyip aktif cari indeksini takip et
+  const visibleCustomers = useMemo(
+    () => filteredCustomers.slice(0, visibleCustomerCount),
+    [filteredCustomers, visibleCustomerCount]
+  );
+
+  // Reels kaydırma olayını dinleyip aktif cari indeksini takip et ve kademeli yükle
   const handleScroll = () => {
     if (!containerRef.current) return;
     const { scrollTop, clientHeight } = containerRef.current;
@@ -81,6 +89,11 @@ export const CustomersPage: React.FC = () => {
       if (idx !== activeIndex && idx >= 0 && idx < filteredCustomers.length) {
         setActiveIndex(idx);
       }
+      if (idx >= visibleCustomerCount - 8 && visibleCustomerCount < filteredCustomers.length) {
+        setVisibleCustomerCount((prev) =>
+          Math.min(prev + CUSTOMERS_PAGE_SIZE, filteredCustomers.length)
+        );
+      }
     }
   };
 
@@ -88,6 +101,11 @@ export const CustomersPage: React.FC = () => {
   const scrollToCustomer = (index: number) => {
     if (!containerRef.current) return;
     const targetIdx = Math.max(0, Math.min(filteredCustomers.length - 1, index));
+    if (targetIdx >= visibleCustomerCount - 5 && visibleCustomerCount < filteredCustomers.length) {
+      setVisibleCustomerCount((prev) =>
+        Math.min(Math.max(prev + CUSTOMERS_PAGE_SIZE, targetIdx + 10), filteredCustomers.length)
+      );
+    }
     const cardHeight = containerRef.current.clientHeight;
     containerRef.current.scrollTo({ top: targetIdx * cardHeight, behavior: 'smooth' });
     setActiveIndex(targetIdx);
@@ -204,7 +222,7 @@ export const CustomersPage: React.FC = () => {
             onScroll={handleScroll}
             className="absolute inset-0 overflow-y-scroll snap-y snap-mandatory scroll-smooth no-scrollbar py-1 space-y-3"
           >
-            {filteredCustomers.map((cust) => {
+            {visibleCustomers.map((cust) => {
               const fin = getCustomerFinancials(cust);
               const initials = getInitials(cust.name);
               const isSelected = selectedCustomer?.id === cust.id;

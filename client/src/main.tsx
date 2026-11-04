@@ -5,14 +5,25 @@ import App from './App.tsx'
 import { registerSW } from 'virtual:pwa-register'
 
 let refreshing = false;
-if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-  navigator.serviceWorker.addEventListener('controllerchange', () => {
+if (typeof window !== 'undefined') {
+  // Dağıtım sonrası eski chunk hash hatası oluşursa sayfayı temiz şekilde yenile
+  window.addEventListener('vite:preloadError', (event) => {
+    event.preventDefault();
     if (!refreshing) {
       refreshing = true;
-      console.log('🔄 Yeni Service Worker aktifleşti, sayfa yenileniyor...');
       window.location.reload();
     }
   });
+
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!refreshing) {
+        refreshing = true;
+        console.log('🔄 Yeni Service Worker aktifleşti, sayfa yenileniyor...');
+        window.location.reload();
+      }
+    });
+  }
 }
 
 // Auto-register service worker for PWA offline & Android WebAPK support
@@ -24,10 +35,16 @@ const updateSW = registerSW({
   },
   onRegistered(registration) {
     if (registration) {
-      // 5 saniyede bir yeni sürüm kontrolü yap
+      // 60 saniyede bir ve uygulama öne geldiğinde yeni sürüm kontrolü yap
       setInterval(() => {
         registration?.update().catch(() => {});
-      }, 5000);
+      }, 60000);
+
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') {
+          registration?.update().catch(() => {});
+        }
+      });
     }
   },
 });
@@ -67,6 +84,21 @@ if (typeof window !== 'undefined') {
     },
     { passive: true }
   );
+}
+
+if (typeof window !== 'undefined') {
+  (window as unknown as Record<string, unknown>).__PLASIYER_BOOTED__ = true;
+  try {
+    sessionStorage.removeItem('plasiyer_sw_healed');
+    // URL'de geçici kurtarma parametresi (?v=...) varsa geçmişi kirletmeden temizle
+    if (window.location.search.includes('v=')) {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('v');
+      window.history.replaceState({}, '', url.pathname + url.search + url.hash);
+    }
+  } catch {
+    // ignore storage errors
+  }
 }
 
 createRoot(document.getElementById('root')!).render(

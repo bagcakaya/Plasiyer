@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { useApp } from '../context/AppContext';
@@ -70,6 +70,9 @@ export const CatalogPage: React.FC = () => {
   };
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [photoProduct, setPhotoProduct] = useState<Product | null>(null);
+  const CATALOG_PAGE_SIZE = 60;
+  const [visibleCount, setVisibleCount] = useState<number>(CATALOG_PAGE_SIZE);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   // IndexedDB'den ürünleri çek
   const products = useLiveQuery(() => db.products.toArray(), []);
@@ -80,13 +83,16 @@ export const CatalogPage: React.FC = () => {
   const filteredProducts = useMemo(() => {
     if (!products) return [];
 
-    let result = products.filter((product) => {
-      const matchesSearch =
-        product.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        product.code.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        product.barcode.includes(searchTerm);
+    const q = searchTerm.trim().toLowerCase();
 
-      if (!matchesSearch) return false;
+    return products.filter((product) => {
+      if (q) {
+        const matchesSearch =
+          product.name.toLowerCase().includes(q) ||
+          product.code.toLowerCase().includes(q) ||
+          product.barcode.includes(q);
+        if (!matchesSearch) return false;
+      }
 
       // Masraf kartlarını ürün listesinden hariç tut
       if ((product.category || '').toUpperCase().includes('MASRAF')) {
@@ -103,9 +109,37 @@ export const CatalogPage: React.FC = () => {
 
       return true;
     });
-
-    return result;
   }, [products, searchTerm, selectedCategory]);
+
+  // Arama, kategori veya görünüm modu değiştiğinde ilk sayfadan başlat
+  useEffect(() => {
+    setVisibleCount(CATALOG_PAGE_SIZE);
+  }, [searchTerm, selectedCategory, viewMode]);
+
+  const visibleProducts = useMemo(
+    () => filteredProducts.slice(0, visibleCount),
+    [filteredProducts, visibleCount]
+  );
+  const hasMoreProducts = visibleCount < filteredProducts.length;
+
+  // Sayfa aşağı kaydırıldıkça ürünleri otomatik olarak kademeli yükle (2.000+ ürün için sıfır donma)
+  useEffect(() => {
+    if (!hasMoreProducts) return;
+    const node = loadMoreRef.current;
+    if (!node || typeof IntersectionObserver === 'undefined') return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount((prev) => Math.min(prev + CATALOG_PAGE_SIZE, filteredProducts.length));
+        }
+      },
+      { rootMargin: '500px' }
+    );
+
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMoreProducts, filteredProducts.length]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('tr-TR', {
@@ -115,10 +149,13 @@ export const CatalogPage: React.FC = () => {
     }).format(val);
   };
 
-  // Sepetteki miktarı bul
+  // Sepetteki miktarı O(1) hızda bul
+  const cartQtyMap = useMemo(
+    () => new Map(cart.map((item) => [item.productId, item.quantity])),
+    [cart]
+  );
   const getItemQuantityInCart = (productId: string): number => {
-    const item = cart.find((i) => i.productId === productId);
-    return item ? item.quantity : 0;
+    return cartQtyMap.get(productId) || 0;
   };
 
   const handleBarcodeScanned = (scannedCode: string) => {
@@ -351,7 +388,7 @@ export const CatalogPage: React.FC = () => {
       ) : viewMode === 'grid' ? (
         /* VİTRİN / GRID MODU (B2B E-Ticaret & Masaüstü Çoklu Izgara) */
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 md:gap-4">
-          {filteredProducts.map((product) => {
+          {visibleProducts.map((product) => {
             const inCartQty = getItemQuantityInCart(product.id);
             const isOutOfStock = product.stockQuantity <= 0;
             const priceInfo = calculateCustomerPrice(product, activeCustomer);
@@ -529,7 +566,7 @@ export const CatalogPage: React.FC = () => {
       ) : (
         /* KOMPAKT LİSTE MODU (Plasiyer Hızlı Raf Tarama & Masaüstü Çoklu Sütun) */
         <div className="space-y-2.5 md:space-y-0 md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-3">
-          {filteredProducts.map((product) => {
+          {visibleProducts.map((product) => {
             const inCartQty = getItemQuantityInCart(product.id);
             const isOutOfStock = product.stockQuantity <= 0;
             const priceInfo = calculateCustomerPrice(product, activeCustomer);
@@ -729,6 +766,21 @@ export const CatalogPage: React.FC = () => {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Kademeli Ürün Yükleme Gözlemcisi (2.000+ Ürün için Anında Açılış) */}
+      {hasMoreProducts && (
+        <div ref={loadMoreRef} className="pt-2 pb-4 flex justify-center">
+          <button
+            type="button"
+            onClick={() =>
+              setVisibleCount((prev) => Math.min(prev + CATALOG_PAGE_SIZE, filteredProducts.length))
+            }
+            className="px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-xs transition active:scale-95"
+          >
+            Daha Fazla Ürün Göster ({filteredProducts.length - visibleCount} ürün kaldı)
+          </button>
         </div>
       )}
 
