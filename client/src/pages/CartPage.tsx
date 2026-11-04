@@ -138,16 +138,15 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
     >
       <div className="flex justify-between items-start gap-2">
         <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">{item.productCode}</span>
-            {item.isGift && (
+          {item.isGift && (
+            <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
               <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-600 text-white flex items-center gap-0.5">
                 <Gift className="w-3 h-3" />
                 <span>BEDELSİZ HEDİYE</span>
               </span>
-            )}
-          </div>
-          <h4 className="font-bold text-xs text-slate-900 dark:text-white leading-snug mt-0.5">{item.productName}</h4>
+            </div>
+          )}
+          <h4 className="font-bold text-xs text-slate-900 dark:text-white leading-snug">{item.productName}</h4>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
             {item.isGift ? (
               <>

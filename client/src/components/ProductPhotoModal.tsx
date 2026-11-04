@@ -165,8 +165,6 @@ export const ProductPhotoModal: React.FC<ProductPhotoModalProps> = ({
             {product.name}
           </p>
           <div className="flex items-center gap-3 mt-1 text-xs text-slate-500 dark:text-slate-400">
-            <span>Kod: <strong className="text-slate-700 dark:text-slate-300">{product.code}</strong></span>
-            <span>•</span>
             <span>Barkod: <strong className="text-slate-700 dark:text-slate-300">{product.barcode || '-'}</strong></span>
             <span>•</span>
             <span>Kategori: <strong className="text-slate-700 dark:text-slate-300">{product.category}</strong></span>

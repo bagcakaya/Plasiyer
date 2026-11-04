@@ -181,17 +181,16 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
         {/* Ürün Detayları */}
         <div className="p-5 overflow-y-auto space-y-4 flex-1">
           <div>
-            <div className="flex items-center gap-2">
-              <span className="text-xs font-mono font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded">
-                {product.code}
-              </span>
-              <span className="text-xs font-mono text-slate-400 flex items-center gap-1">
-                <Barcode className="w-3.5 h-3.5" />
-                {product.barcode}
-              </span>
-            </div>
+            {product.barcode && (
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-mono text-slate-400 flex items-center gap-1">
+                  <Barcode className="w-3.5 h-3.5" />
+                  {product.barcode}
+                </span>
+              </div>
+            )}
 
-            <h2 className="text-lg font-black text-slate-900 dark:text-white mt-1.5 leading-snug">
+            <h2 className="text-lg font-black text-slate-900 dark:text-white leading-snug">
               {product.name}
             </h2>
           </div>

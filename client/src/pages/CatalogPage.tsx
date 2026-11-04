@@ -455,8 +455,7 @@ export const CatalogPage: React.FC = () => {
                 <div className="p-2.5 flex-1 flex flex-col justify-between gap-1.5">
                   <div>
                     <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500">
-                      <span className="font-mono font-medium truncate max-w-[80px]">{product.code}</span>
-                      <span className="truncate max-w-[70px]">{product.category}</span>
+                      <span className="truncate">{product.category}</span>
                     </div>
 
                     <h3 
@@ -589,9 +588,6 @@ export const CatalogPage: React.FC = () => {
 
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] font-mono font-semibold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
-                        {product.code}
-                      </span>
                       {userRole !== 'customer' && (
                         <button
                           onClick={(e) => {
