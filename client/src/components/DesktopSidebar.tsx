@@ -53,14 +53,8 @@ export const DesktopSidebar: React.FC = () => {
 
   const totalPending = pendingOrdersCount + pendingCollectionsCount + pendingReturnsCount;
 
-  // Plasiyer Menü Öğeleri
+  // Plasiyer Menü Öğeleri (Rut: Sipariş ile Ayarlar arasında)
   const plasiyerNavItems = [
-    {
-      id: 'routes' as const,
-      label: 'Günlük Rut Planı',
-      icon: Navigation,
-      desc: 'Harita ve ziyaret rotası',
-    },
     {
       id: 'customers' as const,
       label: 'Cari Hesaplar',
@@ -96,6 +90,12 @@ export const DesktopSidebar: React.FC = () => {
       desc: 'Geçmiş fişler ve kuyruk',
       badge: totalPending > 0 ? totalPending : undefined,
       badgeColor: 'bg-rose-600 text-white font-bold',
+    },
+    {
+      id: 'routes' as const,
+      label: 'Günlük Rut Planı',
+      icon: Navigation,
+      desc: 'Harita ve ziyaret rotası',
     },
     {
       id: 'settings' as const,

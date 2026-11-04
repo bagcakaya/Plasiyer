@@ -5,13 +5,8 @@ import { Users, Package, ShoppingCart, Clock, Settings, Store, UserCheck, Naviga
 export const BottomNav: React.FC = () => {
   const { activeTab, setActiveTab, cartSummary, pendingOrdersCount, userRole, saleMode } = useApp();
 
-  // Plasiyer için menü öğeleri
+  // Plasiyer için menü öğeleri (Rut: Sipariş ile Ayarlar arasında)
   const plasiyerNavItems = [
-    {
-      id: 'routes' as const,
-      label: 'Rut',
-      icon: Navigation,
-    },
     {
       id: 'customers' as const,
       label: 'Cariler',
@@ -42,6 +37,11 @@ export const BottomNav: React.FC = () => {
       icon: Clock,
       badge: pendingOrdersCount > 0 ? pendingOrdersCount : undefined,
       badgeColor: 'bg-rose-600',
+    },
+    {
+      id: 'routes' as const,
+      label: 'Rut',
+      icon: Navigation,
     },
     {
       id: 'settings' as const,

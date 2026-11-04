@@ -7,7 +7,7 @@ import {
   Navigation, Calendar, CheckCircle2, Clock, Play, Check, 
   MapPin, Phone, ShoppingCart, Banknote, FileText, AlertTriangle, 
   X, RotateCcw, TrendingUp, Compass, Map as MapIcon, List, 
-  Sparkles, ShieldCheck, ShieldAlert
+  Sparkles, ShieldCheck, ShieldAlert, BatteryCharging, RefreshCw
 } from 'lucide-react';
 import { CustomerStatementModal } from '../components/CustomerStatementModal';
 import { RouteMap } from '../components/RouteMap';
@@ -65,6 +65,8 @@ export const RoutePlanPage: React.FC = () => {
   const [isGpsLive, setIsGpsLive] = useState(false);
   const [gpsError, setGpsError] = useState<string | null>(null);
   const [simulationIndex, setSimulationIndex] = useState<string>('real');
+  const [isGpsActive, setIsGpsActive] = useState(true);
+  const [isRefreshingLocation, setIsRefreshingLocation] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
 
   // Modallar
@@ -81,13 +83,86 @@ export const RoutePlanPage: React.FC = () => {
     customerName: string;
   } | null>(null);
 
-  // Gerçek Cihaz GPS Takibi
+  // Gerçek Cihaz GPS Takibi - YALNIZCA UYGULAMA KULLANILIRKEN (Pil Tasarruflu)
   useEffect(() => {
-    if (!('geolocation' in navigator) || simulationIndex !== 'real') {
+    if (!('geolocation' in navigator) || simulationIndex !== 'real' || !isGpsActive) {
+      setIsGpsLive(false);
       return;
     }
 
-    const watchId = navigator.geolocation.watchPosition(
+    let watchId: number | null = null;
+
+    const startWatching = () => {
+      // Ekran kapalıysa veya uygulama arka plandaysa GPS çalıştırma (Pili koru)
+      if (document.visibilityState === 'hidden') {
+        if (watchId !== null) {
+          navigator.geolocation.clearWatch(watchId);
+          watchId = null;
+          setIsGpsLive(false);
+        }
+        return;
+      }
+
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+
+      watchId = navigator.geolocation.watchPosition(
+        (pos) => {
+          setIsGpsLive(true);
+          setGpsError(null);
+          setCurrentLocation({
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+            accuracy: pos.coords.accuracy,
+            timestamp: pos.timestamp,
+            isSimulated: false,
+          });
+        },
+        (err) => {
+          setIsGpsLive(false);
+          setGpsError('GPS sinyali alınamadı: ' + err.message);
+        },
+        {
+          enableHighAccuracy: true,
+          timeout: 15000,
+          maximumAge: 30000, // 30 saniye önbellek (Aşırı pil tüketimini ve ısınmayı önler)
+        }
+      );
+    };
+
+    const stopWatching = () => {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+        setIsGpsLive(false);
+      }
+    };
+
+    startWatching();
+
+    // Kullanıcı ekranı kapattığında veya başka uygulamaya geçtiğinde GPS'i anında kapat
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        stopWatching();
+      } else {
+        startWatching();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+
+    return () => {
+      stopWatching();
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [simulationIndex, isGpsActive]);
+
+  // Tek seferlik anlık konum yenileme (Pil Tasarruflu)
+  const handleRefreshLocation = () => {
+    if (!('geolocation' in navigator) || simulationIndex !== 'real') return;
+    setIsRefreshingLocation(true);
+    navigator.geolocation.getCurrentPosition(
       (pos) => {
         setIsGpsLive(true);
         setGpsError(null);
@@ -98,22 +173,15 @@ export const RoutePlanPage: React.FC = () => {
           timestamp: pos.timestamp,
           isSimulated: false,
         });
+        setIsRefreshingLocation(false);
       },
       (err) => {
-        setIsGpsLive(false);
-        setGpsError('GPS sinyali alınamadı: ' + err.message);
+        setGpsError('Konum alınamadı: ' + err.message);
+        setIsRefreshingLocation(false);
       },
-      {
-        enableHighAccuracy: true,
-        timeout: 10000,
-        maximumAge: 5000,
-      }
+      { enableHighAccuracy: true, timeout: 8000 }
     );
-
-    return () => {
-      navigator.geolocation.clearWatch(watchId);
-    };
-  }, [simulationIndex]);
+  };
 
   // Simülasyon Konumu Seçimi
   const handleSelectSimulation = (val: string) => {
@@ -376,21 +444,52 @@ export const RoutePlanPage: React.FC = () => {
 
       {/* AŞAMA 9: GPS Araç Çubuğu (Simülasyon, Rota Optimizasyonu & Görünüm Seçici) */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3 shadow-xs space-y-2.5 text-xs">
-        {/* Satır 1: Konum / Simülasyon Seçici */}
-        <div className="flex items-center gap-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-xl px-2.5 py-1.5">
-          <MapPin className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
-          <select
-            value={simulationIndex}
-            onChange={(e) => handleSelectSimulation(e.target.value)}
-            className="w-full bg-transparent text-slate-800 dark:text-slate-200 text-xs font-semibold focus:outline-none cursor-pointer truncate"
-          >
-            <option value="real">📡 Gerçek Cihaz GPS Konumu (Canlı)</option>
-            {SIMULATED_LOCATIONS.map((loc, idx) => (
-              <option key={idx} value={idx}>
-                🎯 {loc.name}
-              </option>
-            ))}
-          </select>
+        {/* Satır 1: Konum / Simülasyon Seçici & Pil Tasarrufu */}
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+          <div className="flex-1 flex items-center gap-2 bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 rounded-xl px-2.5 py-1.5 min-w-0">
+            <MapPin className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+            <select
+              value={simulationIndex}
+              onChange={(e) => handleSelectSimulation(e.target.value)}
+              className="w-full bg-transparent text-slate-800 dark:text-slate-200 text-xs font-semibold focus:outline-none cursor-pointer truncate"
+            >
+              <option value="real">📡 Gerçek Cihaz GPS Konumu (Canlı)</option>
+              {SIMULATED_LOCATIONS.map((loc, idx) => (
+                <option key={idx} value={idx}>
+                  🎯 {loc.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Pil Koruma Kontrolleri: Yalnızca Uygulamadayken Çalışır */}
+          {simulationIndex === 'real' && (
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => setIsGpsActive(!isGpsActive)}
+                className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl font-bold transition shadow-xs text-[11px] cursor-pointer ${
+                  isGpsActive
+                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/25'
+                    : 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/25'
+                }`}
+                title={isGpsActive ? "GPS Canlı Takip Açık (Ekran kapandığında pil korumak için otomatik durur)" : "GPS Duraklatıldı (Açmak için tıklayın)"}
+              >
+                <BatteryCharging className="w-3.5 h-3.5" />
+                <span>{isGpsActive ? 'Canlı GPS (Pil Korumalı)' : 'GPS Duraklatıldı'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleRefreshLocation}
+                disabled={isRefreshingLocation}
+                className="p-1.5 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-xl border border-slate-200 dark:border-slate-700 transition shadow-xs active:scale-95 cursor-pointer"
+                title="Konumumu Yenile (Tek Seferlik)"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingLocation ? 'animate-spin text-blue-500' : ''}`} />
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Satır 2: Optimizasyon Butonu & Görünüm Segment Kontrolü */}
