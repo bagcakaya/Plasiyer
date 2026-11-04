@@ -35,6 +35,7 @@ import type {
 import { campaignService } from '../services/campaignService';
 import { vanStockService } from '../services/vanStockService';
 import { DEFAULT_QUOTA_TARGET, calculatePerformanceSummary } from '../services/quotaService';
+import { plasiyerAuthService } from '../services/plasiyerAuthService';
 
 interface AppContextType {
   isOnline: boolean;
@@ -441,7 +442,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setUserRole('plasiyer');
       localStorage.setItem('b2b_user_role', 'plasiyer');
       if (user.salesRepCode) {
-        const rep = { code: user.salesRepCode, name: user.name, title: 'Saha Satış Temsilcisi' };
+        const rep: SalesRep = {
+          code: user.salesRepCode,
+          name: user.name,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          companyCode: user.companyCode,
+          title: 'Saha Satış Temsilcisi',
+        };
         setSalesRep(rep);
         localStorage.setItem('plasiyer_rep', JSON.stringify(rep));
       }
@@ -734,6 +742,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const updated = { ...serverConfig, ...newConfig };
     setServerConfig(updated);
     localStorage.setItem('plasiyer_server_config', JSON.stringify(updated));
+    plasiyerAuthService.upsertCompanyProfileFromConfig(updated);
 
     // Canlı bir SQL / API bağlantısına geçiş yapıldıysa hemen ürün ve carileri SQL'den çek
     if (!isDemoMode(updated)) {

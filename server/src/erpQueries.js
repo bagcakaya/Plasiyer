@@ -941,5 +941,169 @@ export const erpQueries = {
       financials: allFinancials,
     };
   },
+
+  // 8. PLASİYER KULLANICI HESAPLARI (FİRMA KODU, PLASİYER KODU, AD, SOYAD, ŞİFRE)
+  async ensurePlasiyerAccountsTable() {
+    const ddl = `
+      IF OBJECT_ID('dbo.ERP12_MOBIL_PLASIYER', 'U') IS NULL
+      BEGIN
+        CREATE TABLE dbo.ERP12_MOBIL_PLASIYER (
+          ID int IDENTITY(1,1) PRIMARY KEY,
+          FIRMA_KODU nvarchar(50) NOT NULL,
+          PLASIYER_KODU nvarchar(50) NOT NULL,
+          AD nvarchar(100) NOT NULL,
+          SOYAD nvarchar(100) NOT NULL,
+          SIFRE nvarchar(100) NOT NULL,
+          AKTIF bit NOT NULL DEFAULT 1,
+          GUNCELLEME_TARIHI datetime NOT NULL DEFAULT GETDATE()
+        );
+      END
+      SELECT 1 AS ok;
+    `;
+    await executeJsonQuery(ddl);
+  },
+
+  async getPlasiyerAccounts(companyCode = '') {
+    try {
+      await this.ensurePlasiyerAccountsTable();
+      const esc = (v) => String(v ?? '').replace(/'/g, "''").trim();
+      const filterSql = companyCode
+        ? `AND UPPER(FIRMA_KODU) = UPPER(N'${esc(companyCode)}')`
+        : '';
+      const rows = await executeJsonQuery(`
+        SELECT
+          ID AS id,
+          FIRMA_KODU AS companyCode,
+          PLASIYER_KODU AS repCode,
+          AD AS firstName,
+          SOYAD AS lastName,
+          SIFRE AS [password],
+          CONVERT(varchar(19), GUNCELLEME_TARIHI, 120) AS updatedAt
+        FROM dbo.ERP12_MOBIL_PLASIYER WITH(NOLOCK)
+        WHERE AKTIF = 1 ${filterSql}
+        ORDER BY FIRMA_KODU ASC, PLASIYER_KODU ASC;
+      `);
+      return Array.isArray(rows)
+        ? rows.map((r) => ({
+            id: `sql-${r.companyCode}-${r.repCode}`,
+            companyCode: String(r.companyCode || '').toUpperCase(),
+            repCode: String(r.repCode || '').toUpperCase(),
+            firstName: String(r.firstName || ''),
+            lastName: String(r.lastName || ''),
+            password: String(r.password || ''),
+            updatedAt: String(r.updatedAt || ''),
+          }))
+        : [];
+    } catch (err) {
+      console.warn('Plasiyer tablosu okuma uyarısı:', err.message);
+      return [];
+    }
+  },
+
+  async upsertPlasiyerAccount({ companyCode, repCode, firstName, lastName, password }) {
+    const esc = (v) => String(v ?? '').replace(/'/g, "''").trim();
+    const cCode = esc(companyCode).toUpperCase();
+    const rCode = esc(repCode).toUpperCase();
+    const fName = esc(firstName);
+    const lName = esc(lastName);
+    const pwd = String(password ?? '').replace(/'/g, "''");
+
+    await this.ensurePlasiyerAccountsTable();
+    await executeJsonQuery(`
+      IF EXISTS (
+        SELECT 1 FROM dbo.ERP12_MOBIL_PLASIYER
+        WHERE UPPER(FIRMA_KODU) = N'${cCode}' AND UPPER(PLASIYER_KODU) = N'${rCode}'
+      )
+      BEGIN
+        UPDATE dbo.ERP12_MOBIL_PLASIYER
+        SET AD = N'${fName}',
+            SOYAD = N'${lName}',
+            SIFRE = N'${pwd}',
+            AKTIF = 1,
+            GUNCELLEME_TARIHI = GETDATE()
+        WHERE UPPER(FIRMA_KODU) = N'${cCode}' AND UPPER(PLASIYER_KODU) = N'${rCode}';
+      END
+      ELSE
+      BEGIN
+        INSERT INTO dbo.ERP12_MOBIL_PLASIYER (FIRMA_KODU, PLASIYER_KODU, AD, SOYAD, SIFRE, AKTIF, GUNCELLEME_TARIHI)
+        VALUES (N'${cCode}', N'${rCode}', N'${fName}', N'${lName}', N'${pwd}', 1, GETDATE());
+      END
+      SELECT 1 AS ok;
+    `);
+
+    return {
+      id: `sql-${cCode}-${rCode}`,
+      companyCode: cCode,
+      repCode: rCode,
+      firstName: fName,
+      lastName: lName,
+      password: String(password ?? ''),
+    };
+  },
+
+  async deletePlasiyerAccount({ companyCode, repCode }) {
+    const esc = (v) => String(v ?? '').replace(/'/g, "''").trim();
+    const cCode = esc(companyCode).toUpperCase();
+    const rCode = esc(repCode).toUpperCase();
+    await this.ensurePlasiyerAccountsTable();
+    await executeJsonQuery(`
+      UPDATE dbo.ERP12_MOBIL_PLASIYER
+      SET AKTIF = 0, GUNCELLEME_TARIHI = GETDATE()
+      WHERE UPPER(FIRMA_KODU) = N'${cCode}' AND UPPER(PLASIYER_KODU) = N'${rCode}';
+      SELECT 1 AS ok;
+    `);
+    return { success: true };
+  },
+
+  async authenticatePlasiyer({ companyCode, repCode, password }) {
+    try {
+      await this.ensurePlasiyerAccountsTable();
+      const esc = (v) => String(v ?? '').replace(/'/g, "''").trim();
+      const cCode = esc(companyCode).toUpperCase();
+      const rCode = esc(repCode).toUpperCase();
+      const pwd = String(password ?? '').replace(/'/g, "''");
+
+      const rows = await executeJsonQuery(`
+        SELECT TOP 1
+          FIRMA_KODU AS companyCode,
+          PLASIYER_KODU AS repCode,
+          AD AS firstName,
+          SOYAD AS lastName,
+          SIFRE AS [password]
+        FROM dbo.ERP12_MOBIL_PLASIYER WITH(NOLOCK)
+        WHERE AKTIF = 1
+          AND UPPER(FIRMA_KODU) = N'${cCode}'
+          AND UPPER(PLASIYER_KODU) = N'${rCode}';
+      `);
+
+      if (!Array.isArray(rows) || rows.length === 0) {
+        return { found: false, authenticated: false };
+      }
+
+      const row = rows[0];
+      if (String(row.password || '') !== String(password ?? '')) {
+        return {
+          found: true,
+          authenticated: false,
+          error: 'Plasiyer şifresi hatalı! Lütfen şifrenizi kontrol ediniz.',
+        };
+      }
+
+      return {
+        found: true,
+        authenticated: true,
+        account: {
+          id: `sql-${row.companyCode}-${row.repCode}`,
+          companyCode: String(row.companyCode || '').toUpperCase(),
+          repCode: String(row.repCode || '').toUpperCase(),
+          firstName: String(row.firstName || ''),
+          lastName: String(row.lastName || ''),
+          password: String(row.password || ''),
+        },
+      };
+    } catch (err) {
+      return { found: false, authenticated: false, sqlWarning: err.message };
+    }
+  },
 };
 

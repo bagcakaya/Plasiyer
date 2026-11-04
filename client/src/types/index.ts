@@ -114,9 +114,24 @@ export interface Order {
   syncedAt?: string;
 }
 
+export interface PlasiyerAccount {
+  id: string;
+  companyCode: string;
+  repCode: string;
+  firstName: string;
+  lastName: string;
+  password: string;
+  isDefaultSeed?: boolean;
+  updatedAt?: string;
+}
+
 export interface SalesRep {
   code: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
+  companyCode?: string;
+  password?: string;
   title: string;
   token?: string;
 }
@@ -261,6 +276,9 @@ export interface AuthUser {
   role: UserRole;
   code: string;
   name: string;
+  firstName?: string;
+  lastName?: string;
+  companyCode?: string;
   salesRepCode?: string;
   customerId?: string;
   customerCode?: string;

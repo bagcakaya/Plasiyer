@@ -1,114 +1,136 @@
-import React, { useState } from 'react';
-import { 
-  Building2, 
-  User, 
-  Lock, 
-  Eye, 
-  EyeOff, 
-  ArrowRight, 
-  MapPin, 
-  Phone, 
-  Mail, 
-  Sun, 
-  Moon, 
-  Wifi, 
-  WifiOff, 
-  AlertCircle
+import React, { useState, useEffect } from 'react';
+import {
+  Building2,
+  User,
+  Lock,
+  Eye,
+  EyeOff,
+  ArrowRight,
+  MapPin,
+  Phone,
+  Mail,
+  Sun,
+  Moon,
+  Wifi,
+  WifiOff,
+  AlertCircle,
+  CheckCircle2,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db';
 import type { AuthUser } from '../types';
+import { formatFullName, plasiyerAuthService } from '../services/plasiyerAuthService';
 
 export const LoginPage: React.FC = () => {
   const { login, theme, toggleTheme, isOnline, updateServerConfig } = useApp();
 
+  const initialAccounts = plasiyerAuthService.getLocalAccounts();
+  const defaultSeedAccount = plasiyerAuthService.hasOnlyDefaultSeed() ? initialAccounts[0] : null;
+
   const [companyCode, setCompanyCode] = useState(() => {
-    return localStorage.getItem('polatlar_login_company') || 'OSMANLI';
+    const saved = localStorage.getItem('polatlar_login_company');
+    if (saved) return saved.toUpperCase();
+    return initialAccounts[0]?.companyCode || '';
   });
-  const [username, setUsername] = useState(() => {
-    return localStorage.getItem('polatlar_login_user') || 'PLS01';
+  const [repCode, setRepCode] = useState(() => {
+    const saved = localStorage.getItem('polatlar_login_user');
+    if (saved) return saved.toUpperCase();
+    return defaultSeedAccount?.repCode || '';
   });
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(() => {
-    return localStorage.getItem('polatlar_remember_me') === 'true';
+    const saved = localStorage.getItem('polatlar_remember_me');
+    return saved === null ? true : saved === 'true';
   });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [infoMessage, setInfoMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  const customers = useLiveQuery(() => db.customers.toArray(), []) || [];
+  // Mobil kurulum bağlantısı (?invite=...) ile açıldıysa firma ve plasiyer tanımlarını cihaza aktar
+  useEffect(() => {
+    const inviteRes = plasiyerAuthService.consumeInviteFromUrl();
+    if (inviteRes.imported) {
+      if (inviteRes.companyCode) setCompanyCode(inviteRes.companyCode.toUpperCase());
+      if (inviteRes.repCode) setRepCode(inviteRes.repCode.toUpperCase());
+      setInfoMessage(
+        'Firma ve plasiyer tanımları cihaza aktarıldı. Firma Kodu, Plasiyer Kodu ve Şifrenizi girerek giriş yapabilirsiniz.'
+      );
+    }
+  }, []);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setInfoMessage('');
 
     const trimmedCompany = companyCode.trim().toUpperCase();
-    const trimmedUser = username.trim();
+    const trimmedRepCode = repCode.trim().toUpperCase();
 
     if (!trimmedCompany) {
-      setError('Lütfen Kurum Kodunu giriniz (Örn: OSMANLI).');
+      setError('Lütfen Firma Kodunu giriniz.');
       return;
     }
 
-    if (!trimmedUser) {
-      setError('Lütfen Kullanıcı Adınızı giriniz.');
+    if (!trimmedRepCode) {
+      setError('Lütfen Plasiyer Kodunu giriniz.');
+      return;
+    }
+
+    if (!password) {
+      setError('Lütfen Şifrenizi giriniz.');
       return;
     }
 
     setIsLoading(true);
 
-    // Beni Hatırla durumunu kaydet
-    if (rememberMe) {
-      localStorage.setItem('polatlar_login_company', trimmedCompany);
-      localStorage.setItem('polatlar_login_user', trimmedUser);
-      localStorage.setItem('polatlar_remember_me', 'true');
-    } else {
-      localStorage.removeItem('polatlar_login_company');
-      localStorage.removeItem('polatlar_login_user');
-      localStorage.setItem('polatlar_remember_me', 'false');
-    }
+    try {
+      const authResult = await plasiyerAuthService.authenticate({
+        companyCode: trimmedCompany,
+        repCode: trimmedRepCode,
+        password,
+      });
 
-    // Server konfigürasyonunu güncelle
-    updateServerConfig({ companyCode: trimmedCompany });
-
-    // Kullanıcı eşleştirme (Plasiyer veya Müşteri)
-    setTimeout(() => {
-      // Eğer kullanıcı adı bir müşteriye aitse B2B olarak aç
-      const foundCustomer = customers.find(
-        (c) =>
-          c.code.toLowerCase() === trimmedUser.toLowerCase() ||
-          c.id === trimmedUser ||
-          c.name.toLowerCase().includes(trimmedUser.toLowerCase())
-      );
-
-      if (foundCustomer) {
-        const authUser: AuthUser = {
-          id: `cust-${foundCustomer.id}`,
-          role: 'customer',
-          code: foundCustomer.code,
-          name: foundCustomer.name,
-          customerId: foundCustomer.id,
-          customerCode: foundCustomer.code,
-        };
-        login(authUser);
+      if (!authResult.success || !authResult.account) {
+        setError(authResult.error || 'Firma Kodu, Plasiyer Kodu veya Şifre hatalı.');
         setIsLoading(false);
         return;
       }
 
-      // Varsayılan: Plasiyer (PLS01, Ahmet Yılmaz vb.)
-      const isPls02 = trimmedUser.toUpperCase() === 'PLS02';
+      if (rememberMe) {
+        localStorage.setItem('polatlar_login_company', trimmedCompany);
+        localStorage.setItem('polatlar_login_user', trimmedRepCode);
+        localStorage.setItem('polatlar_remember_me', 'true');
+      } else {
+        localStorage.removeItem('polatlar_login_company');
+        localStorage.removeItem('polatlar_login_user');
+        localStorage.setItem('polatlar_remember_me', 'false');
+      }
+
+      // İlgili firmanın SQL / Sunucu yapılandırmasını aktifleştir
+      if (authResult.matchedServerConfig) {
+        updateServerConfig(authResult.matchedServerConfig);
+      } else {
+        updateServerConfig({ companyCode: trimmedCompany });
+      }
+
+      const acc = authResult.account;
+      const fullName = formatFullName(acc.firstName, acc.lastName) || acc.repCode;
+
       const authUser: AuthUser = {
-        id: `rep-${trimmedUser.toUpperCase()}`,
+        id: `rep-${acc.companyCode}-${acc.repCode}`,
         role: 'plasiyer',
-        code: trimmedUser.toUpperCase(),
-        name: isPls02 ? 'Mehmet Demir' : 'Ahmet Yılmaz',
-        salesRepCode: trimmedUser.toUpperCase(),
+        code: acc.repCode,
+        name: fullName,
+        firstName: acc.firstName,
+        lastName: acc.lastName,
+        companyCode: acc.companyCode,
+        salesRepCode: acc.repCode,
       };
 
       login(authUser);
+    } finally {
       setIsLoading(false);
-    }, 350);
+    }
   };
 
   return (
@@ -120,7 +142,11 @@ export const LoginPage: React.FC = () => {
       {/* Üst Durum Barı (Tema & Çevrimiçi) */}
       <div className="flex items-center justify-between z-10 w-full max-w-md mx-auto">
         <div className="flex items-center gap-1.5 text-xs text-white/90 bg-white/15 backdrop-blur-md px-3 py-1 rounded-full border border-white/20 shadow-xs">
-          {isOnline ? <Wifi className="w-3.5 h-3.5 text-emerald-300" /> : <WifiOff className="w-3.5 h-3.5 text-amber-300 animate-pulse" />}
+          {isOnline ? (
+            <Wifi className="w-3.5 h-3.5 text-emerald-300" />
+          ) : (
+            <WifiOff className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
+          )}
           <span className="font-semibold">{isOnline ? 'ERP12 Çevrimiçi' : 'Çevrimdışı Mod'}</span>
         </div>
 
@@ -129,14 +155,18 @@ export const LoginPage: React.FC = () => {
           className="p-2 rounded-full bg-white/15 backdrop-blur-md text-white hover:bg-white/25 border border-white/20 transition"
           title="Tema Değiştir"
         >
-          {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-300" /> : <Moon className="w-4 h-4 text-white" />}
+          {theme === 'dark' ? (
+            <Sun className="w-4 h-4 text-amber-300" />
+          ) : (
+            <Moon className="w-4 h-4 text-white" />
+          )}
         </button>
       </div>
 
       {/* Ana Giriş Kartı */}
       <div className="w-full max-w-md mx-auto my-auto z-10 py-4">
         <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/40 dark:border-slate-800 text-slate-900 dark:text-slate-100 transition-all">
-          {/* Görsel-5 Logo: POLATLAR YAZILIM */}
+          {/* Logo: POLATLAR YAZILIM */}
           <div className="text-center mb-6">
             <div className="inline-block relative">
               <div className="flex items-baseline justify-center tracking-tight">
@@ -149,29 +179,36 @@ export const LoginPage: React.FC = () => {
               </div>
             </div>
 
-            {/* Görsel-5 Başlık: Giriş Yapın */}
             <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-4 tracking-tight">
-              Giriş Yapın
+              Plasiyer Girişi
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              ERP12 Mobil Saha Satış Portalı
+              Firma Kodu, Plasiyer Kodu ve Şifrenizi giriniz
             </p>
           </div>
 
+          {/* Bilgi Mesajı */}
+          {infoMessage && (
+            <div className="mb-4 p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 text-xs flex items-start gap-2 animate-in fade-in">
+              <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500 mt-0.5" />
+              <span>{infoMessage}</span>
+            </div>
+          )}
+
           {/* Hata Mesajı */}
           {error && (
-            <div className="mb-4 p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs flex items-center gap-2 animate-in fade-in">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500" />
+            <div className="mb-4 p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2 animate-in fade-in">
+              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
 
-          {/* Giriş Formu (Görsel-5) */}
+          {/* Giriş Formu: Yalnızca Firma Kodu, Plasiyer Kodu ve Şifre (Ad Soyad Hariç) */}
           <form onSubmit={handleLogin} className="space-y-4">
-            {/* 1. Kurum Kodu */}
+            {/* 1. Firma Kodu */}
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
-                Kurum Kodu
+                Firma Kodu
               </label>
               <div className="relative">
                 <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -179,26 +216,28 @@ export const LoginPage: React.FC = () => {
                   type="text"
                   value={companyCode}
                   onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
-                  placeholder="Örn: OSMANLI"
+                  placeholder="Örn: GUNEYSERVER"
+                  autoComplete="organization"
                   className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-xs sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 uppercase font-mono shadow-2xs transition"
                   required
                 />
               </div>
             </div>
 
-            {/* 2. Kullanıcı Adı */}
+            {/* 2. Plasiyer Kodu */}
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
-                Kullanıcı Adı
+                Plasiyer Kodu
               </label>
               <div className="relative">
                 <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Örn: PLS01 veya Ahmet"
-                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-2xs transition"
+                  value={repCode}
+                  onChange={(e) => setRepCode(e.target.value.toUpperCase())}
+                  placeholder="Örn: PLS01"
+                  autoComplete="username"
+                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-xs sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 uppercase font-mono shadow-2xs transition"
                   required
                 />
               </div>
@@ -216,7 +255,9 @@ export const LoginPage: React.FC = () => {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
+                  autoComplete="current-password"
                   className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-10 py-3 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-2xs transition"
+                  required
                 />
                 <button
                   type="button"
@@ -229,7 +270,7 @@ export const LoginPage: React.FC = () => {
               </div>
             </div>
 
-            {/* 4. Beni Hatırla (Görsel-5) */}
+            {/* 4. Beni Hatırla & Şifremi Unuttum */}
             <div className="flex items-center justify-between pt-1">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
@@ -243,12 +284,21 @@ export const LoginPage: React.FC = () => {
                 </span>
               </label>
 
-              <span className="text-[11px] text-sky-600 dark:text-sky-400 font-bold hover:underline cursor-pointer">
+              <button
+                type="button"
+                onClick={() => {
+                  setError('');
+                  setInfoMessage(
+                    'Şifre sıfırlama işlemi için firma yetkilinizden (Ayarlar > Plasiyer Bilgileri) yeni şifre talep ediniz.'
+                  );
+                }}
+                className="text-[11px] text-sky-600 dark:text-sky-400 font-bold hover:underline cursor-pointer"
+              >
                 Şifremi Unuttum?
-              </span>
+              </button>
             </div>
 
-            {/* 5. Görsel-5: Giriş Yap Butonu */}
+            {/* 5. Giriş Yap Butonu */}
             <button
               type="submit"
               disabled={isLoading}
@@ -266,11 +316,20 @@ export const LoginPage: React.FC = () => {
                 </>
               )}
             </button>
+
+            {/* Yalnızca ilk kurulumda (henüz özel plasiyer şifresi kaydedilmemişken) bilgi ipucu */}
+            {defaultSeedAccount && (
+              <div className="text-center text-[11px] text-slate-400 dark:text-slate-500 pt-1">
+                İlk kurulum varsayılan giriş: <strong>{defaultSeedAccount.companyCode}</strong> •{' '}
+                <strong>{defaultSeedAccount.repCode}</strong> • Şifre:{' '}
+                <strong>{defaultSeedAccount.password}</strong>
+              </div>
+            )}
           </form>
         </div>
       </div>
 
-      {/* Görsel-5: Alt İletişim & Adres Footer */}
+      {/* Alt İletişim & Adres Footer */}
       <div className="w-full max-w-md mx-auto z-10 text-white/95 text-center text-xs space-y-2 pt-2 pb-1 font-medium">
         <div className="flex items-center justify-center gap-2 text-center text-[11px] sm:text-xs leading-relaxed">
           <MapPin className="w-4 h-4 shrink-0 text-amber-300" />

@@ -460,6 +460,70 @@ app.get('/api/campaigns', (req, res) => {
   res.json({ success: true, campaigns });
 });
 
+// 8. PLASİYER KULLANICI YÖNETİMİ VE GİRİŞ DOĞRULAMA (FİRMA KODU + PLASİYER KODU + ŞİFRE)
+app.get('/api/plasiyers', async (req, res) => {
+  try {
+    const companyCode = String(req.query.companyCode || '').trim();
+    const accounts = await erpQueries.getPlasiyerAccounts(companyCode);
+    res.json({ success: true, accounts });
+  } catch (err) {
+    res.json({ success: true, accounts: [], warning: err.message });
+  }
+});
+
+app.post('/api/plasiyers', async (req, res) => {
+  try {
+    const { companyCode, repCode, firstName, lastName, password } = req.body || {};
+    if (!companyCode || !repCode || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Firma Kodu, Plasiyer Kodu ve Şifre zorunludur.',
+      });
+    }
+    const saved = await erpQueries.upsertPlasiyerAccount({
+      companyCode,
+      repCode,
+      firstName: firstName || '',
+      lastName: lastName || '',
+      password,
+    });
+    res.json({ success: true, account: saved });
+  } catch (err) {
+    console.warn('Plasiyer SQL kayıt uyarısı:', err.message);
+    res.json({ success: false, warning: err.message });
+  }
+});
+
+app.delete('/api/plasiyers', async (req, res) => {
+  try {
+    const companyCode = String(req.query.companyCode || req.body?.companyCode || '').trim();
+    const repCode = String(req.query.repCode || req.body?.repCode || '').trim();
+    if (!companyCode || !repCode) {
+      return res.status(400).json({ success: false, error: 'Firma Kodu ve Plasiyer Kodu gereklidir.' });
+    }
+    await erpQueries.deletePlasiyerAccount({ companyCode, repCode });
+    res.json({ success: true });
+  } catch (err) {
+    res.json({ success: false, warning: err.message });
+  }
+});
+
+app.post('/api/plasiyers/login', async (req, res) => {
+  try {
+    const { companyCode, repCode, password } = req.body || {};
+    if (!companyCode || !repCode || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Lütfen Firma Kodu, Plasiyer Kodu ve Şifre alanlarını doldurunuz.',
+      });
+    }
+    const result = await erpQueries.authenticatePlasiyer({ companyCode, repCode, password });
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.json({ success: false, found: false, authenticated: false, warning: err.message });
+  }
+});
+
 // Sunucuyu başlat (Vercel Serverless dışındaki ortamlarda dinle)
 if (!process.env.VERCEL) {
   app.listen(PORT, async () => {

@@ -24,11 +24,21 @@ import {
   Network,
   Zap,
   Key,
-  Save
+  Save,
+  Eye,
+  EyeOff,
+  UserPlus,
+  Share2,
+  Check
 } from 'lucide-react';
-import type { ServerConfig } from '../types';
+import type { PlasiyerAccount, ServerConfig } from '../types';
 import { CustomerStatementModal } from '../components/CustomerStatementModal';
 import { CompanyProfileModal } from '../components/CompanyProfileModal';
+import {
+  formatFullName,
+  plasiyerAuthService,
+  splitFullName,
+} from '../services/plasiyerAuthService';
 
 export const SettingsPage: React.FC = () => {
   const { 
@@ -66,8 +76,33 @@ export const SettingsPage: React.FC = () => {
   const [bridgePort, setBridgePort] = useState(serverConfig.bridgePort || '4000');
   const [showAdvancedBridge, setShowAdvancedBridge] = useState(false);
 
-  const [repCode, setRepCode] = useState(salesRep.code);
-  const [repName, setRepName] = useState(salesRep.name);
+  const [plasiyerAccounts, setPlasiyerAccounts] = useState<PlasiyerAccount[]>(() =>
+    plasiyerAuthService.getLocalAccounts()
+  );
+
+  const initialSplitName = splitFullName(salesRep.name);
+  const existingActiveAccount = plasiyerAccounts.find(
+    (a) =>
+      a.companyCode.toUpperCase() === (serverConfig.companyCode || '01').toUpperCase() &&
+      a.repCode.toUpperCase() === (salesRep.code || 'PLS01').toUpperCase()
+  ) || plasiyerAccounts[0];
+
+  const [repCompanyCode, setRepCompanyCode] = useState(
+    (salesRep.companyCode || existingActiveAccount?.companyCode || serverConfig.companyCode || '01').toUpperCase()
+  );
+  const [repCode, setRepCode] = useState((salesRep.code || 'PLS01').toUpperCase());
+  const [repFirstName, setRepFirstName] = useState(
+    salesRep.firstName ?? existingActiveAccount?.firstName ?? initialSplitName.firstName
+  );
+  const [repLastName, setRepLastName] = useState(
+    salesRep.lastName ?? existingActiveAccount?.lastName ?? initialSplitName.lastName
+  );
+  const [repPassword, setRepPassword] = useState(
+    salesRep.password || existingActiveAccount?.password || '1234'
+  );
+  const [showRepPassword, setShowRepPassword] = useState(false);
+  const [repNotice, setRepNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [copiedAccountId, setCopiedAccountId] = useState<string | null>(null);
 
   const [testResult, setTestResult] = useState<{ testing: boolean; success?: boolean; message?: string }>({
     testing: false,
@@ -90,7 +125,107 @@ export const SettingsPage: React.FC = () => {
     if (serverConfig.sqlPassword !== undefined) setSqlPassword(serverConfig.sqlPassword);
     if (serverConfig.licenseExpireDate) setLicenseExpireDate(serverConfig.licenseExpireDate);
     if (serverConfig.bridgePort) setBridgePort(serverConfig.bridgePort);
+
+    plasiyerAuthService.syncAccountsFromSql(serverConfig).then((synced) => {
+      setPlasiyerAccounts(synced);
+    });
   }, [serverConfig]);
+
+  const persistCurrentPlasiyer = async (cfgToUse: ServerConfig): Promise<boolean> => {
+    const cleanCompany = (repCompanyCode.trim() || cfgToUse.companyCode || '01').toUpperCase();
+    const cleanRepCode = repCode.trim().toUpperCase();
+    const cleanFirst = repFirstName.trim();
+    const cleanLast = repLastName.trim();
+    const cleanPassword = repPassword.trim();
+
+    if (!cleanCompany || !cleanRepCode) {
+      setRepNotice({
+        type: 'error',
+        text: 'Lütfen Plasiyer için Firma Kodu ve Plasiyer Kodu alanlarını doldurunuz.',
+      });
+      return false;
+    }
+
+    if (!cleanPassword) {
+      setRepNotice({
+        type: 'error',
+        text: 'Lütfen plasiyerin giriş ekranında kullanacağı Şifreyi belirleyiniz.',
+      });
+      return false;
+    }
+
+    const savedAcc = await plasiyerAuthService.upsertAccount(
+      {
+        companyCode: cleanCompany,
+        repCode: cleanRepCode,
+        firstName: cleanFirst,
+        lastName: cleanLast,
+        password: cleanPassword,
+      },
+      cfgToUse
+    );
+
+    const nextList = plasiyerAuthService.getLocalAccounts();
+    setPlasiyerAccounts(nextList);
+
+    const fullName = formatFullName(cleanFirst, cleanLast) || cleanRepCode;
+    const updatedRep = {
+      ...salesRep,
+      code: savedAcc.repCode,
+      name: fullName,
+      firstName: cleanFirst,
+      lastName: cleanLast,
+      companyCode: savedAcc.companyCode,
+      password: savedAcc.password,
+    };
+    setSalesRep(updatedRep);
+    localStorage.setItem('plasiyer_rep', JSON.stringify(updatedRep));
+    return true;
+  };
+
+  const handleSavePlasiyerOnly = async () => {
+    setRepNotice(null);
+    const activeCfg: ServerConfig = {
+      ...serverConfig,
+      apiUrl: apiUrl && apiUrl !== 'demo' ? '/api' : 'demo',
+      companyCode: (companyCode.trim() || '01').toUpperCase(),
+      period: period.trim() || '2026',
+      autoSync,
+      companyTitle: companyTitle.trim(),
+      sqlHost: sqlHost.trim(),
+      sqlPort: sqlPort.trim() || '1433',
+      sqlDatabase: sqlDatabase.trim(),
+      sqlUser: sqlUser.trim(),
+      sqlPassword,
+      licenseExpireDate: licenseExpireDate.trim(),
+      bridgePort: bridgePort.trim() || '4000',
+    };
+
+    const ok = await persistCurrentPlasiyer(activeCfg);
+    if (ok) {
+      setRepNotice({
+        type: 'success',
+        text: `"${repCode.trim().toUpperCase()}" plasiyer hesabı kaydedildi. Giriş ekranında Firma Kodu (${(repCompanyCode.trim() || activeCfg.companyCode).toUpperCase()}), Plasiyer Kodu ve Şifre ile giriş yapılabilir.`,
+      });
+      setTimeout(() => setRepNotice(null), 5000);
+    }
+  };
+
+  const handleCopyInviteLink = async (acc: PlasiyerAccount) => {
+    const cfgForAcc =
+      plasiyerAuthService.findServerConfigByCompanyCode(acc.companyCode) || {
+        ...serverConfig,
+        companyCode: acc.companyCode,
+      };
+    const link = plasiyerAuthService.buildMobileInviteLink(acc, cfgForAcc);
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedAccountId(acc.id);
+      setTimeout(() => setCopiedAccountId(null), 3000);
+    } catch {
+      window.prompt('Plasiyer mobil kurulum bağlantısını kopyalayın:', link);
+    }
+  };
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('tr-TR', {
@@ -120,11 +255,7 @@ export const SettingsPage: React.FC = () => {
     };
 
     updateServerConfig(newCfg);
-    setSalesRep({
-      ...salesRep,
-      code: repCode.trim(),
-      name: repName.trim(),
-    });
+    await persistCurrentPlasiyer(newCfg);
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);
 
@@ -521,7 +652,13 @@ export const SettingsPage: React.FC = () => {
                 <input
                   type="text"
                   value={companyCode}
-                  onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
+                  onChange={(e) => {
+                    const nextCode = e.target.value.toUpperCase();
+                    if (!repCompanyCode || repCompanyCode === companyCode.toUpperCase()) {
+                      setRepCompanyCode(nextCode);
+                    }
+                    setCompanyCode(nextCode);
+                  }}
                   placeholder="ÖRN: AHMETGIDA"
                   className="w-full bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 uppercase font-mono shadow-2xs"
                 />
@@ -853,33 +990,234 @@ export const SettingsPage: React.FC = () => {
         )}
       </div>
 
-      {/* Plasiyer Profili */}
-      <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3 transition">
-        <div className="flex items-center gap-2 border-b border-slate-100 dark:border-slate-800 pb-2">
-          <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-          <h3 className="font-bold text-sm text-slate-900 dark:text-white">Plasiyer Bilgileri</h3>
+      {/* Plasiyer Profili & Giriş Yetkileri */}
+      <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3.5 transition">
+        <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
+          <div className="flex items-center gap-2">
+            <User className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+            <div>
+              <h3 className="font-bold text-sm text-slate-900 dark:text-white">Plasiyer Bilgileri</h3>
+              <p className="text-[10px] text-slate-400">
+                Giriş ekranında Ad Soyad hariç (Firma Kodu, Plasiyer Kodu ve Şifre) ile oturum açılır
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              setRepCompanyCode((companyCode.trim() || serverConfig.companyCode || '01').toUpperCase());
+              setRepCode('');
+              setRepFirstName('');
+              setRepLastName('');
+              setRepPassword('');
+              setShowRepPassword(true);
+              setRepNotice(null);
+            }}
+            className="flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-blue-50 dark:bg-blue-950/50 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-600 dark:text-blue-400 border border-blue-200/70 dark:border-blue-800/60 font-bold text-[11px] transition active:scale-95 shrink-0"
+          >
+            <UserPlus className="w-3.5 h-3.5" />
+            <span>Yeni Plasiyer</span>
+          </button>
         </div>
 
-        <div className="grid grid-cols-2 gap-2">
+        {/* Satır 1: Firma Kodu & Plasiyer Kodu */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
           <div>
-            <label className="font-semibold text-slate-700 dark:text-slate-300 block">Plasiyer Kodu:</label>
+            <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+              Firma Kodu:
+            </label>
+            <input
+              type="text"
+              value={repCompanyCode}
+              onChange={(e) => setRepCompanyCode(e.target.value.toUpperCase())}
+              placeholder="Örn: GUNEYSERVER"
+              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 font-mono font-bold uppercase text-xs focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+              Plasiyer Kodu:
+            </label>
             <input
               type="text"
               value={repCode}
-              onChange={(e) => setRepCode(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2 font-mono text-xs focus:outline-none text-slate-900 dark:text-white"
-            />
-          </div>
-          <div>
-            <label className="font-semibold text-slate-700 dark:text-slate-300 block">Plasiyer Adı:</label>
-            <input
-              type="text"
-              value={repName}
-              onChange={(e) => setRepName(e.target.value)}
-              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2 text-xs focus:outline-none text-slate-900 dark:text-white"
+              onChange={(e) => setRepCode(e.target.value.toUpperCase())}
+              placeholder="Örn: PLS01"
+              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 font-mono font-bold uppercase text-xs focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
             />
           </div>
         </div>
+
+        {/* Satır 2: Plasiyer Adı & Plasiyer Soyadı */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+          <div>
+            <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+              Plasiyer Adı:
+            </label>
+            <input
+              type="text"
+              value={repFirstName}
+              onChange={(e) => setRepFirstName(e.target.value)}
+              placeholder="Örn: Ahmet"
+              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+              Plasiyer Soyadı:
+            </label>
+            <input
+              type="text"
+              value={repLastName}
+              onChange={(e) => setRepLastName(e.target.value)}
+              placeholder="Örn: Yılmaz"
+              className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+            />
+          </div>
+        </div>
+
+        {/* Satır 3: Plasiyer Giriş Şifresi & Hızlı Kaydet */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 items-end">
+          <div>
+            <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+              Plasiyer Giriş Şifresi:
+            </label>
+            <div className="relative">
+              <input
+                type={showRepPassword ? 'text' : 'password'}
+                value={repPassword}
+                onChange={(e) => setRepPassword(e.target.value)}
+                placeholder="Giriş şifresi belirleyin"
+                className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 pr-9 font-mono text-xs focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+              />
+              <button
+                type="button"
+                onClick={() => setShowRepPassword(!showRepPassword)}
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                title={showRepPassword ? 'Şifreyi Gizle' : 'Şifreyi Göster'}
+              >
+                {showRepPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSavePlasiyerOnly}
+            className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-3 rounded-xl flex items-center justify-center gap-1.5 transition active:scale-95 text-xs shadow-xs"
+          >
+            <Save className="w-3.5 h-3.5" />
+            <span>Plasiyer Bilgilerini Kaydet</span>
+          </button>
+        </div>
+
+        {repNotice && (
+          <div
+            className={`p-2.5 rounded-xl border text-[11px] font-medium flex items-center gap-2 ${
+              repNotice.type === 'success'
+                ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300'
+            }`}
+          >
+            {repNotice.type === 'success' ? (
+              <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+            )}
+            <span>{repNotice.text}</span>
+          </div>
+        )}
+
+        {/* Tanımlı Plasiyerler Listesi */}
+        {plasiyerAccounts.length > 0 && (
+          <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-2">
+            <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
+              <span>Tanımlı Plasiyer Hesapları ({plasiyerAccounts.length})</span>
+              <span>Düzenlemek için seçin</span>
+            </div>
+            <div className="space-y-1.5">
+              {plasiyerAccounts.map((acc) => {
+                const isSelectedAcc =
+                  acc.companyCode.toUpperCase() === repCompanyCode.trim().toUpperCase() &&
+                  acc.repCode.toUpperCase() === repCode.trim().toUpperCase();
+                const fullName = formatFullName(acc.firstName, acc.lastName) || acc.repCode;
+
+                return (
+                  <div
+                    key={acc.id}
+                    onClick={() => {
+                      setRepCompanyCode(acc.companyCode);
+                      setRepCode(acc.repCode);
+                      setRepFirstName(acc.firstName);
+                      setRepLastName(acc.lastName);
+                      setRepPassword(acc.password);
+                      setRepNotice(null);
+                    }}
+                    className={`p-2.5 rounded-xl border flex items-center justify-between gap-2 cursor-pointer transition ${
+                      isSelectedAcc
+                        ? 'bg-blue-50/70 dark:bg-blue-950/30 border-blue-400/70 dark:border-blue-700'
+                        : 'bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                    }`}
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
+                          {acc.companyCode}
+                        </span>
+                        <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                          {acc.repCode}
+                        </span>
+                        <span className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                          {fullName}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <button
+                        type="button"
+                        onClick={() => handleCopyInviteLink(acc)}
+                        className="px-2 py-1 rounded-lg bg-white dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-[10px] font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1 transition"
+                        title="Plasiyerin telefonunda tek tıkla firma bağlantısını tanımlamak için kurulum linkini kopyala"
+                      >
+                        {copiedAccountId === acc.id ? (
+                          <>
+                            <Check className="w-3 h-3 text-emerald-500" />
+                            <span className="text-emerald-600 dark:text-emerald-400">Kopyalandı</span>
+                          </>
+                        ) : (
+                          <>
+                            <Share2 className="w-3 h-3" />
+                            <span>Mobil Link</span>
+                          </>
+                        )}
+                      </button>
+
+                      {plasiyerAccounts.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const remaining = await plasiyerAuthService.deleteAccount(
+                              acc.companyCode,
+                              acc.repCode,
+                              serverConfig
+                            );
+                            setPlasiyerAccounts(remaining);
+                          }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition"
+                          title="Plasiyer hesabını sil"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Kaydet Butonu */}
