@@ -44,6 +44,17 @@
   }
 }
 
+/* iPhone çentik (Dynamic Island / Notch) ve alt çizgi (Home Indicator) güvenli alan sınıfları */
+@media (max-width: 767px) {
+  .safe-top {
+    padding-top: env(safe-area-inset-top, 0px);
+  }
+}
+
+.safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
 /* Tüm tarayıcılarda kaydırma çubuğunu gizleme yardımcı sınıfı */
 .no-scrollbar::-webkit-scrollbar {
   display: none !important;

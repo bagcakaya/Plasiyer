@@ -155,17 +155,19 @@ export const CustomersPage: React.FC = () => {
   };
 
   return (
-    <div className="w-full h-full flex flex-col bg-slate-100 dark:bg-slate-950 p-2 sm:p-3 text-slate-900 dark:text-slate-100 overflow-hidden">
-      {/* 1. Arama Yeri */}
-      <div className="w-full max-w-xl mx-auto shrink-0 mb-2">
+    <div className="w-full flex-1 min-h-0 h-full flex flex-col bg-slate-100 dark:bg-slate-950 p-2 sm:p-3 text-slate-900 dark:text-slate-100 overflow-hidden">
+      {/* 1. Arama Yeri (iOS Safari ve Çentik Uyumlu Sabit Üst Bar) */}
+      <div className="w-full max-w-xl mx-auto shrink-0 mb-2 relative z-20">
         <div className="relative">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+          <Search className="w-4 h-4 text-slate-400 pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2" />
           <input
             type="text"
+            enterKeyHint="search"
+            data-no-autoscroll="true"
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
             placeholder="Cari adı, kodu, ilçe veya vergi no ile ara..."
-            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl pl-10 pr-20 py-2.5 text-xs font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs"
+            className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl pl-10 pr-20 py-2.5 text-[16px] sm:text-xs font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500 shadow-xs appearance-none"
           />
           {searchTerm ? (
             <button
@@ -184,18 +186,18 @@ export const CustomersPage: React.FC = () => {
 
       {/* 2. Instagram Reels Tarzı Kaydırmalı Cari Kartları */}
       {filteredCustomers.length === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-slate-400">
+        <div className="flex-1 min-h-0 flex flex-col items-center justify-center text-center p-6 text-slate-400">
           <Building className="w-12 h-12 mb-3 text-slate-300 dark:text-slate-700 animate-pulse" />
           <p className="text-sm font-bold">Aradığınız kriterde cari hesap bulunamadı.</p>
           <p className="text-xs text-slate-500 mt-1">Lütfen arama terimini kontrol ediniz.</p>
         </div>
       ) : (
-        <div className="relative flex-1 w-full max-w-xl mx-auto overflow-hidden">
-          {/* Reels Dikey Kaydırma Konteyneri (Mouse / Dokunmatik Kaydırmalı) */}
+        <div className="relative flex-1 min-h-0 w-full max-w-xl mx-auto overflow-hidden">
+          {/* Reels Dikey Kaydırma Konteyneri (iOS WebKit için absolute inset-0 ile kesin yükseklik sınırı) */}
           <div
             ref={containerRef}
             onScroll={handleScroll}
-            className="w-full h-full overflow-y-scroll snap-y snap-mandatory scroll-smooth no-scrollbar py-1 space-y-3"
+            className="absolute inset-0 overflow-y-scroll snap-y snap-mandatory scroll-smooth no-scrollbar py-1 space-y-3"
           >
             {filteredCustomers.map((cust) => {
               const fin = getCustomerFinancials(cust);
@@ -205,7 +207,7 @@ export const CustomersPage: React.FC = () => {
               return (
                 <div
                   key={cust.id}
-                  className="w-full h-[calc(100%-8px)] snap-start snap-always shrink-0 flex flex-col justify-between p-3.5 sm:p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl relative overflow-hidden transition-all"
+                  className="w-full h-[calc(100%-8px)] min-h-[280px] snap-start snap-always shrink-0 flex flex-col justify-between p-3.5 sm:p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl relative overflow-hidden transition-all"
                 >
                   {/* Kart Üst Bar: Logo + Cari İsmi + İletişim */}
                   <div className="shrink-0">

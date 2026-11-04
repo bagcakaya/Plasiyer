@@ -44,7 +44,8 @@ if (typeof window !== 'undefined') {
         target.getAttribute('type') !== 'checkbox' &&
         target.getAttribute('type') !== 'radio' &&
         target.getAttribute('type') !== 'button' &&
-        target.getAttribute('type') !== 'submit'
+        target.getAttribute('type') !== 'submit' &&
+        target.getAttribute('data-no-autoscroll') !== 'true'
       ) {
         // Klavyenin açılma animasyonunu bekleyip hedef alanı görünür alanın merkezine kaydır
         setTimeout(() => {

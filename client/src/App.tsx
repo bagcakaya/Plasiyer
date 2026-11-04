@@ -86,11 +86,12 @@ const GlobalModals: React.FC = () => {
 
 const MainContent: React.FC = () => {
   const { activeTab, userRole } = useApp();
+  const isReelsCustomersView = activeTab === 'customers' && userRole !== 'customer';
 
   return (
     <main className={`bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors ${
-      activeTab === 'customers' 
-        ? 'h-[calc(100dvh-4rem-env(safe-area-inset-bottom,0px))] md:h-[100dvh] min-h-0 pb-0 overflow-hidden' 
+      isReelsCustomersView
+        ? 'flex-1 min-h-0 h-full flex flex-col pb-0 overflow-hidden'
         : 'min-h-screen pb-36 sm:pb-40 md:pb-12'
     }`}>
       {/* Müşteri modunda cariler sekmesi yerine doğrudan vitrin açılır */}
@@ -107,21 +108,34 @@ const MainContent: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated, activeTab } = useApp();
+  const { isAuthenticated, activeTab, userRole } = useApp();
+  const isReelsCustomersView = activeTab === 'customers' && userRole !== 'customer';
+
+  React.useEffect(() => {
+    window.scrollTo(0, 0);
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  }, [activeTab]);
 
   if (!isAuthenticated) {
     return <LoginPage />;
   }
 
   return (
-    <div className="min-h-screen bg-slate-100 dark:bg-black flex transition-colors w-full">
+    <div className={`${isReelsCustomersView ? 'h-[100dvh] max-h-[100dvh] overflow-hidden' : 'min-h-screen'} bg-slate-100 dark:bg-black flex transition-colors w-full`}>
       {/* Masaüstü Sol Menü (md ve üzeri ekranlarda görünür) */}
       <DesktopSidebar />
 
       {/* Ana Uygulama & Çalışma Alanı (Mobil için tam ekran, Masaüstü için esnek genişlik) */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-screen bg-slate-50 dark:bg-slate-950 relative">
+      <div
+        className={`flex-1 flex flex-col min-w-0 bg-slate-50 dark:bg-slate-950 safe-top md:pt-0 ${
+          isReelsCustomersView
+            ? 'fixed inset-0 md:static md:h-[100dvh] overflow-hidden pb-[calc(4rem+env(safe-area-inset-bottom,0px))] md:pb-0'
+            : 'min-h-screen relative'
+        }`}
+      >
         <Header />
-        <div className={`flex-1 ${activeTab === 'customers' ? 'overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
+        <div className={`flex-1 ${isReelsCustomersView ? 'min-h-0 overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
           <MainContent />
         </div>
         <BottomNav />
