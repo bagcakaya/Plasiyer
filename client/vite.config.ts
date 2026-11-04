@@ -10,7 +10,7 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      injectRegister: null,
       includeAssets: [
         'favicon-64x64.png',
         'apple-touch-icon.png',
@@ -52,6 +52,9 @@ export default defineConfig({
         ]
       },
       workbox: {
+        skipWaiting: true,
+        clientsClaim: true,
+        cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,webmanifest}'],
         navigateFallback: '/index.html'
       }

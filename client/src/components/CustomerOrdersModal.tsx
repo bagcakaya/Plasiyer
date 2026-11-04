@@ -59,7 +59,7 @@ export const CustomerOrdersModal: React.FC<CustomerOrdersModalProps> = ({
 
   const handleRepeatOrder = (order: Order) => {
     selectCustomer(customer);
-    order.items.forEach((item) => {
+    order.items.filter((item) => !item.isGift).forEach((item) => {
       addToCart(
         {
           id: item.productId,

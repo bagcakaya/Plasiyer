@@ -20,7 +20,6 @@ import {
   LayoutGrid,
   List,
   Eye,
-  Gift,
   Truck,
   Flame,
   Camera,
@@ -43,8 +42,6 @@ export const CatalogPage: React.FC = () => {
     updateCartItemQuantity, 
     cartSummary, 
     setActiveTab,
-    activeCampaigns,
-    openCampaignsModal,
     saleMode,
     vanPlate,
     getVanStockByCode,
@@ -56,7 +53,6 @@ export const CatalogPage: React.FC = () => {
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [showOnlyCampaigns, setShowOnlyCampaigns] = useState(false);
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scanToast, setScanToast] = useState<{ message: string; success: boolean } | null>(null);
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
@@ -96,13 +92,8 @@ export const CatalogPage: React.FC = () => {
       return true;
     });
 
-    if (showOnlyCampaigns) {
-      const campaignTargetIds = new Set(activeCampaigns.map((c) => c.targetProductId).filter(Boolean));
-      result = result.filter((p) => campaignTargetIds.has(p.id));
-    }
-
     return result;
-  }, [products, searchTerm, selectedCategory, showOnlyCampaigns, activeCampaigns, activeCustomer, calculateCustomerPrice]);
+  }, [products, searchTerm, selectedCategory]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('tr-TR', {
@@ -317,40 +308,6 @@ export const CatalogPage: React.FC = () => {
         onScan={handleBarcodeScanned}
       />
 
-      {/* Kampanya Filtre Butonu (Varsa) */}
-      {activeCampaigns.length > 0 && (
-        <div className="flex gap-1.5 overflow-x-auto pb-1 text-xs">
-          <button
-            onClick={() => setShowOnlyCampaigns(!showOnlyCampaigns)}
-            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition flex items-center gap-1.5 shadow-xs shrink-0 ${
-              showOnlyCampaigns
-                ? 'bg-purple-600 text-white shadow-sm ring-2 ring-purple-400/50'
-                : 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/40'
-            }`}
-            title="Kampanyalı Ürünleri Filtrele"
-          >
-            <Gift className="w-3.5 h-3.5" />
-            <span>Fırsatlar ({activeCampaigns.length})</span>
-          </button>
-        </div>
-      )}
-
-      {/* Kampanya Filtresi Aktifse Bilgi & Modal Butonu */}
-      {showOnlyCampaigns && (
-        <div className="bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/80 rounded-2xl p-3 flex items-center justify-between gap-2 text-xs text-purple-900 dark:text-purple-200 animate-fadeIn">
-          <div className="flex items-center gap-2 min-w-0">
-            <Gift className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
-            <span className="truncate">Promosyon ve hediye ürün fırsatları listeleniyor.</span>
-          </div>
-          <button
-            onClick={openCampaignsModal}
-            className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white rounded-xl font-bold shadow-xs transition shrink-0 text-[11px]"
-          >
-            Tüm Kampanyalar
-          </button>
-        </div>
-      )}
-
       {/* Ürün Listesi */}
       {filteredProducts.length === 0 ? (
         <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
@@ -374,7 +331,6 @@ export const CatalogPage: React.FC = () => {
             const isOutOfStock = product.stockQuantity <= 0;
             const priceInfo = calculateCustomerPrice(product, activeCustomer);
             const imgUrl = getProductImageUrl(product.name, product.category, product.image);
-            const productCampaign = activeCampaigns.find((c) => c.targetProductId === product.id);
 
             return (
               <div
@@ -416,15 +372,6 @@ export const CatalogPage: React.FC = () => {
                     >
                       <Camera className="w-3.5 h-3.5 text-blue-300" />
                     </button>
-                  )}
-
-                  {/* Kampanya Rozeti */}
-                  {productCampaign && (
-                    <div className={`absolute top-2 ${userRole !== 'customer' ? 'right-16' : 'right-9'}`}>
-                      <span className="flex items-center gap-0.5 text-[9px] font-extrabold text-white bg-purple-600/95 shadow-sm px-1.5 py-0.5 rounded-full backdrop-blur-xs border border-purple-400/40">
-                        {productCampaign.badge}
-                      </span>
-                    </div>
                   )}
 
                   {/* Stok Rozeti */}
@@ -610,13 +557,6 @@ export const CatalogPage: React.FC = () => {
                         <span className="flex items-center gap-0.5 text-[10px] font-bold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-800/50 px-1.5 py-0.5 rounded-full">
                           <TrendingDown className="w-2.5 h-2.5" />
                           <span>%{priceInfo.discountPercent} Avantajlı</span>
-                        </span>
-                      )}
-
-                      {/* Kampanya Rozeti */}
-                      {activeCampaigns.some((c) => c.targetProductId === product.id) && (
-                        <span className="flex items-center gap-0.5 text-[10px] font-extrabold text-purple-700 dark:text-purple-300 bg-purple-100 dark:bg-purple-950/70 border border-purple-200 dark:border-purple-800/50 px-2 py-0.5 rounded-full">
-                          <span>{activeCampaigns.find((c) => c.targetProductId === product.id)?.badge}</span>
                         </span>
                       )}
                     </div>

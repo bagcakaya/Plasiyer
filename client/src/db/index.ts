@@ -276,57 +276,7 @@ export const initialProducts: Product[] = [
   }
 ];
 
-export const initialCampaigns: Campaign[] = [
-  {
-    id: 'CAMP-001',
-    code: '10_ARTI_1_CAYKUR',
-    title: '10 Alana 1 Bedelsiz Çaykur Rize Çay',
-    description: 'Her 10 adet Çaykur Rize Turist Çay 1000 Gr alımınıza 1 adet aynı üründen BEDELSİZ hediye!',
-    type: 'quantity_gift',
-    badge: '🎁 10+1 Hediye',
-    targetProductId: 'P-001',
-    targetProductName: 'Çaykur Rize Turist Çay 1000 Gr',
-    minQuantity: 10,
-    rewardProductId: 'P-001',
-    rewardProductName: 'Çaykur Rize Turist Çay 1000 Gr',
-    rewardQuantity: 1,
-    isActive: true,
-    startDate: '2026-01-01',
-    endDate: '2026-12-31',
-    isStackable: true,
-  },
-  {
-    id: 'CAMP-002',
-    code: 'SEPET_5000_ISKONTO',
-    title: '5.000 ₺ ve Üzeri Siparişe %5 Ekstra Ciro İskontosu',
-    description: 'Sepet tutarı 5.000 TL ve üzerine ulaştığında tüm sepete anında ekstra %5 teşvik iskontosu uygulanır.',
-    type: 'cart_threshold_discount',
-    badge: '⚡ %5 Ekstra İndirim',
-    minCartAmount: 5000,
-    rewardDiscountPercent: 5,
-    isActive: true,
-    startDate: '2026-01-01',
-    endDate: '2026-12-31',
-  },
-  {
-    id: 'CAMP-003',
-    code: 'YUDUM_ALANA_BARILLA_HEDIYE',
-    title: '5 Adet Yudum Yağ Alana 1 Koli Barilla Makarna Hediye',
-    description: '5 adet ve üzeri Yudum Ayçiçek Yağı 5L alımında 1 koli Barilla Burgu Makarna (12\'li) BEDELSİZ hediye!',
-    type: 'cross_product_gift',
-    badge: '🍝 Makarna Hediye',
-    targetProductId: 'P-002',
-    targetProductName: 'Yudum Ayçiçek Yağı 5 Lt Pet',
-    minQuantity: 5,
-    rewardProductId: 'P-004',
-    rewardProductName: 'Barilla Burgu Makarna 500 Gr (12\'li Koli)',
-    rewardQuantity: 1,
-    isActive: true,
-    startDate: '2026-01-01',
-    endDate: '2026-12-31',
-    isStackable: true,
-  },
-];
+export const initialCampaigns: Campaign[] = [];
 
 // Veritabanını ilk açılışta demo verilerle doldur (eğer boşsa)
 export async function seedInitialDataIfNeeded() {
@@ -340,10 +290,8 @@ export async function seedInitialDataIfNeeded() {
     await db.products.bulkAdd(initialProducts);
   }
 
-  const campaignCount = await db.campaigns.count();
-  if (campaignCount === 0) {
-    await db.campaigns.bulkAdd(initialCampaigns);
-  }
+  // Hediye & kampanya kayıtlarını temiz tut (şimdilik devre dışı)
+  await db.campaigns.clear();
 
   const visitCount = await db.visits.count();
   if (visitCount === 0) {

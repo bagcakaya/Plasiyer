@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  X, ShoppingBag, Plus, Minus, Check, TrendingDown, Barcode, Gift, Camera 
+  X, ShoppingBag, Plus, Minus, Check, TrendingDown, Barcode, Camera 
 } from 'lucide-react';
 import type { Product, Customer } from '../types';
 import { useApp } from '../context/AppContext';
@@ -20,7 +20,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   onClose,
   activeCustomer,
 }) => {
-  const { calculateCustomerPrice, addToCart, cart, userRole, activeCampaigns } = useApp();
+  const { calculateCustomerPrice, addToCart, cart, userRole } = useApp();
   const [selectedQuantity, setSelectedQuantity] = useState(1);
   const [quantityInput, setQuantityInput] = useState('1');
   const [addedAnimation, setAddedAnimation] = useState(false);
@@ -194,33 +194,6 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               {product.name}
             </h2>
           </div>
-
-          {/* Aktif Kampanya Bilgisi (Aşama 7) */}
-          {activeCampaigns.some((c) => c.targetProductId === product.id) && (() => {
-            const camp = activeCampaigns.find((c) => c.targetProductId === product.id)!;
-            return (
-              <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-500/10 via-purple-500/5 to-indigo-500/10 border border-purple-500/30 space-y-1">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-extrabold text-purple-700 dark:text-purple-300 flex items-center gap-1.5">
-                    <Gift className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-                    <span>{camp.badge} {camp.title}</span>
-                  </span>
-                </div>
-                <p className="text-[11px] text-purple-900 dark:text-purple-200 leading-relaxed">
-                  {camp.description}
-                </p>
-                {camp.minQuantity && selectedQuantity < camp.minQuantity && (
-                  <button
-                    type="button"
-                    onClick={() => setSelectedQuantity(camp.minQuantity || 10)}
-                    className="mt-1 text-[11px] font-bold text-purple-700 dark:text-purple-300 hover:underline inline-block"
-                  >
-                    ⚡ Kampanya için {camp.minQuantity} adet seç ({camp.minQuantity * priceInfo.customerPrice} ₺)
-                  </button>
-                )}
-              </div>
-            );
-          })()}
 
           {/* Fiyat Kartı */}
           <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
