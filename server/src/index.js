@@ -5,7 +5,7 @@ import cors from 'cors';
 import compression from 'compression';
 import dotenv from 'dotenv';
 import { erpQueries } from './erpQueries.js';
-import { testConnection } from './db.js';
+import { testConnection, testDirectSqlConnection, sqlContext } from './db.js';
 import { imageService } from './imageService.js';
 
 dotenv.config();
@@ -34,6 +34,28 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
+// Dinamik Çoklu Firma / Doğrudan SQL Server Bağlantı Bağlamı (X-SQL-Config Header)
+app.use((req, res, next) => {
+  const rawHeader = req.headers['x-sql-config'];
+  let parsedSqlCfg = null;
+
+  if (rawHeader && typeof rawHeader === 'string') {
+    try {
+      const jsonStr = Buffer.from(rawHeader, 'base64').toString('utf8');
+      parsedSqlCfg = JSON.parse(jsonStr);
+    } catch (err) {
+      console.warn('X-SQL-Config çözümleme uyarısı:', err.message);
+    }
+  } else if (req.body && req.body.sqlConfig && typeof req.body.sqlConfig === 'object') {
+    parsedSqlCfg = req.body.sqlConfig;
+  }
+
+  if (parsedSqlCfg && parsedSqlCfg.sqlHost) {
+    return sqlContext.run(parsedSqlCfg, () => next());
+  }
+  return next();
+});
+
 // Statik Görsel Dosya Sunumu (/uploads/products/...)
 app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
@@ -61,6 +83,20 @@ app.get('/api/health', (req, res) => {
     time: new Date().toISOString(),
     connectedClients: sseClients.size,
   });
+});
+
+// Doğrudan SQL Server Bağlantı Testi (Ayarlar -> SQL Bağlantısını Canlı Test Et)
+app.post('/api/sql/test', async (req, res) => {
+  try {
+    const cfg = (req.body && req.body.sqlHost) ? req.body : (sqlContext.getStore() || req.body || {});
+    const result = await testDirectSqlConnection(cfg);
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({
+      success: false,
+      message: err.message || 'SQL bağlantı testi sırasında sunucu hatası oluştu.',
+    });
+  }
 });
 
 // 0. CANLI BİLDİRİM AKIŞI (Server-Sent Events - SSE)
@@ -424,17 +460,21 @@ app.get('/api/campaigns', (req, res) => {
   res.json({ success: true, campaigns });
 });
 
-// Sunucuyu başlat
-app.listen(PORT, async () => {
-  console.log(`🚀 ERP12 Entegrasyon API Servisi http://localhost:${PORT} üzerinde çalışıyor.`);
-  console.log(`📡 PWA uygulaması bu adrese bağlanacaktır.`);
+// Sunucuyu başlat (Vercel Serverless dışındaki ortamlarda dinle)
+if (!process.env.VERCEL) {
+  app.listen(PORT, async () => {
+    console.log(`🚀 ERP12 Entegrasyon API Servisi http://localhost:${PORT} üzerinde çalışıyor.`);
+    console.log(`📡 PWA uygulaması bu adrese bağlanacaktır.`);
 
-  try {
-    const ok = await testConnection();
-    if (ok) {
-      console.log('✅ OSMANLIGIDA veritabanı bağlantısı aktif ve hazır.');
+    try {
+      const ok = await testConnection();
+      if (ok) {
+        console.log('✅ OSMANLIGIDA veritabanı bağlantısı aktif ve hazır.');
+      }
+    } catch (err) {
+      console.warn('⚠️ Veritabanı testi uyarısı:', err.message);
     }
-  } catch (err) {
-    console.warn('⚠️ Veritabanı testi uyarısı:', err.message);
-  }
-});
+  });
+}
+
+export default app;

@@ -4,7 +4,46 @@ import { db, initialCustomers, initialProducts } from '../db';
 export const isDemoMode = (config?: ServerConfig): boolean => {
   if (!config || !config.apiUrl) return true;
   const url = config.apiUrl.trim().toLowerCase();
-  return url === 'demo' || url === '' || url.includes('vercel.app');
+  return url === 'demo' || url === '';
+};
+
+export const resolveApiBaseUrl = (config?: ServerConfig): string => {
+  if (typeof window === 'undefined') return '/api';
+  const host = window.location.hostname;
+  const protocol = window.location.protocol;
+  const port = window.location.port;
+
+  // HTTPS / bulut domain (plasiyer.vercel.app vb.) veya Vite dev proxy (5173) -> '/api'
+  if (protocol === 'https:' || host.includes('vercel.app') || port === '5173') {
+    return '/api';
+  }
+
+  // Yerel HTTP ortamında yerel Node.js servisine bağlan (uzak SQL IP'sine doğrudan TCP ile Node.js bağlanır)
+  const bridge = config?.bridgePort?.trim() || '4000';
+  return `http://${host || 'localhost'}:${bridge}/api`;
+};
+
+const encodeUtf8Base64 = (str: string): string => {
+  const bytes = new TextEncoder().encode(str);
+  let binary = '';
+  bytes.forEach((b) => {
+    binary += String.fromCharCode(b);
+  });
+  return btoa(binary);
+};
+
+export const buildSqlHeaders = (config?: ServerConfig): Record<string, string> => {
+  if (!config || !config.sqlHost || !config.sqlHost.trim()) return {};
+  const payload = {
+    sqlHost: config.sqlHost.trim(),
+    sqlPort: (config.sqlPort || '1433').trim(),
+    sqlDatabase: (config.sqlDatabase || '').trim(),
+    sqlUser: (config.sqlUser || '').trim(),
+    sqlPassword: config.sqlPassword ?? '',
+  };
+  return {
+    'X-SQL-Config': encodeUtf8Base64(JSON.stringify(payload)),
+  };
 };
 
 export const handleFetchError = (err: any): Error => {
@@ -19,7 +58,7 @@ export const handleFetchError = (err: any): Error => {
     err?.name === 'TypeError'
   ) {
     return new Error(
-      'ERP12 sunucusuna bağlanılamadı. Statik IP ve port ayarlarınızı kontrol ediniz ya da Ayarlar menüsünden Çevrimdışı / Demo moda geçiniz.'
+      'SQL sunucu servisine ulaşılamadı. İnternet bağlantınızı ve SQL Server bağlantı bilgilerinizi kontrol ediniz.'
     );
   }
   return err instanceof Error ? err : new Error(msg);
@@ -35,11 +74,18 @@ export const apiService = {
       };
     }
 
+    if (config.sqlHost && config.sqlHost.trim()) {
+      return this.testSqlConnection(config);
+    }
+
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-      const response = await fetch(`${config.apiUrl}/health`, {
+      const response = await fetch(`${resolveApiBaseUrl(config)}/health`, {
+        headers: {
+          ...buildSqlHeaders(config),
+        },
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
@@ -60,26 +106,48 @@ export const apiService = {
 
   // Doğrudan SQL Server Bağlantısını Canlı Test Et (Görsel-1)
   async testSqlConnection(config: ServerConfig): Promise<{ success: boolean; message: string }> {
-    if (isDemoMode(config)) {
-      await new Promise(r => setTimeout(r, 600));
+    if (!config.sqlHost && isDemoMode(config)) {
+      await new Promise(r => setTimeout(r, 400));
       return {
         success: true,
-        message: `SQL Server Bağlantısı Başarılı: ${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'} -> [${config.sqlDatabase || 'OSMANLIGIDA'}] veritabanına erişim doğrulandı.`,
+        message: `Demo Mod Aktif: Yerel veritabanında çevrimdışı çalışılmaktadır.`,
       };
     }
 
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 5000);
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-      const targetUrl = config.apiUrl || `http://${config.sqlHost || 'localhost'}:${config.bridgePort || '4000'}/api`;
-      const response = await fetch(`${targetUrl}/health`, { signal: controller.signal });
+      const baseUrl = resolveApiBaseUrl(config);
+      const response = await fetch(`${baseUrl}/sql/test`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...buildSqlHeaders(config),
+        },
+        body: JSON.stringify({
+          sqlHost: (config.sqlHost || 'localhost').trim(),
+          sqlPort: (config.sqlPort || '1433').trim(),
+          sqlDatabase: (config.sqlDatabase || '').trim(),
+          sqlUser: (config.sqlUser || '').trim(),
+          sqlPassword: config.sqlPassword ?? '',
+        }),
+        signal: controller.signal,
+      });
       clearTimeout(timeoutId);
+
+      const data = await response.json().catch(() => null);
+      if (data && typeof data.success === 'boolean') {
+        return {
+          success: data.success,
+          message: data.message || (data.success ? 'SQL Server bağlantısı başarılı.' : 'SQL Server bağlantısı başarısız.'),
+        };
+      }
 
       if (response.ok) {
         return {
           success: true,
-          message: `SQL Server ve ERP12 Servis Bağlantısı Aktif (${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'} -> ${config.sqlDatabase || 'ERP12_DB'}).`,
+          message: `SQL Server Bağlantısı Aktif (${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'} -> ${config.sqlDatabase || 'ERP12_DB'}).`,
         };
       }
       return { success: false, message: `Sunucu yanıt verdi ancak durum kodu: ${response.status}` };
@@ -87,8 +155,8 @@ export const apiService = {
       return {
         success: false,
         message: err.name === 'AbortError'
-          ? `SQL Server bağlantısı zaman aşımına uğradı (${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'}). Statik IP ve güvenlik duvarı (Firewall 1433 / 4000) portlarını kontrol ediniz.`
-          : `SQL Server / Statik IP adresine bağlanılamadı (${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'}). Statik IP yönlendirmesini ve internet bağlantınızı kontrol ediniz.`,
+          ? `SQL Server bağlantısı zaman aşımına uğradı (${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'}). Statik IP ve SQL port yönlendirmesini (${config.sqlPort || '1433'}) kontrol ediniz.`
+          : `SQL Server bağlantı servisine ulaşılamadı (${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'}). İnternet bağlantınızı kontrol edip tekrar deneyiniz.`,
       };
     }
   },
@@ -101,15 +169,20 @@ export const apiService = {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     try {
-      const response = await fetch(`${config.apiUrl}/customers?rep=${encodeURIComponent(salesRepCode)}&company=${config.companyCode}`, {
+      const baseUrl = resolveApiBaseUrl(config);
+      const response = await fetch(`${baseUrl}/customers?rep=${encodeURIComponent(salesRepCode)}&company=${encodeURIComponent(config.companyCode || '01')}`, {
+        headers: {
+          ...buildSqlHeaders(config),
+        },
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
       if (!response.ok) {
-        throw new Error(`Cari listesi alınamadı: HTTP ${response.status}`);
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || errData.error || `Cari listesi alınamadı: HTTP ${response.status}`);
       }
       return await response.json();
     } catch (err: any) {
@@ -126,15 +199,20 @@ export const apiService = {
     }
 
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     try {
-      const response = await fetch(`${config.apiUrl}/products?company=${config.companyCode}`, {
+      const baseUrl = resolveApiBaseUrl(config);
+      const response = await fetch(`${baseUrl}/products?company=${encodeURIComponent(config.companyCode || '01')}`, {
+        headers: {
+          ...buildSqlHeaders(config),
+        },
         signal: controller.signal,
       });
       clearTimeout(timeoutId);
       if (!response.ok) {
-        throw new Error(`Stok listesi alınamadı: HTTP ${response.status}`);
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || errData.error || `Stok listesi alınamadı: HTTP ${response.status}`);
       }
       return await response.json();
     } catch (err: any) {
@@ -151,10 +229,12 @@ export const apiService = {
     }
 
     try {
-      const response = await fetch(`${config.apiUrl}/orders`, {
+      const baseUrl = resolveApiBaseUrl(config);
+      const response = await fetch(`${baseUrl}/orders`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...buildSqlHeaders(config),
         },
         body: JSON.stringify({
           companyCode: config.companyCode,
@@ -203,10 +283,11 @@ export const apiService = {
     }
 
     try {
-      const response = await fetch(`${config.apiUrl}/collections`, {
+      const response = await fetch(`${resolveApiBaseUrl(config)}/collections`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...buildSqlHeaders(config),
         },
         body: JSON.stringify({
           companyCode: config.companyCode,
@@ -246,10 +327,11 @@ export const apiService = {
     }
 
     try {
-      const response = await fetch(`${config.apiUrl}/returns`, {
+      const response = await fetch(`${resolveApiBaseUrl(config)}/returns`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...buildSqlHeaders(config),
         },
         body: JSON.stringify({
           companyCode: config.companyCode,
@@ -300,10 +382,11 @@ export const apiService = {
     }
 
     try {
-      const response = await fetch(`${config.apiUrl}/orders/${encodeURIComponent(docNo)}/invoice`, {
+      const response = await fetch(`${resolveApiBaseUrl(config)}/orders/${encodeURIComponent(docNo)}/invoice`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...buildSqlHeaders(config),
         },
         body: JSON.stringify({
           invoiceNo,
@@ -409,11 +492,15 @@ export const apiService = {
     }
 
     try {
-      let url = `${config.apiUrl}/customers/${encodeURIComponent(idOrCode)}/statement?company=${config.companyCode}`;
+      let url = `${resolveApiBaseUrl(config)}/customers/${encodeURIComponent(idOrCode)}/statement?company=${encodeURIComponent(config.companyCode || '01')}`;
       if (startDate) url += `&startDate=${encodeURIComponent(startDate)}`;
       if (endDate) url += `&endDate=${encodeURIComponent(endDate)}`;
 
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        headers: {
+          ...buildSqlHeaders(config),
+        },
+      });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || errData.error || `Cari ekstre alınamadı (HTTP ${response.status})`);
@@ -645,8 +732,12 @@ export const apiService = {
     }
 
     try {
-      const url = `${config.apiUrl}/customers/${encodeURIComponent(idOrCode)}/history?company=${config.companyCode}`;
-      const response = await fetch(url);
+      const url = `${resolveApiBaseUrl(config)}/customers/${encodeURIComponent(idOrCode)}/history?company=${encodeURIComponent(config.companyCode || '01')}`;
+      const response = await fetch(url, {
+        headers: {
+          ...buildSqlHeaders(config),
+        },
+      });
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || errData.error || `Cari işlem geçmişi alınamadı (HTTP ${response.status})`);
@@ -691,10 +782,11 @@ export const apiService = {
     }
 
     try {
-      const response = await fetch(`${config.apiUrl}/products/${encodeURIComponent(productCode)}/image`, {
+      const response = await fetch(`${resolveApiBaseUrl(config)}/products/${encodeURIComponent(productCode)}/image`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          ...buildSqlHeaders(config),
         },
         body: JSON.stringify({
           code: productCode,
@@ -723,8 +815,11 @@ export const apiService = {
     }
 
     try {
-      const response = await fetch(`${config.apiUrl}/products/${encodeURIComponent(productCode)}/image`, {
+      const response = await fetch(`${resolveApiBaseUrl(config)}/products/${encodeURIComponent(productCode)}/image`, {
         method: 'DELETE',
+        headers: {
+          ...buildSqlHeaders(config),
+        },
       });
 
       if (!response.ok) {

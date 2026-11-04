@@ -1,10 +1,10 @@
-import { executeJsonQuery, executeNonQuery } from './db.js';
+import { executeJsonQuery, getActiveDbKey } from './db.js';
 import { imageService } from './imageService.js';
 
-// Yüksek Performanslı Bellek İçi Önbellek (Hızlı Senkronizasyon & Düşük Veritabanı Yükü)
+// Yüksek Performanslı Bellek İçi Önbellek (Çoklu Firma / DB Anahtarı İle İzole)
 const memCache = {
-  customers: new Map(), // key -> { data, expiresAt }
-  products: null,       // { data, expiresAt }
+  customers: new Map(), // `${dbKey}::${rep}` -> { data, expiresAt }
+  products: new Map(),  // `${dbKey}` -> { data, expiresAt }
 };
 
 export const erpQueries = {
@@ -13,24 +13,27 @@ export const erpQueries = {
   },
 
   invalidateProductCache() {
-    memCache.products = null;
+    memCache.products.clear();
   },
 
-  // 1. CARİ HESAPLAR VE BAKİYELER (OSMANLIGIDA)
+  // 1. CARİ HESAPLAR VE BAKİYELER (TÜM ERP12 VERİTABANLARI İLE UYUMLU)
   async getCustomers(salesRepCode) {
-    const cacheKey = salesRepCode || 'ALL';
+    const dbKey = getActiveDbKey();
+    const cacheKey = `${dbKey}::ALL`;
     const now = Date.now();
     const cached = memCache.customers.get(cacheKey);
     if (cached && cached.expiresAt > now) {
       return cached.data;
     }
 
-    let whereRep = '';
-    if (salesRepCode && salesRepCode !== 'ALL' && salesRepCode !== 'PLS01') {
-      whereRep = `AND C.TEMSILCI = '${salesRepCode.replace(/'/g, "''")}'`;
-    }
+    const queryWithBalanceView = `
+      DECLARE @p1 bigint = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 1016);
+      IF @p1 IS NULL SET @p1 = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) ORDER BY ID ASC);
+      DECLARE @p2 bigint = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 3294504);
+      IF @p2 IS NULL SET @p2 = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID <> ISNULL(@p1, -1) ORDER BY ID ASC);
+      DECLARE @p3 bigint = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 449803);
+      IF @p3 IS NULL SET @p3 = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID NOT IN (ISNULL(@p1, -1), ISNULL(@p2, -1)) ORDER BY ID ASC);
 
-    const query = `
       WITH LastCustDiscount AS (
         SELECT 
           F.CARI,
@@ -45,7 +48,7 @@ export const erpQueries = {
         WHERE FD.ISKONTO IS NOT NULL AND FD.ISKONTO <> '' AND FD.ISKONTO <> '0'
           AND F.FIS_TURU IN (1, 2, 3, 4, 20, 21, 22)
       )
-      SELECT TOP 1500
+      SELECT TOP 2000
         C.ID AS id,
         C.KOD AS code,
         C.AD AS name,
@@ -53,10 +56,10 @@ export const erpQueries = {
         ISNULL(A.TELEFON_CEP, ISNULL(A.TELEFON, '')) AS phone,
         ISNULL(C.VERGI_DAIRESI, '') AS taxOffice,
         ISNULL(C.VERGI_NUMARASI, ISNULL(C.KIMLIK_NO, '')) AS taxNumber,
-        ISNULL(CAST(C.TEMSILCI AS varchar), '0') AS salesRepCode,
+        ISNULL(CAST(C.TEMSILCI AS varchar(50)), '0') AS salesRepCode,
         CASE 
-          WHEN C.STOK_FIYAT_AD = 3294504 THEN 2
-          WHEN C.STOK_FIYAT_AD IN (449802, 449803) THEN 3
+          WHEN C.STOK_FIYAT_AD = @p2 THEN 2
+          WHEN C.STOK_FIYAT_AD IN (@p3, 449802, 449803) THEN 3
           ELSE 1 
         END AS priceList,
         COALESCE(
@@ -70,12 +73,44 @@ export const erpQueries = {
       LEFT JOIN LastCustDiscount LD ON LD.CARI = C.ID AND LD.rn = 1
       LEFT JOIN CARI_BAKIYELER B WITH(NOLOCK) ON B.ID = C.ID
       LEFT JOIN CARI_ADRES A WITH(NOLOCK) ON A.CARI = C.ID AND A.VARSAYILAN = 1
-      WHERE C.AKTIF = 1 ${whereRep}
+      WHERE C.AKTIF = 1
       ORDER BY C.AD ASC
       FOR JSON PATH
     `;
 
-    const rows = await executeJsonQuery(query);
+    let rows;
+    try {
+      rows = await executeJsonQuery(queryWithBalanceView);
+    } catch (err) {
+      // CARI_BAKIYELER view veya opsiyonel tablo farklılığı varsa FINANS_DETAY üzerinden hesapla
+      const fallbackQuery = `
+        SELECT TOP 2000
+          C.ID AS id,
+          C.KOD AS code,
+          C.AD AS name,
+          '' AS address,
+          '' AS phone,
+          ISNULL(C.VERGI_DAIRESI, '') AS taxOffice,
+          ISNULL(C.VERGI_NUMARASI, ISNULL(C.KIMLIK_NO, '')) AS taxNumber,
+          ISNULL(CAST(C.TEMSILCI AS varchar(50)), '0') AS salesRepCode,
+          1 AS priceList,
+          ISNULL(TRY_CAST(REPLACE(C.ISKONTO, ',', '.') AS float), 0) AS specialDiscount,
+          ISNULL(C.RISK, 0) AS riskLimit,
+          ISNULL(FB.BAKIYE, 0) AS balance
+        FROM CARI C WITH(NOLOCK)
+        LEFT JOIN (
+          SELECT KART_ID, SUM(BORC - ALACAK) AS BAKIYE FROM (
+            SELECT KART_BORCLU AS KART_ID, TUTAR AS BORC, CAST(0 AS float) AS ALACAK FROM FINANS_DETAY WITH(NOLOCK) WHERE KART_BORCLU IS NOT NULL
+            UNION ALL
+            SELECT KART_ALACAKLI AS KART_ID, CAST(0 AS float) AS BORC, TUTAR AS ALACAK FROM FINANS_DETAY WITH(NOLOCK) WHERE KART_ALACAKLI IS NOT NULL
+          ) X GROUP BY KART_ID
+        ) FB ON FB.KART_ID = C.ID
+        WHERE C.AKTIF = 1
+        ORDER BY C.AD ASC
+        FOR JSON PATH
+      `;
+      rows = await executeJsonQuery(fallbackQuery);
+    }
     const result = rows.map((row) => ({
       id: String(row.id),
       code: String(row.code),
@@ -98,14 +133,25 @@ export const erpQueries = {
     return result;
   },
 
-  // 2. STOK KARTLARI, BARKODLAR, FİYATLAR VE MEVCUTLAR (OSMANLIGIDA + ERP12 GÖRSEL)
+  // 2. STOK KARTLARI, BARKODLAR, FİYATLAR VE MEVCUTLAR (TÜM ERP12 VERİTABANLARI İLE UYUMLU)
   async getProducts() {
+    const dbKey = getActiveDbKey();
     const now = Date.now();
-    if (memCache.products && memCache.products.expiresAt > now) {
-      return memCache.products.data;
+    const cached = memCache.products.get(dbKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
     }
 
     const query = `
+      DECLARE @p1 bigint = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 1016);
+      IF @p1 IS NULL SET @p1 = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) ORDER BY ID ASC);
+
+      DECLARE @p2 bigint = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 3294504);
+      IF @p2 IS NULL SET @p2 = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID <> ISNULL(@p1, -1) ORDER BY ID ASC);
+
+      DECLARE @p3 bigint = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 449803);
+      IF @p3 IS NULL SET @p3 = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID NOT IN (ISNULL(@p1, -1), ISNULL(@p2, -1)) ORDER BY ID ASC);
+
       SELECT TOP 1500
         S.ID AS id,
         S.KOD AS code,
@@ -114,11 +160,10 @@ export const erpQueries = {
         ISNULL(SB.AD, 'ADET') AS unit,
         ISNULL(V.KDV_TOPTAN, 1) AS vatRate,
         ISNULL(B.BARKOD, S.KOD) AS barcode,
-        ISNULL(F.FIYAT, 0) AS price1,
-        ISNULL(F2.FIYAT, ISNULL(F.FIYAT, 0)) AS price2,
-        ISNULL(F3.FIYAT, ISNULL(F.FIYAT, 0)) AS price3,
-        ISNULL(M.MIKTAR, 0) AS stockQuantity,
-        ISNULL(R.LINK, ISNULL(SR.LINK, SR.DOSYA)) AS erpImageLink
+        COALESCE(F.FIYAT, F_ANY.FIYAT, 0) AS price1,
+        COALESCE(F2.FIYAT, F.FIYAT, F_ANY.FIYAT, 0) AS price2,
+        COALESCE(F3.FIYAT, F.FIYAT, F_ANY.FIYAT, 0) AS price3,
+        ISNULL(M.MIKTAR, 0) AS stockQuantity
       FROM STOK S WITH(NOLOCK)
       LEFT JOIN STOK_GRUP G WITH(NOLOCK) ON G.ID = S.STOK_GRUP
       LEFT JOIN STOK_VERGI V WITH(NOLOCK) ON V.ID = S.STOK_VERGI
@@ -130,18 +175,17 @@ export const erpQueries = {
         WHERE AKTIF = 1 
         GROUP BY STOK_STOK_BIRIM
       ) B ON B.STOK_STOK_BIRIM = SSB.ID
-      LEFT JOIN STOK_VARSAYILAN_FIYAT F WITH(NOLOCK) ON F.STOK_STOK_BIRIM = SSB.ID AND F.STOK_FIYAT_AD = 1016
-      LEFT JOIN STOK_VARSAYILAN_FIYAT F2 WITH(NOLOCK) ON F2.STOK_STOK_BIRIM = SSB.ID AND F2.STOK_FIYAT_AD = 3294504
-      LEFT JOIN STOK_VARSAYILAN_FIYAT F3 WITH(NOLOCK) ON F3.STOK_STOK_BIRIM = SSB.ID AND F3.STOK_FIYAT_AD = 449803
+      LEFT JOIN STOK_VARSAYILAN_FIYAT F WITH(NOLOCK) ON F.STOK_STOK_BIRIM = SSB.ID AND F.STOK_FIYAT_AD = @p1
+      LEFT JOIN STOK_VARSAYILAN_FIYAT F2 WITH(NOLOCK) ON F2.STOK_STOK_BIRIM = SSB.ID AND F2.STOK_FIYAT_AD = @p2
+      LEFT JOIN STOK_VARSAYILAN_FIYAT F3 WITH(NOLOCK) ON F3.STOK_STOK_BIRIM = SSB.ID AND F3.STOK_FIYAT_AD = @p3
+      LEFT JOIN (
+        SELECT STOK_STOK_BIRIM, MAX(FIYAT) AS FIYAT
+        FROM STOK_VARSAYILAN_FIYAT WITH(NOLOCK)
+        GROUP BY STOK_STOK_BIRIM
+      ) F_ANY ON F_ANY.STOK_STOK_BIRIM = SSB.ID
       LEFT JOIN (
         SELECT STOK, SUM(MIKTAR) AS MIKTAR FROM STOK_MIKTAR WITH(NOLOCK) GROUP BY STOK
       ) M ON M.STOK = S.ID
-      LEFT JOIN (
-        SELECT ID, MIN(LINK) AS LINK FROM RESIM WITH(NOLOCK) GROUP BY ID
-      ) R ON R.ID = S.ID
-      LEFT JOIN (
-        SELECT STOK, MIN(LINK) AS LINK, MIN(DOSYA) AS DOSYA FROM STOK_RENK_RESIM WITH(NOLOCK) GROUP BY STOK
-      ) SR ON SR.STOK = S.ID
       WHERE S.AKTIF = 1
         AND ISNULL(G.AD, '') NOT LIKE '%MASRAF%'
       ORDER BY S.AD ASC
@@ -174,7 +218,7 @@ export const erpQueries = {
     });
 
     // 60 saniye süreyle bellekte sakla
-    memCache.products = { data: result, expiresAt: Date.now() + 60000 };
+    memCache.products.set(dbKey, { data: result, expiresAt: Date.now() + 60000 });
     return result;
   },
 
@@ -220,7 +264,12 @@ export const erpQueries = {
       BEGIN TRY
         DECLARE @cariId bigint;
         SELECT TOP 1 @cariId = ID FROM CARI WHERE KOD = '${safeCustCode}';
-        IF @cariId IS NULL SET @cariId = 437834;
+        IF @cariId IS NULL SELECT TOP 1 @cariId = ID FROM CARI WHERE AKTIF = 1 ORDER BY ID ASC;
+
+        DECLARE @lokId bigint = ISNULL(
+          (SELECT TOP 1 ID FROM LOKASYON WHERE ID = 75919),
+          (SELECT TOP 1 ID FROM LOKASYON ORDER BY ID ASC)
+        );
 
         DECLARE @orderId bigint;
         SELECT @orderId = ISNULL(MAX(ID), 3893110) + 1 FROM SIPARIS;
@@ -231,7 +280,7 @@ export const erpQueries = {
           SATIR_TOPLAM, SATIR_ISKONTO_TOPLAM, KDV_TOPLAM, GENELTOPLAM, 
           ACIKLAMA, AKTIF, MOBIL_MI, ONAYLI
         ) VALUES (
-          @orderId, 2, 75919, @cariId, '${docNo}', 
+          @orderId, 2, @lokId, @cariId, '${docNo}', 
           GETDATE(), GETDATE(), GETDATE(), 
           ${order.subtotal || 0}, ${order.totalDiscount || 0}, ${order.totalVat || 0}, ${order.grandTotal || 0}, 
           '[Mobil Plasiyer - ${safeTempId}] ${safeNotes}${safeCampaignNotes}', 1, 1, 0
@@ -261,7 +310,7 @@ export const erpQueries = {
                 MIKTAR_FIS, FIYAT, TUTAR, DAHIL_TUTAR, 
                 KDV_TOPTAN, ISKONTO
               ) VALUES (
-                @detId, @orderId, 75919, @stokId_${idx}, @birimId_${idx}, 
+                @detId, @orderId, @lokId, @stokId_${idx}, @birimId_${idx}, 
                 ${item.quantity || 1}, ${price}, ${netTutar}, ${dahilTutar}, 
                 ${item.vatRate || 1}, '${iskonto}'
               );
@@ -316,18 +365,29 @@ export const erpQueries = {
       BEGIN TRY
         DECLARE @cariId bigint;
         SELECT TOP 1 @cariId = ID FROM CARI WHERE KOD = '${safeCustCode}';
-        IF @cariId IS NULL SET @cariId = 437834;
+        IF @cariId IS NULL SELECT TOP 1 @cariId = ID FROM CARI WHERE AKTIF = 1 ORDER BY ID ASC;
 
         DECLARE @finansId bigint;
         SELECT @finansId = ISNULL(MAX(ID), 3931620) + 1 FROM FINANS;
 
-        DECLARE @kasaId bigint = 75923;
+        DECLARE @kasaId bigint = ISNULL(
+          (SELECT TOP 1 ID FROM KASA_AD WHERE ID = 75923),
+          (SELECT TOP 1 ID FROM KASA_AD ORDER BY ID ASC)
+        );
+        DECLARE @lokId bigint = ISNULL(
+          (SELECT TOP 1 ID FROM LOKASYON WHERE ID = 75919),
+          (SELECT TOP 1 ID FROM LOKASYON ORDER BY ID ASC)
+        );
+        DECLARE @projeId bigint = ISNULL(
+          (SELECT TOP 1 ID FROM PROJE WHERE ID = 75916),
+          (SELECT TOP 1 ID FROM PROJE ORDER BY ID ASC)
+        );
 
         INSERT INTO FINANS (
           ID, PROJE, LOKASYON, KASA_AD, BELGENO, 
           TARIH, ISLEM_TARIHI, FIS, MOBIL_MI
         ) VALUES (
-          @finansId, 75916, 75919, @kasaId, '${safeReceiptNo}', 
+          @finansId, @projeId, @lokId, @kasaId, '${safeReceiptNo}', 
           GETDATE(), GETDATE(), @finansId, 1
         );
 
@@ -516,18 +576,29 @@ export const erpQueries = {
       BEGIN TRY
         DECLARE @cariId bigint;
         SELECT TOP 1 @cariId = ID FROM CARI WHERE KOD = '${safeCustCode}';
-        IF @cariId IS NULL SET @cariId = 437834;
+        IF @cariId IS NULL SELECT TOP 1 @cariId = ID FROM CARI WHERE AKTIF = 1 ORDER BY ID ASC;
 
         DECLARE @finansId bigint;
         SELECT @finansId = ISNULL(MAX(ID), 3931620) + 1 FROM FINANS;
 
-        DECLARE @kasaId bigint = 75923;
+        DECLARE @kasaId bigint = ISNULL(
+          (SELECT TOP 1 ID FROM KASA_AD WHERE ID = 75923),
+          (SELECT TOP 1 ID FROM KASA_AD ORDER BY ID ASC)
+        );
+        DECLARE @lokId bigint = ISNULL(
+          (SELECT TOP 1 ID FROM LOKASYON WHERE ID = 75919),
+          (SELECT TOP 1 ID FROM LOKASYON ORDER BY ID ASC)
+        );
+        DECLARE @projeId bigint = ISNULL(
+          (SELECT TOP 1 ID FROM PROJE WHERE ID = 75916),
+          (SELECT TOP 1 ID FROM PROJE ORDER BY ID ASC)
+        );
 
         INSERT INTO FINANS (
           ID, PROJE, LOKASYON, KASA_AD, BELGENO, 
           TARIH, ISLEM_TARIHI, FIS, MOBIL_MI
         ) VALUES (
-          @finansId, 75916, 75919, @kasaId, '${safeReceiptNo}', 
+          @finansId, @projeId, @lokId, @kasaId, '${safeReceiptNo}', 
           GETDATE(), GETDATE(), @finansId, 1
         );
 

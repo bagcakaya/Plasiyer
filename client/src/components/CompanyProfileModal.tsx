@@ -32,7 +32,7 @@ const DEFAULT_PROFILES: CompanyProfile[] = [
     name: 'POLATLAR YAZILIM - Canlı ERP12 (Örnek Statik IP)',
     code: '02',
     period: '2026',
-    serverUrl: 'http://78.189.45.12:4000/api',
+    serverUrl: '/api',
     companyTitle: 'Polatlar Yazılım ve Bilişim Hizmetleri',
     sqlHost: '78.189.45.12',
     sqlPort: '1433',
@@ -52,10 +52,9 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
     if (saved) {
       try {
         const parsed: CompanyProfile[] = JSON.parse(saved);
-        // Clean up legacy profiles with vercel URL or broken hostname
         const cleaned = parsed.map(p => {
-          if (p.serverUrl && (p.serverUrl.includes('vercel.app') || (typeof window !== 'undefined' && window.location.hostname.includes('vercel.app') && p.serverUrl.includes(window.location.hostname)))) {
-            return { ...p, serverUrl: 'demo' };
+          if (p.serverUrl && p.serverUrl !== 'demo' && p.sqlHost) {
+            return { ...p, serverUrl: '/api' };
           }
           return p;
         });
@@ -75,7 +74,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
   const [newCode, setNewCode] = useState('');
   const [newTitle, setNewTitle] = useState('');
   const [newSqlHost, setNewSqlHost] = useState('localhost');
-  const [newSqlPort, setNewSqlPort] = useState('1434');
+  const [newSqlPort, setNewSqlPort] = useState('1433');
   const [newSqlDb, setNewSqlDb] = useState('');
   const [newSqlUser, setNewSqlUser] = useState('');
   const [newSqlPassword, setNewSqlPassword] = useState('');
@@ -108,10 +107,16 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
     }
 
     const testConfig: ServerConfig = {
-      apiUrl: profile.serverUrl,
+      apiUrl: '/api',
       companyCode: profile.code,
       period: profile.period,
       autoSync: true,
+      companyTitle: profile.companyTitle,
+      sqlHost: profile.sqlHost,
+      sqlPort: profile.sqlPort,
+      sqlDatabase: profile.sqlDatabase,
+      sqlUser: profile.sqlUser,
+      sqlPassword: profile.sqlPassword,
     };
 
     try {
@@ -133,12 +138,9 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
   const handleTestNewSql = async () => {
     setFormTestResult({ testing: true });
     const host = newSqlHost.trim() || 'localhost';
-    const targetUrl = (host.startsWith('http://') || host.startsWith('https://'))
-      ? host
-      : `http://${host}:${newBridgePort.trim() || '4000'}/api`;
 
     const res = await apiService.testSqlConnection({
-      apiUrl: targetUrl,
+      apiUrl: '/api',
       companyCode: newCode.trim() || '01',
       period: newPeriod.trim() || '2026',
       autoSync: true,
@@ -169,16 +171,13 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
     }
 
     const host = newSqlHost.trim() || 'localhost';
-    const finalUrl = (host.startsWith('http://') || host.startsWith('https://'))
-      ? host
-      : `http://${host}:${newBridgePort.trim() || '4000'}/api`;
 
     const newProfile: CompanyProfile = {
       id: 'prof-' + Date.now(),
       name: newTitle.trim() || newCode.trim().toUpperCase(),
       code: newCode.trim().toUpperCase(),
       period: newPeriod.trim() || '2026',
-      serverUrl: finalUrl,
+      serverUrl: '/api',
       companyTitle: newTitle.trim() || newCode.trim().toUpperCase(),
       sqlHost: host,
       sqlPort: newSqlPort.trim() || '1433',

@@ -2,9 +2,17 @@
   "name": "plasiyer",
   "version": "4.0.0",
   "private": true,
+  "type": "module",
   "description": "POLATLAR YAZILIM ERP12 Mobil Saha Satış ve B2B Portalı",
   "scripts": {
     "build": "npm --prefix client run build",
     "start": "node server/src/index.js"
+  },
+  "dependencies": {
+    "compression": "^1.8.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "mssql": "^11.0.1"
   }
 }

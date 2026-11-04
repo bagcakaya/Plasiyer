@@ -100,31 +100,26 @@ export const SettingsPage: React.FC = () => {
     }).format(val);
   };
 
-  const handleSaveConfig = () => {
-    const isLive = apiUrl && apiUrl !== 'demo';
-    let targetApiUrl = apiUrl;
-    if (isLive) {
-      if (sqlHost && !sqlHost.startsWith('http://') && !sqlHost.startsWith('https://')) {
-        targetApiUrl = `http://${sqlHost.trim()}:${bridgePort.trim() || '4000'}/api`;
-      } else if (sqlHost) {
-        targetApiUrl = sqlHost.trim();
-      }
-    }
+  const handleSaveConfig = async () => {
+    const isLive = Boolean(apiUrl && apiUrl !== 'demo');
+    const targetApiUrl = isLive ? '/api' : 'demo';
 
-    updateServerConfig({
-      apiUrl: targetApiUrl.trim(),
+    const newCfg: ServerConfig = {
+      apiUrl: targetApiUrl,
       companyCode: companyCode.trim() || '01',
       period: period.trim() || '2026',
       autoSync,
       companyTitle: companyTitle.trim(),
       sqlHost: sqlHost.trim(),
-      sqlPort: sqlPort.trim(),
+      sqlPort: (sqlPort.trim() || '1433'),
       sqlDatabase: sqlDatabase.trim(),
       sqlUser: sqlUser.trim(),
       sqlPassword: sqlPassword,
       licenseExpireDate: licenseExpireDate.trim(),
-      bridgePort: bridgePort.trim(),
-    });
+      bridgePort: bridgePort.trim() || '4000',
+    };
+
+    updateServerConfig(newCfg);
     setSalesRep({
       ...salesRep,
       code: repCode.trim(),
@@ -132,8 +127,27 @@ export const SettingsPage: React.FC = () => {
     });
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 3000);
+
     if (isLive) {
-      triggerSync();
+      setTestResult({ testing: true });
+      const sqlCheck = await apiService.testSqlConnection(newCfg);
+      if (!sqlCheck.success) {
+        setTestResult({
+          testing: false,
+          success: false,
+          message: sqlCheck.message,
+        });
+        return;
+      }
+
+      const syncRes = await triggerSync(newCfg);
+      setTestResult({
+        testing: false,
+        success: syncRes.success,
+        message: syncRes.success
+          ? `${sqlCheck.message} (${syncRes.customersCount || 0} cari ve ${syncRes.productsCount || 0} ürün cihaza senkronize edildi.)`
+          : (syncRes.error || sqlCheck.message),
+      });
     }
   };
 
@@ -170,20 +184,18 @@ export const SettingsPage: React.FC = () => {
     setTestResult({ testing: true });
     
     const configToTest: ServerConfig = {
-      apiUrl: (sqlHost && !sqlHost.startsWith('http://') && !sqlHost.startsWith('https://'))
-        ? `http://${sqlHost.trim()}:${bridgePort.trim() || '4000'}/api`
-        : (apiUrl || 'http://localhost:4000/api'),
+      apiUrl: '/api',
       companyCode: companyCode.trim() || '01',
       period: period.trim() || '2026',
       autoSync,
       companyTitle: companyTitle.trim(),
       sqlHost: sqlHost.trim(),
-      sqlPort: sqlPort.trim(),
+      sqlPort: sqlPort.trim() || '1433',
       sqlDatabase: sqlDatabase.trim(),
       sqlUser: sqlUser.trim(),
       sqlPassword: sqlPassword,
       licenseExpireDate: licenseExpireDate.trim(),
-      bridgePort: bridgePort.trim(),
+      bridgePort: bridgePort.trim() || '4000',
     };
 
     const res = await apiService.testSqlConnection(configToTest);
@@ -467,7 +479,7 @@ export const SettingsPage: React.FC = () => {
             type="button"
             onClick={() => {
               if (!apiUrl || apiUrl === 'demo') {
-                setApiUrl('http://');
+                setApiUrl('/api');
               }
             }}
             className={`py-2 px-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 border ${
@@ -932,8 +944,10 @@ export const SettingsPage: React.FC = () => {
         onClose={() => setIsCompanyModalOpen(false)}
         currentConfig={serverConfig}
         onSelectProfile={(profile) => {
-          updateServerConfig({
-            apiUrl: profile.serverUrl,
+          const resolvedUrl = profile.serverUrl && profile.serverUrl !== 'demo' ? '/api' : 'demo';
+          const nextCfg: ServerConfig = {
+            ...serverConfig,
+            apiUrl: resolvedUrl,
             companyCode: profile.code,
             period: profile.period,
             companyTitle: profile.companyTitle,
@@ -943,8 +957,9 @@ export const SettingsPage: React.FC = () => {
             sqlUser: profile.sqlUser,
             sqlPassword: profile.sqlPassword,
             licenseExpireDate: profile.licenseExpireDate,
-          });
-          setApiUrl(profile.serverUrl);
+          };
+          updateServerConfig(nextCfg);
+          setApiUrl(resolvedUrl);
           setCompanyCode(profile.code);
           setPeriod(profile.period);
           if (profile.companyTitle) setCompanyTitle(profile.companyTitle);
@@ -954,8 +969,8 @@ export const SettingsPage: React.FC = () => {
           if (profile.sqlUser !== undefined) setSqlUser(profile.sqlUser);
           if (profile.sqlPassword !== undefined) setSqlPassword(profile.sqlPassword);
           if (profile.licenseExpireDate) setLicenseExpireDate(profile.licenseExpireDate);
-          if (profile.serverUrl && profile.serverUrl !== 'demo') {
-            triggerSync();
+          if (resolvedUrl !== 'demo') {
+            triggerSync(nextCfg);
           }
         }}
       />

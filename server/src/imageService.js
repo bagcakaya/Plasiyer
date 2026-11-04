@@ -1,17 +1,27 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const UPLOADS_DIR = path.resolve(__dirname, '../uploads/products');
-const REGISTRY_FILE = path.resolve(__dirname, '../data/product-images.json');
+const IS_SERVERLESS = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME);
+const UPLOADS_DIR = IS_SERVERLESS
+  ? path.join(os.tmpdir(), 'plasiyer-uploads', 'products')
+  : path.resolve(__dirname, '../uploads/products');
+const REGISTRY_FILE = IS_SERVERLESS
+  ? path.join(os.tmpdir(), 'plasiyer-uploads', 'product-images.json')
+  : path.resolve(__dirname, '../data/product-images.json');
 const ERP12_DIR = 'C:\\ERP12\\URUN_RESIM';
 
-// Klasörlerin varlığından emin ol
-if (!fs.existsSync(UPLOADS_DIR)) {
-  fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+// Klasörlerin varlığından emin ol (Serverless salt-okunur dosya sistemlerinde güvenli)
+try {
+  if (!fs.existsSync(UPLOADS_DIR)) {
+    fs.mkdirSync(UPLOADS_DIR, { recursive: true });
+  }
+} catch (err) {
+  console.warn('Görsel dizini oluşturma uyarısı:', err.message);
 }
 
 // Görsel haritasını oku

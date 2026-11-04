@@ -2,7 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useMemo } from '
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db, seedInitialDataIfNeeded } from '../db';
 import { syncService, type SyncResult } from '../services/syncService';
-import { apiService, isDemoMode } from '../services/apiService';
+import { apiService, isDemoMode, resolveApiBaseUrl } from '../services/apiService';
 import { soundNotification } from '../utils/soundNotification';
 import type { 
   Customer, 
@@ -134,7 +134,7 @@ interface AppContextType {
   pendingOrdersCount: number;
   pendingReturnsCount: number;
   isSyncing: boolean;
-  triggerSync: () => Promise<SyncResult>;
+  triggerSync: (overrideConfig?: ServerConfig) => Promise<SyncResult>;
   lastSyncTime: Date | null;
   autoSyncEnabled: boolean;
   toggleAutoSync: () => void;
@@ -320,13 +320,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
-        // CRITICAL: Clean up legacy saved URLs pointing to vercel domain port 4000
-        if (
-          parsed.apiUrl &&
-          (parsed.apiUrl.includes('vercel.app') ||
-           (typeof window !== 'undefined' && isRemoteHost() && parsed.apiUrl.includes(window.location.hostname)))
-        ) {
-          parsed.apiUrl = 'demo';
+        // Eski hatalı "http://<sqlHost>:4000/api" kayıtlarını otomatik olarak doğrudan '/api' yapısına geçir
+        if (parsed.apiUrl && parsed.apiUrl !== 'demo' && parsed.sqlHost) {
+          parsed.apiUrl = '/api';
           localStorage.setItem('plasiyer_server_config', JSON.stringify(parsed));
         }
         return parsed;
@@ -606,13 +602,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return await soundNotification.requestNotificationPermission();
   };
 
-  // SSE Canlı Bildirim Dinleyicisi
+  // SSE Canlı Bildirim Dinleyicisi (Yalnızca yerel sunucuda; Serverless bulut ortamında devre dışı)
   useEffect(() => {
-    if (isDemoMode(serverConfig)) return;
+    if (isDemoMode(serverConfig) || isRemoteHost()) return;
 
     let eventSource: EventSource | null = null;
     try {
-      const streamUrl = `${serverConfig.apiUrl}/notifications/stream`;
+      const streamUrl = `${resolveApiBaseUrl(serverConfig)}/notifications/stream`;
       eventSource = new EventSource(streamUrl);
 
       eventSource.onmessage = (event) => {
@@ -739,12 +735,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setServerConfig(updated);
     localStorage.setItem('plasiyer_server_config', JSON.stringify(updated));
 
-    // Canlı bir API'ye geçiş yapıldıysa hemen ürün ve carileri SQL'den çek
-    if (updated.apiUrl && updated.apiUrl !== 'demo' && !updated.apiUrl.includes('vercel.app')) {
+    // Canlı bir SQL / API bağlantısına geçiş yapıldıysa hemen ürün ve carileri SQL'den çek
+    if (!isDemoMode(updated)) {
       setTimeout(() => {
         syncService.pullDataFromERP(updated, salesRep.code).then((res) => {
+          const now = new Date();
           if (res.success) {
-            const now = new Date();
             setLastSyncTime(now);
             localStorage.setItem('plasiyer_last_sync_time', now.toISOString());
             setActiveToastNotification({
@@ -756,6 +752,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               read: false,
             });
             setTimeout(() => setActiveToastNotification(null), 6000);
+          } else if (res.error) {
+            setActiveToastNotification({
+              id: 'notif-sync-err-' + Date.now(),
+              type: 'system',
+              title: '⚠️ SQL Veri Çekme Uyarısı',
+              message: res.error,
+              timestamp: now.toISOString(),
+              read: false,
+            });
+            setTimeout(() => setActiveToastNotification(null), 7000);
           }
         }).catch((err) => {
           console.warn('Otomatik canlı veri çekme hatası:', err);
@@ -1237,13 +1243,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Senkronizasyon Tetikle
-  const triggerSync = async (): Promise<SyncResult> => {
+  const triggerSync = async (overrideConfig?: ServerConfig): Promise<SyncResult> => {
     setIsSyncing(true);
     try {
-      const res = await syncService.fullSync(serverConfig, salesRep.code);
+      const activeCfg = overrideConfig || serverConfig;
+      const res = await syncService.fullSync(activeCfg, salesRep.code);
       const now = new Date();
-      setLastSyncTime(now);
-      localStorage.setItem('plasiyer_last_sync_time', now.toISOString());
+      if (res.success) {
+        setLastSyncTime(now);
+        localStorage.setItem('plasiyer_last_sync_time', now.toISOString());
+      }
       return res;
     } finally {
       setIsSyncing(false);

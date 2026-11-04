@@ -39,17 +39,19 @@ export const syncService = {
 
       // IndexedDB'yi güncelle (Diferansiyel ve Atomik: Arayüz titremesi veya sıfırlanma olmadan doğrudan güncelleme)
       await db.transaction('rw', [db.customers, db.products], async () => {
-        if (customers && customers.length > 0) {
+        if (Array.isArray(customers)) {
           const newCustIds = new Set(customers.map((c) => String(c.id)));
           const allCustKeys = await db.customers.toCollection().primaryKeys();
           const obsoleteCustKeys = allCustKeys.filter((id) => !newCustIds.has(String(id)));
           if (obsoleteCustKeys.length > 0) {
             await db.customers.bulkDelete(obsoleteCustKeys as string[]);
           }
-          await db.customers.bulkPut(customers);
+          if (customers.length > 0) {
+            await db.customers.bulkPut(customers);
+          }
         }
 
-        if (products && products.length > 0) {
+        if (Array.isArray(products)) {
           const existingProducts = await db.products.toArray();
           const localImageMap = new Map<string, string>();
           for (const p of existingProducts) {
@@ -73,7 +75,9 @@ export const syncService = {
           if (obsoleteProdKeys.length > 0) {
             await db.products.bulkDelete(obsoleteProdKeys as string[]);
           }
-          await db.products.bulkPut(mergedProducts);
+          if (mergedProducts.length > 0) {
+            await db.products.bulkPut(mergedProducts);
+          }
         }
       });
 
