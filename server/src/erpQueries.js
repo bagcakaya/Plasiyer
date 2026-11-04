@@ -143,6 +143,7 @@ export const erpQueries = {
         SELECT STOK, MIN(LINK) AS LINK, MIN(DOSYA) AS DOSYA FROM STOK_RENK_RESIM WITH(NOLOCK) GROUP BY STOK
       ) SR ON SR.STOK = S.ID
       WHERE S.AKTIF = 1
+        AND ISNULL(G.AD, '') NOT LIKE '%MASRAF%'
       ORDER BY S.AD ASC
       FOR JSON PATH
     `;
@@ -184,7 +185,7 @@ export const erpQueries = {
       const map = new Map();
       products.forEach((p) => {
         const cat = p.category?.trim();
-        if (!cat) return;
+        if (!cat || cat.toUpperCase().includes('MASRAF')) return;
         const cur = map.get(cat) || { name: cat, count: 0, image: p.image };
         cur.count += 1;
         if (!cur.image && p.image) cur.image = p.image;

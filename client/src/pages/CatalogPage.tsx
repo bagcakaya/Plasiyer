@@ -80,6 +80,11 @@ export const CatalogPage: React.FC = () => {
 
       if (!matchesSearch) return false;
 
+      // Masraf kartlarını ürün listesinden hariç tut
+      if ((product.category || '').toUpperCase().includes('MASRAF')) {
+        return false;
+      }
+
       // STOK_GRUP Kategori Filtresi (Instagram Hikayeleri Tarzı)
       if (selectedCategory && selectedCategory !== 'all') {
         const catClean = selectedCategory.toLowerCase().trim();
