@@ -111,14 +111,6 @@ export const LoginPage: React.FC = () => {
     }, 350);
   };
 
-  // Hızlı Demo Doldurma
-  const handleQuickFill = (comp: string, usr: string, pass: string) => {
-    setCompanyCode(comp);
-    setUsername(usr);
-    setPassword(pass);
-    setError('');
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#009fd9] via-[#0284c7] to-[#0369a1] text-slate-100 flex flex-col justify-between p-4 sm:p-6 relative overflow-x-hidden select-none">
       {/* Arka Plan Yumuşak Işık Efektleri */}
@@ -275,29 +267,6 @@ export const LoginPage: React.FC = () => {
               )}
             </button>
           </form>
-
-          {/* Hızlı Demo Giriş Kısayolları */}
-          <div className="mt-5 pt-4 border-t border-slate-100 dark:border-slate-800 text-center">
-            <span className="text-[11px] text-slate-400 font-semibold block mb-2">
-              ⚡ Hızlı Test Girişi
-            </span>
-            <div className="flex gap-2 justify-center">
-              <button
-                type="button"
-                onClick={() => handleQuickFill('OSMANLI', 'PLS01', '1234')}
-                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300 transition"
-              >
-                👤 Plasiyer (PLS01)
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickFill('OSMANLI', '120-00894', '1234')}
-                className="px-3 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-[11px] font-bold text-slate-700 dark:text-slate-300 transition"
-              >
-                🏢 Bayi / Müşteri
-              </button>
-            </div>
-          </div>
         </div>
       </div>
 

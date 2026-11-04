@@ -8,8 +8,6 @@ import {
   X, 
   MapPin, 
   Phone, 
-  ChevronUp, 
-  ChevronDown, 
   Receipt, 
   FileCheck, 
   ShoppingCart, 
@@ -18,7 +16,8 @@ import {
   CheckCircle2, 
   FileText, 
   Building, 
-  Check
+  Check,
+  ChevronRight
 } from 'lucide-react';
 import { CustomerReceiptsModal } from '../components/CustomerReceiptsModal';
 import { CustomerInvoicesModal } from '../components/CustomerInvoicesModal';
@@ -28,10 +27,8 @@ import { CustomerStatementModal } from '../components/CustomerStatementModal';
 export const CustomersPage: React.FC = () => {
   const { 
     selectedCustomer, 
-    selectCustomer, 
-    setActiveTab, 
     openCollectionModal, 
-    serverConfig 
+    serverConfig
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -70,7 +67,7 @@ export const CustomersPage: React.FC = () => {
     }
   }, [searchTerm]);
 
-  // Reels kaydırma olayını dinleyip aktif cari indeksini bul
+  // Reels kaydırma olayını dinleyip aktif cari indeksini takip et
   const handleScroll = () => {
     if (!containerRef.current) return;
     const { scrollTop, clientHeight } = containerRef.current;
@@ -82,20 +79,19 @@ export const CustomersPage: React.FC = () => {
     }
   };
 
-  // Önceki / Sonraki Cari Kartına Kaydır (Reels tarzı)
+  // Klavye Yukarı / Aşağı tuşlarıyla geçiş desteği
   const scrollToCustomer = (index: number) => {
     if (!containerRef.current) return;
     const targetIdx = Math.max(0, Math.min(filteredCustomers.length - 1, index));
-    const targetTop = targetIdx * containerRef.current.clientHeight;
-    containerRef.current.scrollTo({ top: targetTop, behavior: 'smooth' });
+    const cardHeight = containerRef.current.clientHeight;
+    containerRef.current.scrollTo({ top: targetIdx * cardHeight, behavior: 'smooth' });
     setActiveIndex(targetIdx);
   };
 
-  // Klavye Yukarı / Aşağı tuşlarıyla geçiş desteği
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
-        return; // Arama çubuğundayken klavye kaydırmayı engelleme
+        return;
       }
       if (e.key === 'ArrowDown' || e.key === 'PageDown') {
         e.preventDefault();
@@ -159,8 +155,8 @@ export const CustomersPage: React.FC = () => {
   };
 
   return (
-    <div className="w-full h-[calc(100vh-130px)] sm:h-[calc(100vh-140px)] flex flex-col bg-slate-100 dark:bg-slate-950 p-2 sm:p-4 text-slate-900 dark:text-slate-100 overflow-hidden">
-      {/* 1. Görsel-3 Arama Yeri */}
+    <div className="w-full h-full flex flex-col bg-slate-100 dark:bg-slate-950 p-2 sm:p-3 text-slate-900 dark:text-slate-100 overflow-hidden">
+      {/* 1. Arama Yeri */}
       <div className="w-full max-w-xl mx-auto shrink-0 mb-2">
         <div className="relative">
           <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -186,7 +182,7 @@ export const CustomersPage: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. Görsel-3: Instagram Reels Tarzı Kaydırmalı Cari Kartları */}
+      {/* 2. Instagram Reels Tarzı Kaydırmalı Cari Kartları */}
       {filteredCustomers.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center p-6 text-slate-400">
           <Building className="w-12 h-12 mb-3 text-slate-300 dark:text-slate-700 animate-pulse" />
@@ -195,11 +191,11 @@ export const CustomersPage: React.FC = () => {
         </div>
       ) : (
         <div className="relative flex-1 w-full max-w-xl mx-auto overflow-hidden">
-          {/* Reels Dikey Kaydırma Konteyneri */}
+          {/* Reels Dikey Kaydırma Konteyneri (Mouse / Dokunmatik Kaydırmalı) */}
           <div
             ref={containerRef}
             onScroll={handleScroll}
-            className="w-full h-full overflow-y-scroll snap-y snap-mandatory scroll-smooth no-scrollbar space-y-4"
+            className="w-full h-full overflow-y-scroll snap-y snap-mandatory scroll-smooth no-scrollbar py-1 space-y-3"
           >
             {filteredCustomers.map((cust) => {
               const fin = getCustomerFinancials(cust);
@@ -209,20 +205,20 @@ export const CustomersPage: React.FC = () => {
               return (
                 <div
                   key={cust.id}
-                  className="w-full h-full snap-start snap-always shrink-0 flex flex-col justify-between p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl relative overflow-hidden transition-all"
+                  className="w-full h-[calc(100%-8px)] snap-start snap-always shrink-0 flex flex-col justify-between p-3.5 sm:p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl relative overflow-hidden transition-all"
                 >
-                  {/* Kart Üst Bar: Logo + Cari İsmi */}
-                  <div>
+                  {/* Kart Üst Bar: Logo + Cari İsmi + İletişim */}
+                  <div className="shrink-0">
                     <div className="flex items-start gap-3">
                       {/* Varsa Logo veya Şık Monogram Baş Harf Rozeti */}
                       {cust.logo ? (
                         <img
                           src={cust.logo}
                           alt={cust.name}
-                          className="w-13 h-13 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 shadow-md shrink-0"
+                          className="w-12 h-12 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 shadow-md shrink-0"
                         />
                       ) : (
-                        <div className="w-13 h-13 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 text-white font-black text-base flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0 select-none">
+                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 text-white font-black text-sm flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0 select-none">
                           {initials}
                         </div>
                       )}
@@ -244,45 +240,45 @@ export const CustomersPage: React.FC = () => {
                           )}
                         </div>
 
-                        {/* Cari İsmi (Mevcut olan güzel) */}
-                        <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white leading-snug line-clamp-2 mt-1">
+                        {/* Cari İsmi */}
+                        <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white leading-snug line-clamp-1 mt-1" title={cust.name}>
                           {cust.name}
                         </h2>
 
-                        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">
+                        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
                           <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                          <span className="truncate">{cust.district}, {cust.city}</span>
+                          <span className="truncate">{cust.district || 'Merkez'}, {cust.city || 'Erzurum'}</span>
                         </div>
                       </div>
                     </div>
 
                     {/* Detay Adres ve İletişim Bilgileri */}
-                    <div className="mt-3 p-2.5 rounded-2xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800/60 text-xs space-y-1">
+                    <div className="mt-2.5 p-2 rounded-xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200/60 dark:border-slate-800/60 text-xs space-y-1">
                       <div className="text-[11px] text-slate-600 dark:text-slate-400 truncate">
                         <strong>Adres:</strong> {cust.address || 'Kayıtlı adres bulunmuyor.'}
                       </div>
                       {cust.phone && (
-                        <div className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
-                          <Phone className="w-3 h-3 text-emerald-600 dark:text-emerald-400" />
+                        <div className="text-[11px] text-slate-600 dark:text-slate-400 flex items-center gap-1.5 truncate">
+                          <Phone className="w-3 h-3 text-emerald-600 dark:text-emerald-400 shrink-0" />
                           <a href={`tel:${cust.phone}`} className="hover:underline font-semibold text-blue-600 dark:text-blue-400">
                             {cust.phone}
                           </a>
                           {cust.taxOffice && (
-                            <span className="text-slate-400 ml-2">&bull; VD: {cust.taxOffice} ({cust.taxNumber || '-'})</span>
+                            <span className="text-slate-400 ml-1 truncate">&bull; VD: {cust.taxOffice} ({cust.taxNumber || '-'})</span>
                           )}
                         </div>
                       )}
                     </div>
                   </div>
 
-                  {/* Görsel-3: Finansal Bilgiler (Karşılıklı Şık Satırlar) */}
-                  <div className="my-auto py-2">
-                    <div className="bg-slate-50 dark:bg-slate-950/80 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3.5 space-y-3 shadow-inner">
+                  {/* Finansal Bilgiler (Karşılıklı Şık Satırlar) */}
+                  <div className="my-auto py-1 sm:py-2 min-h-0">
+                    <div className="bg-slate-50 dark:bg-slate-950/80 border border-slate-200/80 dark:border-slate-800 rounded-2xl p-3 space-y-2.5 shadow-inner">
                       {/* 1. Vadesi Geçmiş Ödemeler */}
                       <div className="flex items-center justify-between pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold shrink-0">
-                            <Calendar className="w-4 h-4" />
+                          <div className="w-7 h-7 rounded-xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center font-bold shrink-0">
+                            <Calendar className="w-3.5 h-3.5" />
                           </div>
                           <div>
                             <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
@@ -307,8 +303,8 @@ export const CustomersPage: React.FC = () => {
                       {/* 2. Son Tahsilat */}
                       <div className="flex items-center justify-between pb-2 border-b border-slate-200/60 dark:border-slate-800/60">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold shrink-0">
-                            <CheckCircle2 className="w-4 h-4" />
+                          <div className="w-7 h-7 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center font-bold shrink-0">
+                            <CheckCircle2 className="w-3.5 h-3.5" />
                           </div>
                           <div>
                             <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
@@ -324,15 +320,20 @@ export const CustomersPage: React.FC = () => {
                         </span>
                       </div>
 
-                      {/* 3. Ekstre Bilgileri (Bakiye Durumu) */}
-                      <div className="flex items-center justify-between pt-0.5">
+                      {/* 3. Ekstre Bilgileri (Tıklanabilir Bakiye ve Detay) */}
+                      <div 
+                        onClick={() => setStatementCustomer(cust)}
+                        className="flex items-center justify-between pt-0.5 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-900/60 -mx-1 px-1 rounded-lg transition"
+                        title="Bu carinin detaylı hesap ekstresini aç"
+                      >
                         <div className="flex items-center gap-2.5">
-                          <div className="w-8 h-8 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold shrink-0">
-                            <FileText className="w-4 h-4" />
+                          <div className="w-7 h-7 rounded-xl bg-blue-500/10 text-blue-600 dark:text-blue-400 flex items-center justify-center font-bold shrink-0">
+                            <FileText className="w-3.5 h-3.5" />
                           </div>
                           <div>
-                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 block">
+                            <span className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1">
                               Ekstre Bilgileri
+                              <ChevronRight className="w-3 h-3 text-slate-400" />
                             </span>
                             <span className="text-[10px] text-slate-400 block">
                               {cust.balance > 0 ? 'Müşteri Borçlu' : cust.balance < 0 ? 'Müşteri Alacaklı' : 'Bakiye Sıfır'}
@@ -342,7 +343,7 @@ export const CustomersPage: React.FC = () => {
 
                         <div className="text-right">
                           <span
-                            className={`text-sm sm:text-base font-black tracking-tight ${
+                            className={`text-xs sm:text-sm font-black tracking-tight ${
                               cust.balance > 0
                                 ? 'text-rose-600 dark:text-rose-400'
                                 : cust.balance < 0
@@ -360,17 +361,17 @@ export const CustomersPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Görsel-3: Kart Üzerinde Fiş, Fatura, Sipariş ve Tahsilat Butonları */}
-                  <div className="pt-2">
+                  {/* Kart Üzerinde Fiş, Fatura, Sipariş ve Tahsilat Butonları (Sabit Görünür) */}
+                  <div className="shrink-0 pt-2 border-t border-slate-100 dark:border-slate-800/80">
                     <div className="grid grid-cols-4 gap-2">
                       {/* Buton 1: Fiş */}
                       <button
                         type="button"
                         onClick={() => setReceiptsModalCustomer(cust)}
-                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border border-amber-500/20 transition active:scale-95 group font-bold text-xs shadow-2xs"
+                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 active:bg-amber-500/30 text-amber-700 dark:text-amber-300 border border-amber-500/20 transition active:scale-95 group font-bold text-xs shadow-2xs"
                         title="Bu carinin satış fişlerini ve fiş detaylarını incele"
                       >
-                        <Receipt className="w-4 h-4 mb-1 group-hover:scale-110 transition-transform" />
+                        <Receipt className="w-4 h-4 mb-1 group-hover:scale-110 transition-transform text-amber-600 dark:text-amber-400" />
                         <span>Fiş</span>
                       </button>
 
@@ -378,10 +379,10 @@ export const CustomersPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setInvoicesModalCustomer(cust)}
-                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-indigo-500/10 hover:bg-indigo-500/20 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20 transition active:scale-95 group font-bold text-xs shadow-2xs"
+                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-indigo-500/10 hover:bg-indigo-500/20 active:bg-indigo-500/30 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20 transition active:scale-95 group font-bold text-xs shadow-2xs"
                         title="Bu carinin açık ve vadesi geçen faturalarını incele"
                       >
-                        <FileCheck className="w-4 h-4 mb-1 group-hover:scale-110 transition-transform" />
+                        <FileCheck className="w-4 h-4 mb-1 group-hover:scale-110 transition-transform text-indigo-600 dark:text-indigo-400" />
                         <span>Fatura</span>
                       </button>
 
@@ -389,7 +390,7 @@ export const CustomersPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setOrdersModalCustomer(cust)}
-                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-blue-600 hover:bg-blue-700 text-white shadow-md shadow-blue-500/25 transition active:scale-95 group font-bold text-xs"
+                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-md shadow-blue-500/25 transition active:scale-95 group font-bold text-xs"
                         title="Bu cariye yeni sipariş başlat veya önceki siparişlerini gör"
                       >
                         <ShoppingCart className="w-4 h-4 mb-1 group-hover:scale-110 transition-transform" />
@@ -400,7 +401,7 @@ export const CustomersPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => openCollectionModal(cust)}
-                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white shadow-md shadow-emerald-500/25 transition active:scale-95 group font-bold text-xs"
+                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-md shadow-emerald-500/25 transition active:scale-95 group font-bold text-xs"
                         title="Bu cariden anında nakit/kredi kartı/çek tahsilatı al"
                       >
                         <Banknote className="w-4 h-4 mb-1 group-hover:scale-110 transition-transform" />
@@ -412,33 +413,6 @@ export const CustomersPage: React.FC = () => {
               );
             })}
           </div>
-
-          {/* Reels Sağ Taraf Yüzen Navigasyon Kontrolleri (Yukarı / Aşağı Kaydır) */}
-          <div className="absolute right-2 sm:right-3 top-1/2 -translate-y-1/2 z-20 flex flex-col items-center gap-2 bg-slate-900/80 backdrop-blur-md p-1.5 rounded-full border border-slate-700/80 shadow-2xl text-white">
-            <button
-              onClick={() => scrollToCustomer(activeIndex - 1)}
-              disabled={activeIndex === 0}
-              className="p-1.5 rounded-full hover:bg-white/20 disabled:opacity-30 transition active:scale-90"
-              title="Önceki Cari (Yukarı Kaydır)"
-            >
-              <ChevronUp className="w-4 h-4" />
-            </button>
-
-            <div className="text-[10px] font-black tracking-tighter text-blue-300 py-0.5 text-center leading-tight">
-              <span>{activeIndex + 1}</span>
-              <span className="block text-[8px] text-slate-400">/</span>
-              <span>{filteredCustomers.length}</span>
-            </div>
-
-            <button
-              onClick={() => scrollToCustomer(activeIndex + 1)}
-              disabled={activeIndex >= filteredCustomers.length - 1}
-              className="p-1.5 rounded-full hover:bg-white/20 disabled:opacity-30 transition active:scale-90"
-              title="Sonraki Cari (Aşağı Kaydır)"
-            >
-              <ChevronDown className="w-4 h-4" />
-            </button>
-          </div>
         </div>
       )}
 
@@ -448,10 +422,6 @@ export const CustomersPage: React.FC = () => {
         customer={receiptsModalCustomer}
         isOpen={!!receiptsModalCustomer}
         onClose={() => setReceiptsModalCustomer(null)}
-        onStartOrder={(c) => {
-          selectCustomer(c);
-          setActiveTab('catalog');
-        }}
       />
 
       {/* 2. Fatura Modalı */}
@@ -459,10 +429,6 @@ export const CustomersPage: React.FC = () => {
         customer={invoicesModalCustomer}
         isOpen={!!invoicesModalCustomer}
         onClose={() => setInvoicesModalCustomer(null)}
-        onStartOrder={(c) => {
-          selectCustomer(c);
-          setActiveTab('catalog');
-        }}
       />
 
       {/* 3. Sipariş Modalı */}
@@ -470,19 +436,14 @@ export const CustomersPage: React.FC = () => {
         customer={ordersModalCustomer}
         isOpen={!!ordersModalCustomer}
         onClose={() => setOrdersModalCustomer(null)}
-        onStartOrder={(c) => {
-          selectCustomer(c);
-          setActiveTab('catalog');
-        }}
       />
 
-      {/* 4. Ekstre Modalı (Gerektiğinde açılır) */}
+      {/* 4. Ekstre Modalı */}
       <CustomerStatementModal
         customer={statementCustomer}
         serverConfig={serverConfig}
         isOpen={!!statementCustomer}
         onClose={() => setStatementCustomer(null)}
-        onOpenCollection={(c) => openCollectionModal(c)}
       />
     </div>
   );

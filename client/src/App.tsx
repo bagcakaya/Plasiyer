@@ -88,7 +88,11 @@ const MainContent: React.FC = () => {
   const { activeTab, userRole } = useApp();
 
   return (
-    <main className="min-h-screen bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 pb-24 md:pb-8 transition-colors">
+    <main className={`bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors ${
+      activeTab === 'customers' 
+        ? 'h-[calc(100dvh-64px)] md:h-[100dvh] min-h-0 pb-0 overflow-hidden' 
+        : 'min-h-screen pb-24 md:pb-8'
+    }`}>
       {/* Müşteri modunda cariler sekmesi yerine doğrudan vitrin açılır */}
       {activeTab === 'routes' && <RoutePlanPage />}
       {activeTab === 'customers' && (userRole === 'customer' ? <CatalogPage /> : <CustomersPage />)}
@@ -103,7 +107,7 @@ const MainContent: React.FC = () => {
 };
 
 const AppContent: React.FC = () => {
-  const { isAuthenticated } = useApp();
+  const { isAuthenticated, activeTab } = useApp();
 
   if (!isAuthenticated) {
     return <LoginPage />;
@@ -117,7 +121,7 @@ const AppContent: React.FC = () => {
       {/* Ana Uygulama & Çalışma Alanı (Mobil için tam ekran, Masaüstü için esnek genişlik) */}
       <div className="flex-1 flex flex-col min-w-0 min-h-screen bg-slate-50 dark:bg-slate-950 relative">
         <Header />
-        <div className="flex-1 overflow-y-auto">
+        <div className={`flex-1 ${activeTab === 'customers' ? 'overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
           <MainContent />
         </div>
         <BottomNav />
