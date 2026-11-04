@@ -25,7 +25,7 @@ export const CustomerOrdersModal: React.FC<CustomerOrdersModalProps> = ({
   onClose,
   onStartOrder,
 }) => {
-  const { selectCustomer, setActiveTab, addToCart } = useApp();
+  const { selectCustomer, setActiveTab, addToCart, cart } = useApp();
   const [expandedOrderId, setExpandedOrderId] = useState<number | null>(null);
 
   // Bu müşteriye ait siparişleri Dexie veritabanından çek
@@ -119,16 +119,31 @@ export const CustomerOrdersModal: React.FC<CustomerOrdersModalProps> = ({
                 Bu müşteri için doğrudan ürün kataloğunu açın ve sepete ekleyin.
               </div>
             </div>
-            <button
-              onClick={() => {
-                if (onStartOrder) onStartOrder(customer);
-                else handleStartNew();
-              }}
-              className="px-4 py-2.5 rounded-2xl bg-white text-blue-700 font-extrabold text-xs shadow-lg hover:bg-blue-50 transition active:scale-95 shrink-0 flex items-center gap-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Sipariş Yaz</span>
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              {cart.length > 0 && (
+                <button
+                  onClick={() => {
+                    selectCustomer(customer);
+                    onClose();
+                    setActiveTab('cart');
+                  }}
+                  className="px-3.5 py-2.5 rounded-2xl bg-amber-400 text-slate-950 font-extrabold text-xs shadow-lg hover:bg-amber-300 transition active:scale-95 flex items-center gap-1.5"
+                >
+                  <ShoppingCart className="w-4 h-4" />
+                  <span>Sepete Ata</span>
+                </button>
+              )}
+              <button
+                onClick={() => {
+                  if (onStartOrder) onStartOrder(customer);
+                  else handleStartNew();
+                }}
+                className="px-4 py-2.5 rounded-2xl bg-white text-blue-700 font-extrabold text-xs shadow-lg hover:bg-blue-50 transition active:scale-95 flex items-center gap-1.5"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Sipariş Yaz</span>
+              </button>
+            </div>
           </div>
         </div>
 

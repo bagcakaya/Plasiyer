@@ -64,6 +64,9 @@ interface AppContextType {
   updateServerConfig: (config: Partial<ServerConfig>) => void;
   selectedCustomer: Customer | null;
   selectCustomer: (customer: Customer | null) => void;
+  isCustomerSelectModalOpen: boolean;
+  openCustomerSelectModal: () => void;
+  closeCustomerSelectModal: () => void;
   
   // Fiyat Hesaplama
   calculateCustomerPrice: (product: Product, customCustomer?: Customer | null) => CustomerPriceInfo;
@@ -345,6 +348,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [rawCart, setRawCart] = useState<OrderItem[]>([]);
+  const [isCustomerSelectModalOpen, setIsCustomerSelectModalOpen] = useState<boolean>(false);
+  const openCustomerSelectModal = () => setIsCustomerSelectModalOpen(true);
+  const closeCustomerSelectModal = () => setIsCustomerSelectModalOpen(false);
   const [isCampaignsModalOpen, setIsCampaignsModalOpen] = useState<boolean>(false);
   const openCampaignsModal = () => setIsCampaignsModalOpen(true);
   const closeCampaignsModal = () => setIsCampaignsModalOpen(false);
@@ -1289,6 +1295,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateServerConfig,
         selectedCustomer,
         selectCustomer,
+        isCustomerSelectModalOpen,
+        openCustomerSelectModal,
+        closeCustomerSelectModal,
         calculateCustomerPrice,
         cart,
         cartSummary,

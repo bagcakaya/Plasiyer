@@ -36,6 +36,7 @@ export const CatalogPage: React.FC = () => {
     userRole,
     currentCustomerUser,
     selectedCustomer, 
+    openCustomerSelectModal,
     calculateCustomerPrice,
     cart, 
     addToCart, 
@@ -191,28 +192,40 @@ export const CatalogPage: React.FC = () => {
               </span>
             </div>
             <button
-              onClick={() => setActiveTab('customers')}
-              className="flex items-center gap-1 bg-amber-600 hover:bg-amber-700 text-white font-medium px-2.5 py-1.5 rounded-lg shadow-xs"
+              type="button"
+              onClick={openCustomerSelectModal}
+              className="flex items-center gap-1 bg-amber-600 hover:bg-amber-700 text-white font-medium px-2.5 py-1.5 rounded-lg shadow-xs shrink-0"
             >
               <UserPlus className="w-3.5 h-3.5" />
               <span>Cari Seç</span>
             </button>
           </div>
         ) : (
-          <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 rounded-xl p-2.5 text-xs text-blue-900 dark:text-blue-200 flex justify-between items-center">
-            <div className="truncate mr-2">
+          <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 rounded-xl p-2.5 text-xs text-blue-900 dark:text-blue-200 flex justify-between items-center gap-2">
+            <div className="truncate min-w-0 flex-1">
               <span className="text-slate-500 dark:text-slate-400 text-[10px] block">Sipariş Alınan Müşteri</span>
-              <span className="font-bold truncate block text-slate-900 dark:white">{selectedCustomer.name}</span>
+              <span className="font-bold truncate block text-slate-900 dark:text-white">{selectedCustomer.name}</span>
             </div>
-            <div className="text-right shrink-0">
-              <span className="bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded">
-                Liste {selectedCustomer.priceList} Fiyatı
-              </span>
-              {selectedCustomer.specialDiscount > 0 && (
-                <span className="block text-[10px] text-blue-700 dark:text-blue-300 font-semibold mt-0.5">
-                  + %{selectedCustomer.specialDiscount} İskonto
+            <div className="flex items-center gap-2 shrink-0">
+              <div className="text-right">
+                <span className="bg-blue-600 text-white text-[10px] font-bold px-2 py-0.5 rounded">
+                  Liste {selectedCustomer.priceList} Fiyatı
                 </span>
-              )}
+                {selectedCustomer.specialDiscount > 0 && (
+                  <span className="block text-[10px] text-blue-700 dark:text-blue-300 font-semibold mt-0.5">
+                    + %{selectedCustomer.specialDiscount} İskonto
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={openCustomerSelectModal}
+                className="flex items-center gap-1 px-2 py-1.5 rounded-lg bg-white dark:bg-slate-900 hover:bg-blue-100 dark:hover:bg-slate-800 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-[11px] font-bold transition active:scale-95"
+                title="Cariyi Değiştir"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Değiştir</span>
+              </button>
             </div>
           </div>
         )

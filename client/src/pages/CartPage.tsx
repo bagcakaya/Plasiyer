@@ -23,7 +23,10 @@ import {
   TrendingUp,
   Truck,
   Flame,
-  Snowflake
+  Snowflake,
+  Search,
+  RefreshCw,
+  UserX
 } from 'lucide-react';
 
 const formatCurrency = (val: number) => {
@@ -360,6 +363,8 @@ export const CartPage: React.FC = () => {
     userRole,
     currentCustomerUser,
     selectedCustomer, 
+    selectCustomer,
+    openCustomerSelectModal,
     cart, 
     cartSummary, 
     updateCartItemQuantity, 
@@ -395,6 +400,12 @@ export const CartPage: React.FC = () => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const activeCustomer = userRole === 'customer' ? currentCustomerUser : selectedCustomer;
+
+  useEffect(() => {
+    if (activeCustomer) {
+      setErrorMessage(null);
+    }
+  }, [activeCustomer]);
 
   const handleSubmit = async () => {
     if (!activeCustomer) {
@@ -459,23 +470,39 @@ export const CartPage: React.FC = () => {
     <div className="p-3 md:p-6 pb-40 md:pb-12 space-y-4 max-w-7xl mx-auto w-full">
       {/* Cari Bilgisi Uyarısı veya Başlığı */}
       {!activeCustomer ? (
-        <div className="bg-amber-500/10 dark:bg-amber-950/30 border border-amber-500/30 dark:border-amber-800/50 rounded-xl p-3 flex items-center justify-between text-xs text-amber-900 dark:text-amber-300">
-          <div>
-            <span className="font-bold block">Sipariş İçin Cari Seçilmedi!</span>
-            <span className="text-[11px] text-amber-800 dark:text-amber-400">Siparişi onaylamak için cari seçmelisiniz.</span>
+        <div className="bg-amber-500/10 dark:bg-amber-950/30 border border-amber-500/30 dark:border-amber-800/50 rounded-2xl p-3.5 space-y-2.5 text-xs text-amber-900 dark:text-amber-300">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <span className="font-bold block">Sipariş İçin Cari Seçilmedi!</span>
+              <span className="text-[11px] text-amber-800 dark:text-amber-400">
+                Sepetteki ürünleri onaylamak için cari seçebilirsiniz.
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={openCustomerSelectModal}
+              className="flex items-center gap-1.5 bg-amber-600 hover:bg-amber-700 text-white font-bold px-3 py-2 rounded-xl shadow-xs shrink-0 transition active:scale-95"
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Cari Seç</span>
+            </button>
           </div>
+
           <button
-            onClick={() => setActiveTab('customers')}
-            className="flex items-center gap-1 bg-amber-600 hover:bg-amber-700 text-white font-medium px-2.5 py-1.5 rounded-lg shadow-xs"
+            type="button"
+            onClick={openCustomerSelectModal}
+            className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-amber-400/40 dark:border-amber-700/50 text-left text-slate-500 dark:text-slate-400 hover:border-amber-500 transition shadow-2xs"
           >
-            <UserPlus className="w-3.5 h-3.5" />
-            <span>Cari Seç</span>
+            <Search className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span className="text-xs font-medium truncate">
+              Cari adı, kodu veya ilçe ile ara ve seç...
+            </span>
           </button>
         </div>
       ) : (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-xs transition space-y-2.5">
-          <div className="flex justify-between items-start">
-            <div className="truncate mr-2">
+          <div className="flex justify-between items-start gap-2">
+            <div className="min-w-0 flex-1">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
                 {userRole === 'customer' ? 'Sipariş Veren Bayi' : 'Cari Bilgisi'}
               </span>
@@ -493,6 +520,28 @@ export const CartPage: React.FC = () => {
               </span>
             </div>
           </div>
+
+          {userRole === 'plasiyer' && (
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                type="button"
+                onClick={openCustomerSelectModal}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200/70 dark:border-blue-800/60 text-[11px] font-bold transition active:scale-95"
+              >
+                <RefreshCw className="w-3 h-3" />
+                <span>Cari Değiştir</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => selectCustomer(null)}
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200/70 dark:border-rose-800/60 text-[11px] font-bold transition active:scale-95"
+                title="Seçili cariyi kaldır"
+              >
+                <UserX className="w-3 h-3" />
+                <span>Kaldır</span>
+              </button>
+            </div>
+          )}
 
           {/* AŞAMA 8: Plasiyer Satış Modu Seçici (Soğuk vs Sıcak) */}
           {userRole === 'plasiyer' && (
@@ -748,34 +797,45 @@ export const CartPage: React.FC = () => {
           )}
         </div>
 
-        <button
-          onClick={handleSubmit}
-          disabled={isSubmitting || !activeCustomer}
-          className={`w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white ${
-            isSubmitting || !activeCustomer
-              ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
-              : userRole === 'customer'
-              ? 'bg-emerald-600 hover:bg-emerald-700'
-              : saleMode === 'hot'
-              ? 'bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-700 hover:to-rose-700 shadow-amber-500/20'
-              : 'bg-blue-600 hover:bg-blue-700'
-          }`}
-        >
-          {saleMode === 'hot' && userRole === 'plasiyer' ? (
-            <Flame className="w-4 h-4 animate-pulse" />
-          ) : (
-            <Send className="w-4 h-4" />
-          )}
-          <span>
-            {isSubmitting
-              ? 'Kaydediliyor...'
-              : userRole === 'customer'
-              ? 'Siparişi Tamamla & Onayla'
-              : saleMode === 'hot'
-              ? '🔥 Sıcak Satışı Onayla & Fiş Kes (Araçtan Teslim)'
-              : 'Siparişi Onayla & Gönder'}
-          </span>
-        </button>
+        {!activeCustomer && userRole === 'plasiyer' ? (
+          <button
+            type="button"
+            onClick={openCustomerSelectModal}
+            className="w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white bg-amber-600 hover:bg-amber-700"
+          >
+            <UserPlus className="w-4 h-4" />
+            <span>Siparişi Onaylamak İçin Cari Seç</span>
+          </button>
+        ) : (
+          <button
+            onClick={handleSubmit}
+            disabled={isSubmitting || !activeCustomer}
+            className={`w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white ${
+              isSubmitting || !activeCustomer
+                ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
+                : userRole === 'customer'
+                ? 'bg-emerald-600 hover:bg-emerald-700'
+                : saleMode === 'hot'
+                ? 'bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-700 hover:to-rose-700 shadow-amber-500/20'
+                : 'bg-blue-600 hover:bg-blue-700'
+            }`}
+          >
+            {saleMode === 'hot' && userRole === 'plasiyer' ? (
+              <Flame className="w-4 h-4 animate-pulse" />
+            ) : (
+              <Send className="w-4 h-4" />
+            )}
+            <span>
+              {isSubmitting
+                ? 'Kaydediliyor...'
+                : userRole === 'customer'
+                ? 'Siparişi Tamamla & Onayla'
+                : saleMode === 'hot'
+                ? '🔥 Sıcak Satışı Onayla & Fiş Kes (Araçtan Teslim)'
+                : 'Siparişi Onayla & Gönder'}
+            </span>
+          </button>
+        )}
       </div>
 
       {/* Başarı Modalı */}

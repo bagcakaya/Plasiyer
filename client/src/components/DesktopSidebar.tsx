@@ -34,6 +34,7 @@ export const DesktopSidebar: React.FC = () => {
     salesRep,
     selectedCustomer,
     selectCustomer,
+    openCustomerSelectModal,
     serverConfig,
     isOnline,
     theme,
@@ -177,37 +178,59 @@ export const DesktopSidebar: React.FC = () => {
         </div>
       </div>
 
-      {/* 2. Aktif Seçili Cari (Varsa) */}
-      {selectedCustomer && (
-        <div className="mx-3 mt-3 p-3 bg-gradient-to-br from-blue-950/80 to-indigo-950/80 border border-blue-800/60 rounded-2xl shadow-sm">
-          <div className="flex items-center justify-between text-[10px] font-bold text-blue-300 mb-1">
-            <span className="flex items-center gap-1">
-              <CheckCircle2 className="w-3 h-3 text-blue-400" />
-              Aktif Sipariş Carisi
-            </span>
-            <button
-              onClick={() => selectCustomer(null)}
-              className="text-slate-400 hover:text-rose-400 transition"
-              title="Cariyi Kaldır"
-            >
-              <UserX className="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <div className="font-bold text-xs text-white truncate" title={selectedCustomer.name}>
-            {selectedCustomer.name}
-          </div>
-          <div className="flex items-center justify-between mt-1 text-[11px]">
-            <span className="text-slate-400">Bakiye:</span>
-            <span className={`font-bold ${selectedCustomer.balance > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
-              ₺{selectedCustomer.balance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
-            </span>
-          </div>
-          {selectedCustomer.specialDiscount > 0 && (
-            <div className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-200 text-[10px] font-bold">
-              %{selectedCustomer.specialDiscount} Özel İskonto
+      {/* 2. Aktif Seçili Cari (Varsa veya Plasiyer Modundaysa) */}
+      {userRole === 'plasiyer' && (
+        selectedCustomer ? (
+          <div className="mx-3 mt-3 p-3 bg-gradient-to-br from-blue-950/80 to-indigo-950/80 border border-blue-800/60 rounded-2xl shadow-sm">
+            <div className="flex items-center justify-between text-[10px] font-bold text-blue-300 mb-1">
+              <span className="flex items-center gap-1">
+                <CheckCircle2 className="w-3 h-3 text-blue-400" />
+                Aktif Sipariş Carisi
+              </span>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={openCustomerSelectModal}
+                  className="text-blue-300 hover:text-white transition text-[10px] font-bold underline"
+                  title="Cariyi Değiştir"
+                >
+                  Değiştir
+                </button>
+                <button
+                  type="button"
+                  onClick={() => selectCustomer(null)}
+                  className="text-slate-400 hover:text-rose-400 transition"
+                  title="Cariyi Kaldır"
+                >
+                  <UserX className="w-3.5 h-3.5" />
+                </button>
+              </div>
             </div>
-          )}
-        </div>
+            <div className="font-bold text-xs text-white truncate" title={selectedCustomer.name}>
+              {selectedCustomer.name}
+            </div>
+            <div className="flex items-center justify-between mt-1 text-[11px]">
+              <span className="text-slate-400">Bakiye:</span>
+              <span className={`font-bold ${selectedCustomer.balance > 0 ? 'text-rose-400' : 'text-emerald-400'}`}>
+                ₺{selectedCustomer.balance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })}
+              </span>
+            </div>
+            {selectedCustomer.specialDiscount > 0 && (
+              <div className="mt-1 inline-flex items-center px-1.5 py-0.5 rounded bg-purple-500/30 text-purple-200 text-[10px] font-bold">
+                %{selectedCustomer.specialDiscount} Özel İskonto
+              </div>
+            )}
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={openCustomerSelectModal}
+            className="mx-3 mt-3 p-2.5 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-2xl flex items-center justify-between text-xs text-amber-300 font-bold transition"
+          >
+            <span>Sipariş Carisi Seç</span>
+            <span className="px-2 py-0.5 rounded-lg bg-amber-600 text-white text-[10px]">Seç</span>
+          </button>
+        )
       )}
 
       {/* 3. Ana Menü Linkleri */}

@@ -19,6 +19,7 @@ import { ThermalReceiptModal } from './components/ThermalReceiptModal';
 import { NotificationToast } from './components/NotificationToast';
 import { InstallPwaModal } from './components/InstallPwaModal';
 import { DesktopSidebar } from './components/DesktopSidebar';
+import { CustomerSelectModal } from './components/CustomerSelectModal';
 
 const GlobalModals: React.FC = () => {
   const {
@@ -54,6 +55,8 @@ const GlobalModals: React.FC = () => {
       <DailyReportModal />
 
       <CampaignsModal />
+
+      <CustomerSelectModal />
 
       <PerformanceDashboardModal
         isOpen={isPerformanceModalOpen}
