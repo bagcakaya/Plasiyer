@@ -7,6 +7,50 @@ export const isDemoMode = (config?: ServerConfig): boolean => {
   return url === 'demo' || url === '';
 };
 
+let cachedLocalBridgeState: { available: boolean; checkedAt: number; url: string } | null = null;
+
+export const resolveApiBaseUrlAsync = async (config?: ServerConfig): Promise<string> => {
+  if (typeof window === 'undefined') return '/api';
+  const host = window.location.hostname;
+  const protocol = window.location.protocol;
+  const port = window.location.port;
+
+  if (port === '5173') {
+    return '/api';
+  }
+
+  const bridge = config?.bridgePort?.trim() || '4000';
+
+  if (protocol === 'http:' && !host.includes('vercel.app')) {
+    return `http://${host || 'localhost'}:${bridge}/api`;
+  }
+
+  // HTTPS / plasiyer.vercel.app ortamındayken:
+  // Eğer kullanıcının bilgisayarında yerel köprü (localhost:4000) çalışıyorsa (Türkiye IP'si üzerinden Yurt Dışı GeoIP engelini aşmak için)
+  // önce hızlıca onu kontrol et; yoksa (mobil cihaz / saha) doğrudan '/api' Serverless katmanını kullan.
+  const now = Date.now();
+  const localCandidate = `http://localhost:${bridge}/api`;
+  if (cachedLocalBridgeState && now - cachedLocalBridgeState.checkedAt < 30000) {
+    return cachedLocalBridgeState.available ? cachedLocalBridgeState.url : '/api';
+  }
+
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 450);
+    const probe = await fetch(`${localCandidate}/health`, { signal: ctrl.signal });
+    clearTimeout(timer);
+    if (probe.ok) {
+      cachedLocalBridgeState = { available: true, checkedAt: now, url: localCandidate };
+      return localCandidate;
+    }
+  } catch {
+    // Mobil cihazda veya yerel servis kapalıyken sessizce bulut '/api' katmanına geç
+  }
+
+  cachedLocalBridgeState = { available: false, checkedAt: now, url: '/api' };
+  return '/api';
+};
+
 export const resolveApiBaseUrl = (config?: ServerConfig): string => {
   if (typeof window === 'undefined') return '/api';
   const host = window.location.hostname;
@@ -15,7 +59,7 @@ export const resolveApiBaseUrl = (config?: ServerConfig): string => {
 
   // HTTPS / bulut domain (plasiyer.vercel.app vb.) veya Vite dev proxy (5173) -> '/api'
   if (protocol === 'https:' || host.includes('vercel.app') || port === '5173') {
-    return '/api';
+    return cachedLocalBridgeState?.available ? cachedLocalBridgeState.url : '/api';
   }
 
   // Yerel HTTP ortamında yerel Node.js servisine bağlan (uzak SQL IP'sine doğrudan TCP ile Node.js bağlanır)
@@ -82,7 +126,7 @@ export const apiService = {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 8000);
 
-      const response = await fetch(`${resolveApiBaseUrl(config)}/health`, {
+      const response = await fetch(`${(await resolveApiBaseUrlAsync(config))}/health`, {
         headers: {
           ...buildSqlHeaders(config),
         },
@@ -118,7 +162,7 @@ export const apiService = {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-      const baseUrl = resolveApiBaseUrl(config);
+      const baseUrl = (await resolveApiBaseUrlAsync(config));
       const response = await fetch(`${baseUrl}/sql/test`, {
         method: 'POST',
         headers: {
@@ -172,7 +216,7 @@ export const apiService = {
     const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     try {
-      const baseUrl = resolveApiBaseUrl(config);
+      const baseUrl = (await resolveApiBaseUrlAsync(config));
       const response = await fetch(`${baseUrl}/customers?rep=${encodeURIComponent(salesRepCode)}&company=${encodeURIComponent(config.companyCode || '01')}`, {
         headers: {
           ...buildSqlHeaders(config),
@@ -202,7 +246,7 @@ export const apiService = {
     const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     try {
-      const baseUrl = resolveApiBaseUrl(config);
+      const baseUrl = (await resolveApiBaseUrlAsync(config));
       const response = await fetch(`${baseUrl}/products?company=${encodeURIComponent(config.companyCode || '01')}`, {
         headers: {
           ...buildSqlHeaders(config),
@@ -229,7 +273,7 @@ export const apiService = {
     }
 
     try {
-      const baseUrl = resolveApiBaseUrl(config);
+      const baseUrl = (await resolveApiBaseUrlAsync(config));
       const response = await fetch(`${baseUrl}/orders`, {
         method: 'POST',
         headers: {
@@ -283,7 +327,7 @@ export const apiService = {
     }
 
     try {
-      const response = await fetch(`${resolveApiBaseUrl(config)}/collections`, {
+      const response = await fetch(`${(await resolveApiBaseUrlAsync(config))}/collections`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -327,7 +371,7 @@ export const apiService = {
     }
 
     try {
-      const response = await fetch(`${resolveApiBaseUrl(config)}/returns`, {
+      const response = await fetch(`${(await resolveApiBaseUrlAsync(config))}/returns`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -382,7 +426,7 @@ export const apiService = {
     }
 
     try {
-      const response = await fetch(`${resolveApiBaseUrl(config)}/orders/${encodeURIComponent(docNo)}/invoice`, {
+      const response = await fetch(`${(await resolveApiBaseUrlAsync(config))}/orders/${encodeURIComponent(docNo)}/invoice`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -492,7 +536,7 @@ export const apiService = {
     }
 
     try {
-      let url = `${resolveApiBaseUrl(config)}/customers/${encodeURIComponent(idOrCode)}/statement?company=${encodeURIComponent(config.companyCode || '01')}`;
+      let url = `${(await resolveApiBaseUrlAsync(config))}/customers/${encodeURIComponent(idOrCode)}/statement?company=${encodeURIComponent(config.companyCode || '01')}`;
       if (startDate) url += `&startDate=${encodeURIComponent(startDate)}`;
       if (endDate) url += `&endDate=${encodeURIComponent(endDate)}`;
 
@@ -732,7 +776,7 @@ export const apiService = {
     }
 
     try {
-      const url = `${resolveApiBaseUrl(config)}/customers/${encodeURIComponent(idOrCode)}/history?company=${encodeURIComponent(config.companyCode || '01')}`;
+      const url = `${(await resolveApiBaseUrlAsync(config))}/customers/${encodeURIComponent(idOrCode)}/history?company=${encodeURIComponent(config.companyCode || '01')}`;
       const response = await fetch(url, {
         headers: {
           ...buildSqlHeaders(config),
@@ -782,7 +826,7 @@ export const apiService = {
     }
 
     try {
-      const response = await fetch(`${resolveApiBaseUrl(config)}/products/${encodeURIComponent(productCode)}/image`, {
+      const response = await fetch(`${(await resolveApiBaseUrlAsync(config))}/products/${encodeURIComponent(productCode)}/image`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -815,7 +859,7 @@ export const apiService = {
     }
 
     try {
-      const response = await fetch(`${resolveApiBaseUrl(config)}/products/${encodeURIComponent(productCode)}/image`, {
+      const response = await fetch(`${(await resolveApiBaseUrlAsync(config))}/products/${encodeURIComponent(productCode)}/image`, {
         method: 'DELETE',
         headers: {
           ...buildSqlHeaders(config),

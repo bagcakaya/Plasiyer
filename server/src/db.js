@@ -74,6 +74,9 @@ export function formatSqlError(err, host, port, database, user) {
     rawMsg.includes('Failed to connect') ||
     rawMsg.includes('timeout')
   ) {
+    if (process.env.VERCEL) {
+      return `SQL Server adresine (${host}:${port}) bulut üzerinden TCP bağlantısı kurulamadı. Port (${port}) Türkiye içinden açık ancak buluttan erişilemiyorsa, karşı sunucu güvenlik duvarında (FortiGate / MikroTik / Modem) "Yurt Dışı IP Engelleme (GeoIP)" aktif olabilir. (${rawMsg})`;
+    }
     return `SQL Server adresine (${host}:${port}) TCP bağlantısı kurulamadı. Statik IP, SQL portu (${port}) yönlendirmesini ve güvenlik duvarını kontrol ediniz. (${rawMsg})`;
   }
 
