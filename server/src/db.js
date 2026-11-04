@@ -318,6 +318,7 @@ async function executeJsonQueryViaPowerShell(query, dbName = DB_NAME) {
   }
 
   const psScript = `
+    Add-Type -AssemblyName System.Web.Extensions;
     $conn = New-Object System.Data.SqlClient.SqlConnection("Server=${DB_SERVER};Database=${dbName};Integrated Security=True;TrustServerCertificate=True;");
     $conn.Open();
     $cmd = $conn.CreateCommand();
@@ -326,13 +327,23 @@ async function executeJsonQueryViaPowerShell(query, dbName = DB_NAME) {
 ${query}
 '@;
     $reader = $cmd.ExecuteReader();
-    $sb = New-Object System.Text.StringBuilder;
-    while ($reader.Read()) {
-        $sb.Append($reader[0].ToString()) | Out-Null;
-    }
+    $dt = New-Object System.Data.DataTable;
+    $dt.Load($reader);
     $conn.Close();
+    $rows = New-Object System.Collections.ArrayList;
+    foreach ($r in $dt.Rows) {
+      $dict = @{};
+      foreach ($col in $dt.Columns) {
+        $val = $r[$col.ColumnName];
+        if ($val -is [System.DBNull]) { $dict[$col.ColumnName] = $null }
+        else { $dict[$col.ColumnName] = $val }
+      }
+      [void]$rows.Add($dict);
+    }
+    $ser = New-Object System.Web.Script.Serialization.JavaScriptSerializer;
+    $ser.MaxJsonLength = [int]::MaxValue;
     [Console]::OutputEncoding = [System.Text.Encoding]::UTF8;
-    Write-Output $sb.ToString();
+    Write-Output ($ser.Serialize($rows));
   `;
 
   const { stdout } = await execFilePromise(
@@ -447,6 +458,6 @@ export async function executeNonQuery(query) {
 }
 
 export async function testConnection() {
-  const res = await executeJsonQuery('SELECT 1 AS status FOR JSON PATH');
+  const res = await executeJsonQuery('SELECT 1 AS status');
   return res && res.length > 0;
 }

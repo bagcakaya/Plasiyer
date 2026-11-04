@@ -720,7 +720,7 @@ export const SettingsPage: React.FC = () => {
 
             {/* Action Buttons: Görsel-1 */}
             <div className="pt-2 space-y-2">
-              {/* Buton 1: ⚡ SQL Bağlantısını Canlı Test Et */}
+              {/* Buton 1: SQL Bağlantısını Canlı Test Et */}
               <button
                 type="button"
                 onClick={handleTestSqlConnection}
@@ -728,17 +728,17 @@ export const SettingsPage: React.FC = () => {
                 className="w-full border-2 border-cyan-400 dark:border-cyan-500 hover:bg-cyan-50 dark:hover:bg-cyan-950/40 text-cyan-600 dark:text-cyan-400 font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-2 transition active:scale-[0.99] text-xs shadow-xs"
               >
                 <Zap className={`w-4 h-4 text-cyan-500 fill-cyan-500 ${testResult.testing ? 'animate-bounce' : ''}`} />
-                <span>{testResult.testing ? 'SQL Bağlantısı Test Ediliyor...' : '⚡ SQL Bağlantısını Canlı Test Et'}</span>
+                <span>{testResult.testing ? 'SQL Bağlantısı Test Ediliyor...' : 'SQL Bağlantısını Canlı Test Et'}</span>
               </button>
 
-              {/* Buton 2: 💾 Firmayı Kaydet & Doğrudan SQL Veritabanını Bağla */}
+              {/* Buton 2: Firmayı Kaydet & Doğrudan SQL Veritabanını Bağla */}
               <button
                 type="button"
                 onClick={handleSaveConfig}
                 className="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-xl flex items-center justify-center gap-2 transition active:scale-[0.99] text-xs shadow-md shadow-blue-500/20"
               >
                 <Save className="w-4 h-4" />
-                <span>💾 Firmayı Kaydet & Doğrudan SQL Veritabanını Bağla</span>
+                <span>Firmayı Kaydet & Doğrudan SQL Veritabanını Bağla</span>
               </button>
             </div>
 

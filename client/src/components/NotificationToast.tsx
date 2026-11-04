@@ -48,6 +48,7 @@ export const NotificationToast: React.FC = () => {
           {isOrder && <Bell className="w-5 h-5 animate-pulse" />}
           {isCol && <Banknote className="w-5 h-5 animate-pulse" />}
           {isInvoice && <FileCheck className="w-5 h-5 animate-pulse" />}
+          {!isOrder && !isCol && !isInvoice && <Sparkles className="w-5 h-5 text-indigo-300" />}
         </div>
 
         <div className="flex-1 min-w-0 pr-1">
@@ -62,14 +63,16 @@ export const NotificationToast: React.FC = () => {
           </p>
 
           <div className="mt-2.5 flex items-center gap-2">
-            <button
-              type="button"
-              onClick={handleAction}
-              className="px-3 py-1 rounded-lg bg-white text-slate-900 hover:bg-slate-100 font-bold text-[11px] flex items-center gap-1 transition-all active:scale-95 shadow-xs"
-            >
-              <span>Siparişe Git</span>
-              <ArrowRight className="w-3 h-3" />
-            </button>
+            {(isOrder || isCol || isInvoice) && (
+              <button
+                type="button"
+                onClick={handleAction}
+                className="px-3 py-1 rounded-lg bg-white text-slate-900 hover:bg-slate-100 font-bold text-[11px] flex items-center gap-1 transition-all active:scale-95 shadow-xs"
+              >
+                <span>Siparişe Git</span>
+                <ArrowRight className="w-3 h-3" />
+              </button>
+            )}
             <button
               type="button"
               onClick={dismissToastNotification}

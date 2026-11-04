@@ -27,21 +27,36 @@ export const erpQueries = {
     }
 
     const queryWithBalanceView = `
-      DECLARE @p1 bigint = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 1016);
-      IF @p1 IS NULL SET @p1 = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) ORDER BY ID ASC);
-      DECLARE @p2 bigint = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 3294504);
-      IF @p2 IS NULL SET @p2 = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID <> ISNULL(@p1, -1) ORDER BY ID ASC);
-      DECLARE @p3 bigint = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 449803);
-      IF @p3 IS NULL SET @p3 = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID NOT IN (ISNULL(@p1, -1), ISNULL(@p2, -1)) ORDER BY ID ASC);
+      DECLARE @p1 bigint;
+      SELECT TOP 1 @p1 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 1016;
+      IF @p1 IS NULL SELECT TOP 1 @p1 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) ORDER BY ID ASC;
 
-      WITH LastCustDiscount AS (
+      DECLARE @p2 bigint;
+      SELECT TOP 1 @p2 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 3294504;
+      IF @p2 IS NULL SELECT TOP 1 @p2 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID <> ISNULL(@p1, -1) ORDER BY ID ASC;
+
+      DECLARE @p3 bigint;
+      SELECT TOP 1 @p3 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 449803;
+      IF @p3 IS NULL SELECT TOP 1 @p3 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID NOT IN (ISNULL(@p1, -1), ISNULL(@p2, -1)) ORDER BY ID ASC;
+
+      ;WITH LastCustDiscount AS (
         SELECT 
           F.CARI,
-          TRY_CAST(REPLACE(
-            CASE 
-              WHEN CHARINDEX('+', FD.ISKONTO) > 0 THEN LEFT(FD.ISKONTO, CHARINDEX('+', FD.ISKONTO) - 1)
-              ELSE FD.ISKONTO 
-            END, ',', '.') AS float) AS last_discount,
+          CASE
+            WHEN ISNUMERIC(REPLACE(
+              CASE WHEN CHARINDEX('+', FD.ISKONTO) > 0 THEN LEFT(FD.ISKONTO, CHARINDEX('+', FD.ISKONTO) - 1) ELSE FD.ISKONTO END,
+              ',', '.'
+            )) = 1
+            AND REPLACE(
+              CASE WHEN CHARINDEX('+', FD.ISKONTO) > 0 THEN LEFT(FD.ISKONTO, CHARINDEX('+', FD.ISKONTO) - 1) ELSE FD.ISKONTO END,
+              ',', '.'
+            ) NOT IN ('.', '+', '-', '$')
+            THEN CAST(REPLACE(
+              CASE WHEN CHARINDEX('+', FD.ISKONTO) > 0 THEN LEFT(FD.ISKONTO, CHARINDEX('+', FD.ISKONTO) - 1) ELSE FD.ISKONTO END,
+              ',', '.'
+            ) AS float)
+            ELSE 0
+          END AS last_discount,
           ROW_NUMBER() OVER(PARTITION BY F.CARI ORDER BY F.FIS_TARIHI DESC, FD.ID DESC) as rn
         FROM FIS_DETAY FD WITH(NOLOCK)
         JOIN FIS F WITH(NOLOCK) ON F.ID = FD.FIS
@@ -63,7 +78,15 @@ export const erpQueries = {
           ELSE 1 
         END AS priceList,
         COALESCE(
-          NULLIF(TRY_CAST(REPLACE(C.ISKONTO, ',', '.') AS float), 0),
+          NULLIF(
+            CASE
+              WHEN ISNUMERIC(REPLACE(ISNULL(CAST(C.ISKONTO AS varchar(50)), ''), ',', '.')) = 1
+               AND REPLACE(ISNULL(CAST(C.ISKONTO AS varchar(50)), ''), ',', '.') NOT IN ('.', '+', '-', '$')
+              THEN CAST(REPLACE(CAST(C.ISKONTO AS varchar(50)), ',', '.') AS float)
+              ELSE 0
+            END,
+            0
+          ),
           ROUND(LD.last_discount, 2),
           0
         ) AS specialDiscount,
@@ -75,7 +98,6 @@ export const erpQueries = {
       LEFT JOIN CARI_ADRES A WITH(NOLOCK) ON A.CARI = C.ID AND A.VARSAYILAN = 1
       WHERE C.AKTIF = 1
       ORDER BY C.AD ASC
-      FOR JSON PATH
     `;
 
     let rows;
@@ -94,7 +116,12 @@ export const erpQueries = {
           ISNULL(C.VERGI_NUMARASI, ISNULL(C.KIMLIK_NO, '')) AS taxNumber,
           ISNULL(CAST(C.TEMSILCI AS varchar(50)), '0') AS salesRepCode,
           1 AS priceList,
-          ISNULL(TRY_CAST(REPLACE(C.ISKONTO, ',', '.') AS float), 0) AS specialDiscount,
+          CASE
+            WHEN ISNUMERIC(REPLACE(ISNULL(CAST(C.ISKONTO AS varchar(50)), ''), ',', '.')) = 1
+             AND REPLACE(ISNULL(CAST(C.ISKONTO AS varchar(50)), ''), ',', '.') NOT IN ('.', '+', '-', '$')
+            THEN CAST(REPLACE(CAST(C.ISKONTO AS varchar(50)), ',', '.') AS float)
+            ELSE 0
+          END AS specialDiscount,
           ISNULL(C.RISK, 0) AS riskLimit,
           ISNULL(FB.BAKIYE, 0) AS balance
         FROM CARI C WITH(NOLOCK)
@@ -107,7 +134,6 @@ export const erpQueries = {
         ) FB ON FB.KART_ID = C.ID
         WHERE C.AKTIF = 1
         ORDER BY C.AD ASC
-        FOR JSON PATH
       `;
       rows = await executeJsonQuery(fallbackQuery);
     }
@@ -143,16 +169,19 @@ export const erpQueries = {
     }
 
     const query = `
-      DECLARE @p1 bigint = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 1016);
-      IF @p1 IS NULL SET @p1 = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) ORDER BY ID ASC);
+      DECLARE @p1 bigint;
+      SELECT TOP 1 @p1 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 1016;
+      IF @p1 IS NULL SELECT TOP 1 @p1 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) ORDER BY ID ASC;
 
-      DECLARE @p2 bigint = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 3294504);
-      IF @p2 IS NULL SET @p2 = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID <> ISNULL(@p1, -1) ORDER BY ID ASC);
+      DECLARE @p2 bigint;
+      SELECT TOP 1 @p2 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 3294504;
+      IF @p2 IS NULL SELECT TOP 1 @p2 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID <> ISNULL(@p1, -1) ORDER BY ID ASC;
 
-      DECLARE @p3 bigint = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 449803);
-      IF @p3 IS NULL SET @p3 = (SELECT TOP 1 ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID NOT IN (ISNULL(@p1, -1), ISNULL(@p2, -1)) ORDER BY ID ASC);
+      DECLARE @p3 bigint;
+      SELECT TOP 1 @p3 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 449803;
+      IF @p3 IS NULL SELECT TOP 1 @p3 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID NOT IN (ISNULL(@p1, -1), ISNULL(@p2, -1)) ORDER BY ID ASC;
 
-      SELECT TOP 1500
+      SELECT TOP 2000
         S.ID AS id,
         S.KOD AS code,
         S.AD AS name,
@@ -189,10 +218,33 @@ export const erpQueries = {
       WHERE S.AKTIF = 1
         AND ISNULL(G.AD, '') NOT LIKE '%MASRAF%'
       ORDER BY S.AD ASC
-      FOR JSON PATH
     `;
 
-    const rows = await executeJsonQuery(query);
+    let rows;
+    try {
+      rows = await executeJsonQuery(query);
+    } catch (err) {
+      const fallbackProdQuery = `
+        SELECT TOP 2000
+          S.ID AS id,
+          S.KOD AS code,
+          S.AD AS name,
+          ISNULL(G.AD, 'Genel') AS category,
+          'ADET' AS unit,
+          1 AS vatRate,
+          S.KOD AS barcode,
+          0 AS price1,
+          0 AS price2,
+          0 AS price3,
+          0 AS stockQuantity
+        FROM STOK S WITH(NOLOCK)
+        LEFT JOIN STOK_GRUP G WITH(NOLOCK) ON G.ID = S.STOK_GRUP
+        WHERE S.AKTIF = 1
+          AND ISNULL(G.AD, '') NOT LIKE '%MASRAF%'
+        ORDER BY S.AD ASC
+      `;
+      rows = await executeJsonQuery(fallbackProdQuery);
+    }
     const imageMap = imageService.getAllProductImagesMap();
 
     const result = rows.map((row) => {
@@ -266,10 +318,9 @@ export const erpQueries = {
         SELECT TOP 1 @cariId = ID FROM CARI WHERE KOD = '${safeCustCode}';
         IF @cariId IS NULL SELECT TOP 1 @cariId = ID FROM CARI WHERE AKTIF = 1 ORDER BY ID ASC;
 
-        DECLARE @lokId bigint = ISNULL(
-          (SELECT TOP 1 ID FROM LOKASYON WHERE ID = 75919),
-          (SELECT TOP 1 ID FROM LOKASYON ORDER BY ID ASC)
-        );
+        DECLARE @lokId bigint;
+        SELECT TOP 1 @lokId = ID FROM LOKASYON WHERE ID = 75919;
+        IF @lokId IS NULL SELECT TOP 1 @lokId = ID FROM LOKASYON ORDER BY ID ASC;
 
         DECLARE @orderId bigint;
         SELECT @orderId = ISNULL(MAX(ID), 3893110) + 1 FROM SIPARIS;
@@ -286,7 +337,8 @@ export const erpQueries = {
           '[Mobil Plasiyer - ${safeTempId}] ${safeNotes}${safeCampaignNotes}', 1, 1, 0
         );
 
-        DECLARE @detId bigint = @orderId + 1;
+        DECLARE @detId bigint;
+        SET @detId = @orderId + 1;
         ${order.items.map((item, idx) => {
           const sCode = (item.productCode || '').replace(/'/g, "''");
           const isGift = Boolean(item.isGift);
@@ -321,11 +373,13 @@ export const erpQueries = {
         UPDATE SEQUNCES SET ID = @detId WHERE TABLO IN ('SIPARIS', 'SIPARIS_DETAY') AND KOD_PC = 0;
 
         COMMIT TRANSACTION;
-        SELECT '${docNo}' AS docNo FOR JSON PATH;
+        SELECT '${docNo}' AS docNo;
       END TRY
       BEGIN CATCH
         ROLLBACK TRANSACTION;
-        THROW;
+        DECLARE @errMsgOrd nvarchar(4000);
+        SET @errMsgOrd = ERROR_MESSAGE();
+        RAISERROR(@errMsgOrd, 16, 1);
       END CATCH;
     `;
 
@@ -370,18 +424,17 @@ export const erpQueries = {
         DECLARE @finansId bigint;
         SELECT @finansId = ISNULL(MAX(ID), 3931620) + 1 FROM FINANS;
 
-        DECLARE @kasaId bigint = ISNULL(
-          (SELECT TOP 1 ID FROM KASA_AD WHERE ID = 75923),
-          (SELECT TOP 1 ID FROM KASA_AD ORDER BY ID ASC)
-        );
-        DECLARE @lokId bigint = ISNULL(
-          (SELECT TOP 1 ID FROM LOKASYON WHERE ID = 75919),
-          (SELECT TOP 1 ID FROM LOKASYON ORDER BY ID ASC)
-        );
-        DECLARE @projeId bigint = ISNULL(
-          (SELECT TOP 1 ID FROM PROJE WHERE ID = 75916),
-          (SELECT TOP 1 ID FROM PROJE ORDER BY ID ASC)
-        );
+        DECLARE @kasaId bigint;
+        SELECT TOP 1 @kasaId = ID FROM KASA_AD WHERE ID = 75923;
+        IF @kasaId IS NULL SELECT TOP 1 @kasaId = ID FROM KASA_AD ORDER BY ID ASC;
+
+        DECLARE @lokId bigint;
+        SELECT TOP 1 @lokId = ID FROM LOKASYON WHERE ID = 75919;
+        IF @lokId IS NULL SELECT TOP 1 @lokId = ID FROM LOKASYON ORDER BY ID ASC;
+
+        DECLARE @projeId bigint;
+        SELECT TOP 1 @projeId = ID FROM PROJE WHERE ID = 75916;
+        IF @projeId IS NULL SELECT TOP 1 @projeId = ID FROM PROJE ORDER BY ID ASC;
 
         INSERT INTO FINANS (
           ID, PROJE, LOKASYON, KASA_AD, BELGENO, 
@@ -391,7 +444,8 @@ export const erpQueries = {
           GETDATE(), GETDATE(), @finansId, 1
         );
 
-        DECLARE @detId bigint = @finansId + 1;
+        DECLARE @detId bigint;
+        SET @detId = @finansId + 1;
         INSERT INTO FINANS_DETAY (
           ID, FINANS, FINANS_ISLEM_TURU, DOVIZ_AD, KUR, 
           KART_BORCLU, KART_ALACAKLI, TUTAR, SECIM, 
@@ -405,11 +459,13 @@ export const erpQueries = {
         UPDATE SEQUNCES SET ID = @detId WHERE TABLO IN ('FINANS', 'FINANS_DETAY') AND KOD_PC = 0;
 
         COMMIT TRANSACTION;
-        SELECT '${docNo}' AS docNo FOR JSON PATH;
+        SELECT '${docNo}' AS docNo;
       END TRY
       BEGIN CATCH
         ROLLBACK TRANSACTION;
-        THROW;
+        DECLARE @errMsgCol nvarchar(4000);
+        SET @errMsgCol = ERROR_MESSAGE();
+        RAISERROR(@errMsgCol, 16, 1);
       END CATCH;
     `;
 
@@ -432,11 +488,13 @@ export const erpQueries = {
         WHERE BELGENO = '${safeDocNo}';
 
         COMMIT TRANSACTION;
-        SELECT '${safeDocNo}' AS docNo, '${safeInvNo}' AS invoiceNo FOR JSON PATH;
+        SELECT '${safeDocNo}' AS docNo, '${safeInvNo}' AS invoiceNo;
       END TRY
       BEGIN CATCH
         ROLLBACK TRANSACTION;
-        THROW;
+        DECLARE @errMsgInv nvarchar(4000);
+        SET @errMsgInv = ERROR_MESSAGE();
+        RAISERROR(@errMsgInv, 16, 1);
       END CATCH;
     `;
 
@@ -468,10 +526,26 @@ export const erpQueries = {
       LEFT JOIN CARI_BAKIYELER B WITH(NOLOCK) ON B.ID = C.ID
       LEFT JOIN CARI_ADRES A WITH(NOLOCK) ON A.CARI = C.ID AND A.VARSAYILAN = 1
       WHERE ${custWhere}
-      FOR JSON PATH
     `;
 
-    const custRows = await executeJsonQuery(custQuery);
+    let custRows;
+    try {
+      custRows = await executeJsonQuery(custQuery);
+    } catch {
+      custRows = await executeJsonQuery(`
+        SELECT TOP 1
+          C.ID AS id,
+          C.KOD AS code,
+          C.AD AS name,
+          '' AS address,
+          '' AS phone,
+          ISNULL(C.VERGI_DAIRESI, '') AS taxOffice,
+          ISNULL(C.VERGI_NUMARASI, ISNULL(C.KIMLIK_NO, '')) AS taxNumber,
+          0 AS balance
+        FROM CARI C WITH(NOLOCK)
+        WHERE ${custWhere}
+      `);
+    }
     if (!custRows || custRows.length === 0) {
       return { customer: null, movements: [], summary: { totalDebit: 0, totalCredit: 0, closingBalance: 0 } };
     }
@@ -504,7 +578,6 @@ export const erpQueries = {
       WHERE (FD.KART_BORCLU = ${customerId} OR FD.KART_ALACAKLI = ${customerId})
         ${dateFilter}
       ORDER BY FD.ISLEM_TARIHI ASC
-      FOR JSON PATH
     `;
 
     const moveRows = (await executeJsonQuery(movesQuery)) || [];
@@ -581,18 +654,17 @@ export const erpQueries = {
         DECLARE @finansId bigint;
         SELECT @finansId = ISNULL(MAX(ID), 3931620) + 1 FROM FINANS;
 
-        DECLARE @kasaId bigint = ISNULL(
-          (SELECT TOP 1 ID FROM KASA_AD WHERE ID = 75923),
-          (SELECT TOP 1 ID FROM KASA_AD ORDER BY ID ASC)
-        );
-        DECLARE @lokId bigint = ISNULL(
-          (SELECT TOP 1 ID FROM LOKASYON WHERE ID = 75919),
-          (SELECT TOP 1 ID FROM LOKASYON ORDER BY ID ASC)
-        );
-        DECLARE @projeId bigint = ISNULL(
-          (SELECT TOP 1 ID FROM PROJE WHERE ID = 75916),
-          (SELECT TOP 1 ID FROM PROJE ORDER BY ID ASC)
-        );
+        DECLARE @kasaId bigint;
+        SELECT TOP 1 @kasaId = ID FROM KASA_AD WHERE ID = 75923;
+        IF @kasaId IS NULL SELECT TOP 1 @kasaId = ID FROM KASA_AD ORDER BY ID ASC;
+
+        DECLARE @lokId bigint;
+        SELECT TOP 1 @lokId = ID FROM LOKASYON WHERE ID = 75919;
+        IF @lokId IS NULL SELECT TOP 1 @lokId = ID FROM LOKASYON ORDER BY ID ASC;
+
+        DECLARE @projeId bigint;
+        SELECT TOP 1 @projeId = ID FROM PROJE WHERE ID = 75916;
+        IF @projeId IS NULL SELECT TOP 1 @projeId = ID FROM PROJE ORDER BY ID ASC;
 
         INSERT INTO FINANS (
           ID, PROJE, LOKASYON, KASA_AD, BELGENO, 
@@ -602,7 +674,8 @@ export const erpQueries = {
           GETDATE(), GETDATE(), @finansId, 1
         );
 
-        DECLARE @detId bigint = @finansId + 1;
+        DECLARE @detId bigint;
+        SET @detId = @finansId + 1;
         INSERT INTO FINANS_DETAY (
           ID, FINANS, FINANS_ISLEM_TURU, DOVIZ_AD, KUR, 
           KART_BORCLU, KART_ALACAKLI, TUTAR, SECIM, 
@@ -616,11 +689,13 @@ export const erpQueries = {
         UPDATE SEQUNCES SET ID = @detId WHERE TABLO IN ('FINANS', 'FINANS_DETAY') AND KOD_PC = 0;
 
         COMMIT TRANSACTION;
-        SELECT '${docNo}' AS docNo FOR JSON PATH;
+        SELECT '${docNo}' AS docNo;
       END TRY
       BEGIN CATCH
         ROLLBACK TRANSACTION;
-        THROW;
+        DECLARE @errMsgRet nvarchar(4000);
+        SET @errMsgRet = ERROR_MESSAGE();
+        RAISERROR(@errMsgRet, 16, 1);
       END CATCH;
     `;
 
@@ -645,10 +720,18 @@ export const erpQueries = {
       FROM CARI C WITH(NOLOCK)
       LEFT JOIN CARI_BAKIYELER B WITH(NOLOCK) ON B.ID = C.ID
       WHERE ${custWhere}
-      FOR JSON PATH
     `;
 
-    const custRows = await executeJsonQuery(custQuery);
+    let custRows;
+    try {
+      custRows = await executeJsonQuery(custQuery);
+    } catch {
+      custRows = await executeJsonQuery(`
+        SELECT TOP 1 C.ID AS id, C.KOD AS code, C.AD AS name, 0 AS balance
+        FROM CARI C WITH(NOLOCK)
+        WHERE ${custWhere}
+      `);
+    }
     if (!custRows || custRows.length === 0) {
       return { customer: null, years: [], items: [], financials: [] };
     }
@@ -657,7 +740,7 @@ export const erpQueries = {
     const safeCode = String(customer.code || '').replace(/'/g, "''");
 
     // Aynı firmanın geçmiş yıl arşiv veritabanları varsa otomatik tespit et (örn: OSMANLIGIDA, OSMANLIGIDA2025 vb.)
-    const currentDbRows = await executeJsonQuery(`SELECT DB_NAME() AS dbName FOR JSON PATH`).catch(() => []);
+    const currentDbRows = await executeJsonQuery(`SELECT DB_NAME() AS dbName`).catch(() => []);
     const currentDbName = currentDbRows?.[0]?.dbName || 'OSMANLIGIDA';
     const basePrefix = currentDbName.replace(/[_-]?\d{4}$/, '');
 
@@ -665,7 +748,6 @@ export const erpQueries = {
       SELECT name FROM sys.databases
       WHERE state = 0 AND name LIKE '${basePrefix.replace(/'/g, "''")}%'
       ORDER BY name DESC
-      FOR JSON PATH
     `).catch(() => [{ name: currentDbName }]);
 
     const validDbs = [];
@@ -676,7 +758,6 @@ export const erpQueries = {
         SELECT COUNT(*) AS cnt
         FROM [${dbName}].INFORMATION_SCHEMA.TABLES
         WHERE TABLE_NAME IN ('FIS', 'FIS_DETAY', 'CARI')
-        FOR JSON PATH
       `).catch(() => []);
       if ((checkTbl?.[0]?.cnt || 0) >= 3) {
         validDbs.push(dbName);
@@ -759,8 +840,7 @@ export const erpQueries = {
               AND SP.AKTIF = 1
               AND ISNULL(SD.MIKTAR_FIS, 0) > 0
           ) T
-          ORDER BY T.sortDate DESC
-          FOR JSON PATH;
+          ORDER BY T.sortDate DESC;
         END
       `;
 
@@ -814,8 +894,7 @@ export const erpQueries = {
           LEFT JOIN [${dbName}].dbo.FINANS F WITH(NOLOCK) ON F.ID = FD.FINANS
           LEFT JOIN [${dbName}].dbo.FINANS_ISLEM_TURU FIT WITH(NOLOCK) ON FIT.ID = FD.FINANS_ISLEM_TURU
           WHERE (FD.KART_BORCLU = @cid OR FD.KART_ALACAKLI = @cid)
-          ORDER BY FD.ISLEM_TARIHI DESC, FD.ID DESC
-          FOR JSON PATH;
+          ORDER BY FD.ISLEM_TARIHI DESC, FD.ID DESC;
         END
       `;
 
