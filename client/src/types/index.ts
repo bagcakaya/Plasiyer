@@ -210,6 +210,51 @@ export interface CustomerStatement {
   };
 }
 
+// CARİ GEÇMİŞ YILLAR DAHİL TÜM ÜRÜN VE İŞLEM DETAYLARI
+export interface CustomerHistoryItem {
+  id: string;
+  year: number;
+  date: string;
+  time?: string;
+  docNo: string;
+  docType: string;
+  isReturn: boolean;
+  productId: string;
+  productCode: string;
+  productName: string;
+  unit: string;
+  quantity: number;
+  unitPrice: number;
+  discount?: string;
+  vatRate: number;
+  netTotal: number;
+  grandTotal: number;
+}
+
+export interface CustomerHistoryFinancial {
+  id: string;
+  year: number;
+  date: string;
+  time?: string;
+  docNo: string;
+  transactionType: string;
+  description: string;
+  debit: number;
+  credit: number;
+}
+
+export interface CustomerHistoryResponse {
+  customer: {
+    id: string;
+    code: string;
+    name: string;
+    balance: number;
+  };
+  years: number[];
+  items: CustomerHistoryItem[];
+  financials: CustomerHistoryFinancial[];
+}
+
 // PAKET 2: KİMLİK DOĞRULAMA & GİRİŞ
 export interface AuthUser {
   id: string;

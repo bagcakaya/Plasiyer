@@ -556,5 +556,240 @@ export const erpQueries = {
     const res = await executeJsonQuery(sqlScript);
     return { docNo: res[0]?.docNo || docNo };
   },
+
+  // 8. CARİ GEÇMİŞ YILLAR DAHİL TÜM ÜRÜN ALIMLARI VE İŞLEM DETAYLARI
+  async getCustomerHistory(idOrCode) {
+    const safeParam = String(idOrCode || '').replace(/'/g, "''");
+    const isNum = !isNaN(Number(safeParam)) && safeParam.length <= 10;
+    const custWhere = isNum
+      ? `(C.ID = ${safeParam} OR C.KOD = '${safeParam}')`
+      : `(C.KOD = '${safeParam}' OR C.AD LIKE '%${safeParam}%')`;
+
+    const custQuery = `
+      SELECT TOP 1
+        C.ID AS id,
+        C.KOD AS code,
+        C.AD AS name,
+        ISNULL(B.BAKIYE, 0) AS balance
+      FROM CARI C WITH(NOLOCK)
+      LEFT JOIN CARI_BAKIYELER B WITH(NOLOCK) ON B.ID = C.ID
+      WHERE ${custWhere}
+      FOR JSON PATH
+    `;
+
+    const custRows = await executeJsonQuery(custQuery);
+    if (!custRows || custRows.length === 0) {
+      return { customer: null, years: [], items: [], financials: [] };
+    }
+
+    const customer = custRows[0];
+    const safeCode = String(customer.code || '').replace(/'/g, "''");
+
+    // Aynı firmanın geçmiş yıl arşiv veritabanları varsa otomatik tespit et (örn: OSMANLIGIDA, OSMANLIGIDA2025 vb.)
+    const currentDbRows = await executeJsonQuery(`SELECT DB_NAME() AS dbName FOR JSON PATH`).catch(() => []);
+    const currentDbName = currentDbRows?.[0]?.dbName || 'OSMANLIGIDA';
+    const basePrefix = currentDbName.replace(/[_-]?\d{4}$/, '');
+
+    const candidateDbs = await executeJsonQuery(`
+      SELECT name FROM sys.databases
+      WHERE state = 0 AND name LIKE '${basePrefix.replace(/'/g, "''")}%'
+      ORDER BY name DESC
+      FOR JSON PATH
+    `).catch(() => [{ name: currentDbName }]);
+
+    const validDbs = [];
+    for (const row of candidateDbs || []) {
+      const dbName = row.name;
+      if (!dbName || /[^\w]/.test(dbName)) continue;
+      const checkTbl = await executeJsonQuery(`
+        SELECT COUNT(*) AS cnt
+        FROM [${dbName}].INFORMATION_SCHEMA.TABLES
+        WHERE TABLE_NAME IN ('FIS', 'FIS_DETAY', 'CARI')
+        FOR JSON PATH
+      `).catch(() => []);
+      if ((checkTbl?.[0]?.cnt || 0) >= 3) {
+        validDbs.push(dbName);
+      }
+    }
+    if (validDbs.length === 0) validDbs.push(currentDbName);
+
+    const allItems = [];
+    const allFinancials = [];
+
+    for (const dbName of validDbs) {
+      // 1) Fiş / Fatura / İrsaliye + Sipariş satır bazlı ürün geçmişi
+      const itemsQuery = `
+        DECLARE @cid bigint;
+        SELECT TOP 1 @cid = ID FROM [${dbName}].dbo.CARI WITH(NOLOCK) WHERE KOD = '${safeCode}';
+
+        IF @cid IS NOT NULL
+        BEGIN
+          SELECT TOP 1500 * FROM (
+            SELECT
+              CAST(FD.ID AS varchar(30)) AS id,
+              F.FIS_TARIHI AS sortDate,
+              YEAR(F.FIS_TARIHI) AS [year],
+              CONVERT(varchar(10), F.FIS_TARIHI, 120) AS [date],
+              CONVERT(varchar(5), F.FIS_TARIHI, 108) AS [time],
+              ISNULL(NULLIF(F.BELGENO, ''), CAST(F.ID AS varchar(20))) AS docNo,
+              ISNULL(FT.AD, 'Satış İşlemi') AS docType,
+              CASE WHEN F.FIS_TURU IN (4, 8, 12, 22) THEN 1 ELSE 0 END AS isReturn,
+              CAST(ISNULL(FD.STOK, 0) AS varchar(30)) AS productId,
+              ISNULL(S.KOD, '') AS productCode,
+              ISNULL(S.AD, ISNULL(FD.ACIKLAMA, 'Ürün')) AS productName,
+              ISNULL(SB.AD, 'Adet') AS unit,
+              ISNULL(FD.MIKTAR_FIS, 0) AS quantity,
+              ISNULL(FD.FIYAT, 0) AS unitPrice,
+              ISNULL(FD.ISKONTO, '') AS discount,
+              ISNULL(FD.KDV_TOPTAN, 0) AS vatRate,
+              ISNULL(FD.TUTAR, 0) AS netTotal,
+              CASE 
+                WHEN ISNULL(FD.DAHIL_TUTAR, 0) > 0 THEN FD.DAHIL_TUTAR
+                ELSE ISNULL(FD.TUTAR, 0) * (1.0 + ISNULL(FD.KDV_TOPTAN, 0) / 100.0)
+              END AS grandTotal
+            FROM [${dbName}].dbo.FIS_DETAY FD WITH(NOLOCK)
+            INNER JOIN [${dbName}].dbo.FIS F WITH(NOLOCK) ON F.ID = FD.FIS
+            LEFT JOIN [${dbName}].dbo.FIS_TURU FT WITH(NOLOCK) ON FT.ID = F.FIS_TURU
+            LEFT JOIN [${dbName}].dbo.STOK S WITH(NOLOCK) ON S.ID = FD.STOK
+            LEFT JOIN [${dbName}].dbo.STOK_BIRIM SB WITH(NOLOCK) ON SB.ID = FD.STOK_BIRIM
+            WHERE F.CARI = @cid
+              AND F.AKTIF = 1
+              AND ISNULL(FD.MIKTAR_FIS, 0) > 0
+
+            UNION ALL
+
+            SELECT
+              'SIP-' + CAST(SD.ID AS varchar(30)) AS id,
+              SP.SIPARIS_TARIHI AS sortDate,
+              YEAR(SP.SIPARIS_TARIHI) AS [year],
+              CONVERT(varchar(10), SP.SIPARIS_TARIHI, 120) AS [date],
+              CONVERT(varchar(5), SP.SIPARIS_TARIHI, 108) AS [time],
+              ISNULL(NULLIF(SP.BELGENO, ''), CAST(SP.ID AS varchar(20))) AS docNo,
+              'Sipariş' AS docType,
+              0 AS isReturn,
+              CAST(ISNULL(SD.STOK, 0) AS varchar(30)) AS productId,
+              ISNULL(S.KOD, '') AS productCode,
+              ISNULL(S.AD, 'Ürün') AS productName,
+              ISNULL(SB.AD, 'Adet') AS unit,
+              ISNULL(SD.MIKTAR_FIS, 0) AS quantity,
+              ISNULL(SD.FIYAT, 0) AS unitPrice,
+              ISNULL(SD.ISKONTO, '') AS discount,
+              ISNULL(SD.KDV_TOPTAN, 0) AS vatRate,
+              ISNULL(SD.TUTAR, 0) AS netTotal,
+              CASE 
+                WHEN ISNULL(SD.DAHIL_TUTAR, 0) > 0 THEN SD.DAHIL_TUTAR
+                ELSE ISNULL(SD.TUTAR, 0) * (1.0 + ISNULL(SD.KDV_TOPTAN, 0) / 100.0)
+              END AS grandTotal
+            FROM [${dbName}].dbo.SIPARIS_DETAY SD WITH(NOLOCK)
+            INNER JOIN [${dbName}].dbo.SIPARIS SP WITH(NOLOCK) ON SP.ID = SD.SIPARIS
+            LEFT JOIN [${dbName}].dbo.STOK S WITH(NOLOCK) ON S.ID = SD.STOK
+            LEFT JOIN [${dbName}].dbo.STOK_BIRIM SB WITH(NOLOCK) ON SB.ID = SD.STOK_BIRIM
+            WHERE SP.CARI = @cid
+              AND SP.AKTIF = 1
+              AND ISNULL(SD.MIKTAR_FIS, 0) > 0
+          ) T
+          ORDER BY T.sortDate DESC
+          FOR JSON PATH;
+        END
+      `;
+
+      const dbItems = await executeJsonQuery(itemsQuery).catch((err) => {
+        console.warn(`[${dbName}] ürün geçmişi sorgu uyarısı:`, err.message);
+        return [];
+      });
+
+      if (Array.isArray(dbItems)) {
+        dbItems.forEach((it) => {
+          allItems.push({
+            id: `${dbName}-${it.id}`,
+            year: Number(it.year) || new Date().getFullYear(),
+            date: String(it.date || ''),
+            time: String(it.time || ''),
+            docNo: String(it.docNo || '-'),
+            docType: String(it.docType || 'Satış İşlemi'),
+            isReturn: Boolean(it.isReturn),
+            productId: String(it.productId || ''),
+            productCode: String(it.productCode || ''),
+            productName: String(it.productName || 'Ürün'),
+            unit: String(it.unit || 'Adet'),
+            quantity: Math.round(Number(it.quantity || 0) * 100) / 100,
+            unitPrice: Math.round(Number(it.unitPrice || 0) * 100) / 100,
+            discount: String(it.discount || ''),
+            vatRate: Number(it.vatRate || 0),
+            netTotal: Math.round(Number(it.netTotal || 0) * 100) / 100,
+            grandTotal: Math.round(Number(it.grandTotal || 0) * 100) / 100,
+          });
+        });
+      }
+
+      // 2) Finans / Tahsilat / Fatura / Devir işlemleri
+      const finQuery = `
+        DECLARE @cid bigint;
+        SELECT TOP 1 @cid = ID FROM [${dbName}].dbo.CARI WITH(NOLOCK) WHERE KOD = '${safeCode}';
+
+        IF @cid IS NOT NULL
+        BEGIN
+          SELECT TOP 1000
+            CAST(FD.ID AS varchar(30)) AS id,
+            YEAR(FD.ISLEM_TARIHI) AS [year],
+            CONVERT(varchar(10), FD.ISLEM_TARIHI, 120) AS [date],
+            CONVERT(varchar(5), FD.ISLEM_TARIHI, 108) AS [time],
+            ISNULL(NULLIF(FD.BELGENO, ''), ISNULL(F.BELGENO, '-')) AS docNo,
+            ISNULL(FIT.AD, 'Finans İşlemi') AS transactionType,
+            ISNULL(FD.ACIKLAMA, '') AS description,
+            CASE WHEN FD.KART_BORCLU = @cid THEN FD.TUTAR ELSE 0 END AS debit,
+            CASE WHEN FD.KART_ALACAKLI = @cid THEN FD.TUTAR ELSE 0 END AS credit
+          FROM [${dbName}].dbo.FINANS_DETAY FD WITH(NOLOCK)
+          LEFT JOIN [${dbName}].dbo.FINANS F WITH(NOLOCK) ON F.ID = FD.FINANS
+          LEFT JOIN [${dbName}].dbo.FINANS_ISLEM_TURU FIT WITH(NOLOCK) ON FIT.ID = FD.FINANS_ISLEM_TURU
+          WHERE (FD.KART_BORCLU = @cid OR FD.KART_ALACAKLI = @cid)
+          ORDER BY FD.ISLEM_TARIHI DESC, FD.ID DESC
+          FOR JSON PATH;
+        END
+      `;
+
+      const dbFins = await executeJsonQuery(finQuery).catch((err) => {
+        console.warn(`[${dbName}] finans geçmişi sorgu uyarısı:`, err.message);
+        return [];
+      });
+
+      if (Array.isArray(dbFins)) {
+        dbFins.forEach((fn) => {
+          allFinancials.push({
+            id: `${dbName}-fin-${fn.id}`,
+            year: Number(fn.year) || new Date().getFullYear(),
+            date: String(fn.date || ''),
+            time: String(fn.time || ''),
+            docNo: String(fn.docNo || '-'),
+            transactionType: String(fn.transactionType || 'Finans İşlemi'),
+            description: String(fn.description || ''),
+            debit: Math.round(Number(fn.debit || 0) * 100) / 100,
+            credit: Math.round(Number(fn.credit || 0) * 100) / 100,
+          });
+        });
+      }
+    }
+
+    // Kronolojik sırala (en yeni en üstte)
+    allItems.sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
+    allFinancials.sort((a, b) => `${b.date} ${b.time}`.localeCompare(`${a.date} ${a.time}`));
+
+    const yearSet = new Set();
+    allItems.forEach((i) => { if (i.year) yearSet.add(i.year); });
+    allFinancials.forEach((f) => { if (f.year) yearSet.add(f.year); });
+    const years = Array.from(yearSet).sort((a, b) => Number(b) - Number(a));
+
+    return {
+      customer: {
+        id: String(customer.id),
+        code: String(customer.code),
+        name: String(customer.name),
+        balance: Number(customer.balance || 0),
+      },
+      years,
+      items: allItems,
+      financials: allFinancials,
+    };
+  },
 };
 

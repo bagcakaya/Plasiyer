@@ -17,16 +17,20 @@ import {
   FileText, 
   Building, 
   Check,
-  ChevronRight
+  ChevronRight,
+  History
 } from 'lucide-react';
 import { CustomerReceiptsModal } from '../components/CustomerReceiptsModal';
 import { CustomerInvoicesModal } from '../components/CustomerInvoicesModal';
 import { CustomerOrdersModal } from '../components/CustomerOrdersModal';
 import { CustomerStatementModal } from '../components/CustomerStatementModal';
+import { CustomerHistoryModal } from '../components/CustomerHistoryModal';
 
 export const CustomersPage: React.FC = () => {
   const { 
     selectedCustomer, 
+    selectCustomer,
+    setActiveTab,
     openCollectionModal, 
     serverConfig
   } = useApp();
@@ -39,6 +43,7 @@ export const CustomersPage: React.FC = () => {
   const [invoicesModalCustomer, setInvoicesModalCustomer] = useState<Customer | null>(null);
   const [ordersModalCustomer, setOrdersModalCustomer] = useState<Customer | null>(null);
   const [statementCustomer, setStatementCustomer] = useState<Customer | null>(null);
+  const [historyModalCustomer, setHistoryModalCustomer] = useState<Customer | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
 
@@ -209,49 +214,72 @@ export const CustomersPage: React.FC = () => {
                   key={cust.id}
                   className="w-full h-[calc(100%-8px)] min-h-[280px] snap-start snap-always shrink-0 flex flex-col justify-between p-3.5 sm:p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl relative overflow-hidden transition-all"
                 >
-                  {/* Kart Üst Bar: Logo + Cari İsmi + İletişim */}
+                  {/* Kart Üst Bar: Logo + Cari İsmi + Seç Butonu */}
                   <div className="shrink-0">
-                    <div className="flex items-start gap-3">
-                      {/* Varsa Logo veya Şık Monogram Baş Harf Rozeti */}
-                      {cust.logo ? (
-                        <img
-                          src={cust.logo}
-                          alt={cust.name}
-                          className="w-12 h-12 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 shadow-md shrink-0"
-                        />
-                      ) : (
-                        <div className="w-12 h-12 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 text-white font-black text-sm flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0 select-none">
-                          {initials}
-                        </div>
-                      )}
+                    <div className="flex items-start justify-between gap-2.5 sm:gap-3">
+                      <div className="flex items-start gap-2.5 sm:gap-3 min-w-0 flex-1">
+                        {/* Varsa Logo veya Şık Monogram Baş Harf Rozeti */}
+                        {cust.logo ? (
+                          <img
+                            src={cust.logo}
+                            alt={cust.name}
+                            className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl object-cover border border-slate-200 dark:border-slate-700 shadow-md shrink-0"
+                          />
+                        ) : (
+                          <div className="w-11 h-11 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-tr from-blue-600 via-indigo-600 to-purple-600 text-white font-black text-sm flex items-center justify-center shadow-md shadow-blue-500/20 shrink-0 select-none">
+                            {initials}
+                          </div>
+                        )}
 
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center gap-1.5 flex-wrap">
-                          <span className="font-mono text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/70 border border-blue-200/60 dark:border-blue-800/60 px-2 py-0.5 rounded-lg">
-                            {cust.code}
-                          </span>
-                          {cust.specialDiscount > 0 && (
-                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
-                              %{cust.specialDiscount} İsk.
+                        <div className="min-w-0 flex-1 pr-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <span className="font-mono text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/70 border border-blue-200/60 dark:border-blue-800/60 px-2 py-0.5 rounded-lg">
+                              {cust.code}
                             </span>
-                          )}
-                          {isSelected && (
-                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center gap-0.5">
-                              <Check className="w-2.5 h-2.5" /> Seçili
-                            </span>
-                          )}
-                        </div>
+                            {cust.specialDiscount > 0 && (
+                              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-purple-100 dark:bg-purple-950 text-purple-700 dark:text-purple-300">
+                                %{cust.specialDiscount} İsk.
+                              </span>
+                            )}
+                            {isSelected && (
+                              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 flex items-center gap-0.5">
+                                <Check className="w-2.5 h-2.5" /> Seçili
+                              </span>
+                            )}
+                          </div>
 
-                        {/* Cari İsmi */}
-                        <h2 className="text-sm sm:text-base font-black text-slate-900 dark:text-white leading-snug line-clamp-1 mt-1" title={cust.name}>
-                          {cust.name}
-                        </h2>
+                          {/* Cari İsmi (Seç butonunun solunda taşmadan hizalanır) */}
+                          <h2
+                            className="text-xs sm:text-sm md:text-base font-black text-slate-900 dark:text-white leading-snug line-clamp-2 break-words mt-1"
+                            title={cust.name}
+                          >
+                            {cust.name}
+                          </h2>
 
-                        <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                          <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
-                          <span className="truncate">{cust.district || 'Merkez'}, {cust.city || 'Erzurum'}</span>
+                          <div className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                            <MapPin className="w-3.5 h-3.5 text-rose-500 shrink-0" />
+                            <span className="truncate">{cust.district || 'Merkez'}, {cust.city || 'Erzurum'}</span>
+                          </div>
                         </div>
                       </div>
+
+                      {/* Cari İsminin Karşısında "Seç" Butonu -> Tıklayınca Carinin Sipariş Giriş Kısmını Açar */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          selectCustomer(cust);
+                          setActiveTab('catalog');
+                        }}
+                        className={`shrink-0 self-center flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-extrabold text-xs shadow-md transition active:scale-95 ${
+                          isSelected
+                            ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/25'
+                            : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/25'
+                        }`}
+                        title="Bu cariyi seç ve sipariş giriş ekranını aç"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Seç</span>
+                      </button>
                     </div>
 
                     {/* Detay Adres ve İletişim Bilgileri */}
@@ -363,14 +391,14 @@ export const CustomersPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Kart Üzerinde Fiş, Fatura, Sipariş ve Tahsilat Butonları (Sabit Görünür) */}
+                  {/* Kart Üzerinde Fiş, Fatura, Sipariş, Tahsilat ve Detaylar Butonları (Sabit Görünür) */}
                   <div className="shrink-0 pt-2 border-t border-slate-100 dark:border-slate-800/80">
-                    <div className="grid grid-cols-4 gap-2">
+                    <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
                       {/* Buton 1: Fiş */}
                       <button
                         type="button"
                         onClick={() => setReceiptsModalCustomer(cust)}
-                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 active:bg-amber-500/30 text-amber-700 dark:text-amber-300 border border-amber-500/20 transition active:scale-95 group font-bold text-xs shadow-2xs"
+                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 active:bg-amber-500/30 text-amber-700 dark:text-amber-300 border border-amber-500/20 transition active:scale-95 group font-bold text-[11px] sm:text-xs shadow-2xs"
                         title="Bu carinin satış fişlerini ve fiş detaylarını incele"
                       >
                         <Receipt className="w-4 h-4 mb-1 group-hover:scale-110 transition-transform text-amber-600 dark:text-amber-400" />
@@ -381,7 +409,7 @@ export const CustomersPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setInvoicesModalCustomer(cust)}
-                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-indigo-500/10 hover:bg-indigo-500/20 active:bg-indigo-500/30 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20 transition active:scale-95 group font-bold text-xs shadow-2xs"
+                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-indigo-500/10 hover:bg-indigo-500/20 active:bg-indigo-500/30 text-indigo-700 dark:text-indigo-300 border border-indigo-500/20 transition active:scale-95 group font-bold text-[11px] sm:text-xs shadow-2xs"
                         title="Bu carinin açık ve vadesi geçen faturalarını incele"
                       >
                         <FileCheck className="w-4 h-4 mb-1 group-hover:scale-110 transition-transform text-indigo-600 dark:text-indigo-400" />
@@ -392,7 +420,7 @@ export const CustomersPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => setOrdersModalCustomer(cust)}
-                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-md shadow-blue-500/25 transition active:scale-95 group font-bold text-xs"
+                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-blue-600 hover:bg-blue-700 active:bg-blue-800 text-white shadow-md shadow-blue-500/25 transition active:scale-95 group font-bold text-[11px] sm:text-xs"
                         title="Bu cariye yeni sipariş başlat veya önceki siparişlerini gör"
                       >
                         <ShoppingCart className="w-4 h-4 mb-1 group-hover:scale-110 transition-transform" />
@@ -403,11 +431,22 @@ export const CustomersPage: React.FC = () => {
                       <button
                         type="button"
                         onClick={() => openCollectionModal(cust)}
-                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-md shadow-emerald-500/25 transition active:scale-95 group font-bold text-xs"
+                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-md shadow-emerald-500/25 transition active:scale-95 group font-bold text-[11px] sm:text-xs"
                         title="Bu cariden anında nakit/kredi kartı/çek tahsilatı al"
                       >
                         <Banknote className="w-4 h-4 mb-1 group-hover:scale-110 transition-transform" />
                         <span>Tahsilat</span>
+                      </button>
+
+                      {/* Buton 5: Detaylar (Geçmiş Yıllardaki Tüm İşlem & Ürün Detayları) */}
+                      <button
+                        type="button"
+                        onClick={() => setHistoryModalCustomer(cust)}
+                        className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white shadow-md shadow-violet-500/25 transition active:scale-95 group font-bold text-[11px] sm:text-xs"
+                        title="Bu carinin geçmiş yıllardaki tüm işlemlerini ve aldığı ürünleri incele"
+                      >
+                        <History className="w-4 h-4 mb-1 group-hover:scale-110 transition-transform" />
+                        <span>Detaylar</span>
                       </button>
                     </div>
                   </div>
@@ -446,6 +485,14 @@ export const CustomersPage: React.FC = () => {
         serverConfig={serverConfig}
         isOpen={!!statementCustomer}
         onClose={() => setStatementCustomer(null)}
+      />
+
+      {/* 5. Geçmiş Yıllar Dahil Tüm İşlemler & Ürün Detayları Modalı */}
+      <CustomerHistoryModal
+        customer={historyModalCustomer}
+        serverConfig={serverConfig}
+        isOpen={!!historyModalCustomer}
+        onClose={() => setHistoryModalCustomer(null)}
       />
     </div>
   );

@@ -1,4 +1,4 @@
-import type { Customer, Product, Order, CollectionRecord, ServerConfig, CustomerStatement, ReturnRecord } from '../types';
+import type { Customer, Product, Order, CollectionRecord, ServerConfig, CustomerStatement, CustomerHistoryResponse, CustomerHistoryItem, CustomerHistoryFinancial, ReturnRecord } from '../types';
 import { db, initialCustomers, initialProducts } from '../db';
 
 export const isDemoMode = (config?: ServerConfig): boolean => {
@@ -420,6 +420,261 @@ export const apiService = {
       }
 
       return await response.json();
+    } catch (err: any) {
+      throw handleFetchError(err);
+    }
+  },
+
+  // Cari Geçmiş Yıllar Dahil Tüm Ürün Alımları ve İşlem Detaylarını Çek
+  async fetchCustomerHistory(
+    config: ServerConfig,
+    idOrCode: string
+  ): Promise<CustomerHistoryResponse> {
+    // Yerel IndexedDB'deki bekleyen veya demo sipariş / iade / tahsilat kayıtlarını hazırla
+    const collectLocalHistory = async (custId: string, custCode: string, includeSynced: boolean) => {
+      const [orders, returns, collections] = await Promise.all([
+        db.orders.toArray(),
+        db.returns.toArray(),
+        db.collections.toArray(),
+      ]);
+
+      const localItems: CustomerHistoryItem[] = [];
+      const localFins: CustomerHistoryFinancial[] = [];
+
+      orders
+        .filter((o) => (o.customerId === custId || o.customerCode === custCode) && (includeSynced || o.status !== 'synced'))
+        .forEach((ord) => {
+          const d = (ord.orderDate || ord.createdAt || '').slice(0, 10);
+          const t = (ord.createdAt || '').slice(11, 16);
+          const yr = Number(d.slice(0, 4)) || new Date().getFullYear();
+          (ord.items || []).forEach((it, idx) => {
+            localItems.push({
+              id: `local-ord-${ord.id || ord.tempId}-${idx}`,
+              year: yr,
+              date: d,
+              time: t,
+              docNo: ord.erp12DocNo || ord.tempId,
+              docType: 'Mobil Sipariş',
+              isReturn: false,
+              productId: it.productId,
+              productCode: it.productCode,
+              productName: it.productName,
+              unit: it.unit || 'Adet',
+              quantity: it.quantity,
+              unitPrice: it.unitPrice,
+              discount: it.discountPercent ? String(it.discountPercent) : '',
+              vatRate: it.vatRate || 1,
+              netTotal: it.totalAmount,
+              grandTotal: it.grandTotal,
+            });
+          });
+        });
+
+      returns
+        .filter((r) => (r.customerId === custId || r.customerCode === custCode) && (includeSynced || r.syncStatus !== 'synced'))
+        .forEach((ret) => {
+          const d = (ret.createdAt || '').slice(0, 10);
+          const t = (ret.createdAt || '').slice(11, 16);
+          const yr = Number(d.slice(0, 4)) || new Date().getFullYear();
+          (ret.items || []).forEach((it, idx) => {
+            localItems.push({
+              id: `local-ret-${ret.id || ret.tempId}-${idx}`,
+              year: yr,
+              date: d,
+              time: t,
+              docNo: ret.receiptNo || ret.tempId,
+              docType: 'Saha İade Fişi',
+              isReturn: true,
+              productId: it.productId,
+              productCode: it.productCode,
+              productName: it.productName,
+              unit: it.unit || 'Adet',
+              quantity: it.quantity,
+              unitPrice: it.unitPrice,
+              discount: '',
+              vatRate: it.vatRate || 1,
+              netTotal: it.totalAmount,
+              grandTotal: Math.round(it.totalAmount * (1 + (it.vatRate || 1) / 100) * 100) / 100,
+            });
+          });
+        });
+
+      collections
+        .filter((c) => (c.customerId === custId || c.customerCode === custCode) && (includeSynced || c.syncStatus !== 'synced'))
+        .forEach((col) => {
+          const d = (col.createdAt || '').slice(0, 10);
+          const t = (col.createdAt || '').slice(11, 16);
+          const yr = Number(d.slice(0, 4)) || new Date().getFullYear();
+          const methodLabel =
+            col.paymentMethod === 'kredi_karti'
+              ? 'POS / Kredi Kartı Tahsilatı'
+              : col.paymentMethod === 'havale'
+              ? 'Banka Havale / EFT'
+              : col.paymentMethod === 'cek'
+              ? 'Çek Tahsilatı'
+              : 'Nakit Tahsilat';
+          localFins.push({
+            id: `local-col-${col.id || col.tempId}`,
+            year: yr,
+            date: d,
+            time: t,
+            docNo: col.receiptNo || col.tempId,
+            transactionType: methodLabel,
+            description: col.notes || 'Mobil saha tahsilatı',
+            debit: 0,
+            credit: col.amount,
+          });
+        });
+
+      return { localItems, localFins };
+    };
+
+    if (isDemoMode(config)) {
+      const customer =
+        (await db.customers.where('code').equals(idOrCode).first()) ||
+        (await db.customers.get(idOrCode)) ||
+        initialCustomers.find((c) => c.code === idOrCode || c.id === idOrCode) || {
+          id: idOrCode,
+          code: idOrCode,
+          name: 'Cari Müşteri',
+          balance: 14500,
+        };
+
+      const prods = await db.products.toArray();
+      const catalog = prods.length > 0 ? prods : initialProducts;
+      const seed = String(customer.code || customer.id)
+        .split('')
+        .reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
+
+      const demoDates = [
+        { date: '2026-10-24', time: '14:20', docNo: 'OSM2026000008412', docType: 'Satış faturası', isReturn: false },
+        { date: '2026-09-12', time: '11:05', docNo: 'OSM2026000007190', docType: 'Satış faturası', isReturn: false },
+        { date: '2026-06-18', time: '16:40', docNo: 'FS-2026-003410', docType: 'Satış fişi', isReturn: false },
+        { date: '2025-11-19', time: '10:15', docNo: 'OSM2025000011204', docType: 'Satış faturası', isReturn: false },
+        { date: '2025-07-08', time: '15:30', docNo: 'FS-2025-006128', docType: 'Satıştan iade fişi', isReturn: true },
+        { date: '2024-12-04', time: '09:50', docNo: 'OSM2024000009841', docType: 'Satış faturası', isReturn: false },
+      ];
+
+      const demoItems: CustomerHistoryItem[] = [];
+      const demoFins: CustomerHistoryFinancial[] = [];
+
+      demoDates.forEach((doc, dIdx) => {
+        const year = Number(doc.date.slice(0, 4));
+        let docTotal = 0;
+        const lineCount = doc.isReturn ? 1 : 2 + ((seed + dIdx) % 2);
+
+        for (let i = 0; i < lineCount; i++) {
+          const p = catalog[(seed + dIdx * 3 + i) % catalog.length];
+          if (!p) continue;
+          const qty = doc.isReturn ? 2 : 4 + ((seed + dIdx + i * 5) % 15);
+          const yearFactor = year === 2024 ? 0.78 : year === 2025 ? 0.9 : 1;
+          const unitPrice = Math.max(10, Math.round((p.price1 || 100) * yearFactor * 100) / 100);
+          const netTotal = Math.round(qty * unitPrice * 100) / 100;
+          const grandTotal = Math.round(netTotal * (1 + (p.vatRate || 1) / 100) * 100) / 100;
+          docTotal += grandTotal;
+
+          demoItems.push({
+            id: `demo-it-${dIdx}-${i}`,
+            year,
+            date: doc.date,
+            time: doc.time,
+            docNo: doc.docNo,
+            docType: doc.docType,
+            isReturn: doc.isReturn,
+            productId: p.id,
+            productCode: p.code,
+            productName: p.name,
+            unit: p.unit || 'Adet',
+            quantity: qty,
+            unitPrice,
+            discount: '',
+            vatRate: p.vatRate || 1,
+            netTotal,
+            grandTotal,
+          });
+        }
+
+        demoFins.push({
+          id: `demo-fin-${dIdx}`,
+          year,
+          date: doc.date,
+          time: doc.time,
+          docNo: doc.docNo,
+          transactionType: doc.docType,
+          description: doc.isReturn ? 'Ürün iade mahsubu' : 'Toptan ürün satışı',
+          debit: doc.isReturn ? 0 : Math.round(docTotal * 100) / 100,
+          credit: doc.isReturn ? Math.round(docTotal * 100) / 100 : 0,
+        });
+      });
+
+      demoFins.push({
+        id: 'demo-fin-ths-1',
+        year: 2026,
+        date: '2026-10-14',
+        time: '13:45',
+        docNo: 'THS-2026-00418',
+        transactionType: 'Nakit tahsilat',
+        description: 'Plasiyer saha tahsilatı',
+        debit: 0,
+        credit: 12500,
+      });
+
+      const { localItems, localFins } = await collectLocalHistory(customer.id, customer.code, true);
+      const mergedItems = [...localItems, ...demoItems].sort((a, b) =>
+        `${b.date} ${b.time || ''}`.localeCompare(`${a.date} ${a.time || ''}`)
+      );
+      const mergedFins = [...localFins, ...demoFins].sort((a, b) =>
+        `${b.date} ${b.time || ''}`.localeCompare(`${a.date} ${a.time || ''}`)
+      );
+
+      const years = Array.from(
+        new Set([...mergedItems.map((i) => i.year), ...mergedFins.map((f) => f.year)])
+      ).sort((a, b) => b - a);
+
+      return {
+        customer: {
+          id: customer.id,
+          code: customer.code,
+          name: customer.name,
+          balance: customer.balance || 0,
+        },
+        years,
+        items: mergedItems,
+        financials: mergedFins,
+      };
+    }
+
+    try {
+      const url = `${config.apiUrl}/customers/${encodeURIComponent(idOrCode)}/history?company=${config.companyCode}`;
+      const response = await fetch(url);
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.detail || errData.error || `Cari işlem geçmişi alınamadı (HTTP ${response.status})`);
+      }
+
+      const data: CustomerHistoryResponse = await response.json();
+      const { localItems, localFins } = await collectLocalHistory(
+        data.customer.id,
+        data.customer.code,
+        false
+      );
+
+      const mergedItems = [...localItems, ...(data.items || [])].sort((a, b) =>
+        `${b.date} ${b.time || ''}`.localeCompare(`${a.date} ${a.time || ''}`)
+      );
+      const mergedFins = [...localFins, ...(data.financials || [])].sort((a, b) =>
+        `${b.date} ${b.time || ''}`.localeCompare(`${a.date} ${a.time || ''}`)
+      );
+      const years = Array.from(
+        new Set([...(data.years || []), ...mergedItems.map((i) => i.year), ...mergedFins.map((f) => f.year)])
+      ).sort((a, b) => b - a);
+
+      return {
+        ...data,
+        years,
+        items: mergedItems,
+        financials: mergedFins,
+      };
     } catch (err: any) {
       throw handleFetchError(err);
     }

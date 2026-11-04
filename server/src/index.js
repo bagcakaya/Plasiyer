@@ -126,6 +126,23 @@ app.get('/api/customers/:idOrCode/statement', async (req, res) => {
   }
 });
 
+// 1.2 CARİ GEÇMİŞ YILLAR DAHİL TÜM ÜRÜN VE İŞLEM DETAYLARI
+app.get('/api/customers/:idOrCode/history', async (req, res) => {
+  const start = Date.now();
+  try {
+    const { idOrCode } = req.params;
+    const history = await erpQueries.getCustomerHistory(idOrCode);
+    if (!history.customer) {
+      return res.status(404).json({ error: 'Müşteri ERP12 sisteminde bulunamadı' });
+    }
+    console.log(`⚡ [API] GET /api/customers/${idOrCode}/history - ${history.items.length} ürün satırı, ${history.financials.length} finans hareketi (${Date.now() - start}ms)`);
+    res.json(history);
+  } catch (err) {
+    console.error('Cari geçmiş detayları hatası:', err.message);
+    res.status(500).json({ error: 'Cari işlem geçmişi alınamadı', detail: err.message });
+  }
+});
+
 // 2. STOK LİSTESİ VE GÜNCEL MEVCUTLARI GETİR
 app.get('/api/products', async (req, res) => {
   const start = Date.now();
