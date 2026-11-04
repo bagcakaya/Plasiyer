@@ -56,7 +56,18 @@ export const CatalogPage: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [isScannerOpen, setIsScannerOpen] = useState(false);
   const [scanToast, setScanToast] = useState<{ message: string; success: boolean } | null>(null);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>(() => {
+    const saved = localStorage.getItem('plasiyer_catalog_view_mode');
+    return saved === 'list' || saved === 'grid' ? saved : 'grid';
+  });
+
+  const handleToggleViewMode = () => {
+    setViewMode((prev) => {
+      const next = prev === 'grid' ? 'list' : 'grid';
+      localStorage.setItem('plasiyer_catalog_view_mode', next);
+      return next;
+    });
+  };
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [photoProduct, setPhotoProduct] = useState<Product | null>(null);
 
@@ -293,7 +304,8 @@ export const CatalogPage: React.FC = () => {
 
         {/* Görünüm Modu: Vitrin (Grid) vs Liste */}
         <button
-          onClick={() => setViewMode(prev => prev === 'grid' ? 'list' : 'grid')}
+          type="button"
+          onClick={handleToggleViewMode}
           className="px-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-center shadow-xs transition active:scale-95 shrink-0"
           title={viewMode === 'grid' ? "Kompakt Liste Modu" : "Vitrin (Grid) Modu"}
         >
