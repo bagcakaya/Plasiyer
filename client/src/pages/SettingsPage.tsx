@@ -214,7 +214,7 @@ export const SettingsPage: React.FC = () => {
   // Müşteri / Bayi Görünümü
   if (userRole === 'customer' && currentCustomerUser) {
     return (
-      <div className="p-3 md:p-6 pb-24 space-y-4 max-w-5xl mx-auto text-xs text-slate-900 dark:text-slate-100 w-full">
+      <div className="p-3 md:p-6 pb-36 md:pb-12 space-y-4 max-w-5xl mx-auto text-xs text-slate-900 dark:text-slate-100 w-full">
         {/* Bayi Kimlik Kartı */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs space-y-3">
           <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2.5">
@@ -325,7 +325,7 @@ export const SettingsPage: React.FC = () => {
 
   // Plasiyer Görünümü
   return (
-    <div className="p-3 md:p-6 pb-24 space-y-4 max-w-5xl mx-auto text-xs text-slate-900 dark:text-slate-100 w-full">
+    <div className="p-3 md:p-6 pb-36 md:pb-12 space-y-4 max-w-5xl mx-auto text-xs text-slate-900 dark:text-slate-100 w-full">
       {/* Görsel-1: Canlı SQL / ERP12 Durum ve Eşitleme Çubuğu */}
       {serverConfig.apiUrl && serverConfig.apiUrl !== 'demo' && (
         <div className="bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 text-white p-3.5 rounded-2xl shadow-md flex items-center justify-between gap-3 text-xs animate-in fade-in">

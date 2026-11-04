@@ -122,10 +122,10 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const lineTotal = priceInfo.customerPrice * effectiveQty;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[92vh]">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in">
+      <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[96dvh] sm:max-h-[92vh]">
         {/* Görsel Alanı & Kapat Butonu */}
-        <div className="relative h-64 bg-slate-100 dark:bg-slate-800 overflow-hidden group">
+        <div className="relative h-44 sm:h-64 bg-slate-100 dark:bg-slate-800 overflow-hidden group shrink-0">
           <img 
             src={imageUrl} 
             alt={product.name}
@@ -279,7 +279,12 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                   value={quantityInput}
                   onChange={handleQuantityInputChange}
                   onBlur={handleQuantityBlur}
-                  onFocus={(e) => e.target.select()}
+                  onFocus={(e) => {
+                    e.target.select();
+                    setTimeout(() => {
+                      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 250);
+                  }}
                   placeholder="1"
                   className="w-full h-12 px-4 text-center font-black text-2xl bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 border-2 border-blue-500/50 focus:border-blue-600 dark:border-blue-500/30 dark:focus:border-blue-400 rounded-2xl shadow-inner focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition tracking-wide"
                 />

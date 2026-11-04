@@ -90,8 +90,8 @@ const MainContent: React.FC = () => {
   return (
     <main className={`bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 transition-colors ${
       activeTab === 'customers' 
-        ? 'h-[calc(100dvh-64px)] md:h-[100dvh] min-h-0 pb-0 overflow-hidden' 
-        : 'min-h-screen pb-24 md:pb-8'
+        ? 'h-[calc(100dvh-4rem-env(safe-area-inset-bottom,0px))] md:h-[100dvh] min-h-0 pb-0 overflow-hidden' 
+        : 'min-h-screen pb-36 sm:pb-40 md:pb-12'
     }`}>
       {/* Müşteri modunda cariler sekmesi yerine doğrudan vitrin açılır */}
       {activeTab === 'routes' && <RoutePlanPage />}

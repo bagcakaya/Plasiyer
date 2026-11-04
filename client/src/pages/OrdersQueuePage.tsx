@@ -146,7 +146,7 @@ export const OrdersQueuePage: React.FC = () => {
   };
 
   return (
-    <div className="p-3 md:p-6 pb-24 space-y-4 max-w-7xl mx-auto text-slate-900 dark:text-slate-100 animate-fadeIn w-full">
+    <div className="p-3 md:p-6 pb-36 md:pb-12 space-y-4 max-w-7xl mx-auto text-slate-900 dark:text-slate-100 animate-fadeIn w-full">
       {/* Plasiyer için Üst Sekmeler: Siparişler vs. Tahsilatlar vs. İadeler */}
       {userRole === 'plasiyer' && (
         <div className="grid grid-cols-3 p-1 bg-slate-200/80 dark:bg-slate-800/80 rounded-2xl text-xs font-bold shadow-inner">

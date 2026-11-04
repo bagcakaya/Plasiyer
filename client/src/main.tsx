@@ -26,11 +26,47 @@ const updateSW = registerSW({
     if (registration) {
       // 5 saniyede bir yeni sürüm kontrolü yap
       setInterval(() => {
-        registration.update().catch(() => {});
+        registration?.update().catch(() => {});
       }, 5000);
     }
   },
 });
+
+// Mobil sanal klavye açıldığında input veya textarea'nın klavye altında kalmasını önleme
+if (typeof window !== 'undefined') {
+  window.addEventListener(
+    'focusin',
+    (e) => {
+      const target = e.target as HTMLElement | null;
+      if (
+        target &&
+        (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable) &&
+        target.getAttribute('type') !== 'checkbox' &&
+        target.getAttribute('type') !== 'radio' &&
+        target.getAttribute('type') !== 'button' &&
+        target.getAttribute('type') !== 'submit'
+      ) {
+        // Klavyenin açılma animasyonunu bekleyip hedef alanı görünür alanın merkezine kaydır
+        setTimeout(() => {
+          try {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+          } catch {
+            target.scrollIntoView(false);
+          }
+        }, 150);
+
+        setTimeout(() => {
+          try {
+            target.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+          } catch {
+            target.scrollIntoView(false);
+          }
+        }, 350);
+      }
+    },
+    { passive: true }
+  );
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

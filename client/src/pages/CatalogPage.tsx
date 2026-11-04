@@ -148,7 +148,7 @@ export const CatalogPage: React.FC = () => {
   }
 
   return (
-    <div className="p-3 md:p-6 pb-32 space-y-4 max-w-7xl mx-auto w-full">
+    <div className="p-3 md:p-6 pb-44 md:pb-12 space-y-4 max-w-7xl mx-auto w-full">
       {/* Barkod Okuma Bildirimi Toast */}
       {scanToast && (
         <div
@@ -788,7 +788,7 @@ export const CatalogPage: React.FC = () => {
 
       {/* Yüzen Hızlı Sepet Özeti Çubuğu (Sepette ürün varsa görünür) */}
       {cartSummary.totalItems > 0 && (
-        <div className="fixed bottom-20 md:bottom-6 left-3 right-3 md:left-auto md:right-8 md:w-96 max-w-lg z-30">
+        <div className="fixed bottom-[calc(env(safe-area-inset-bottom,0px)+4.75rem)] md:bottom-6 left-3 right-3 md:left-auto md:right-8 md:w-96 max-w-lg z-30">
           <div
             onClick={() => setActiveTab('cart')}
             className={`text-white rounded-2xl p-3.5 shadow-2xl flex items-center justify-between cursor-pointer border active:scale-[0.99] transition ${

@@ -230,6 +230,9 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
               onFocus={(e) => {
                 setIsDiscountFocused(true);
                 e.target.select();
+                setTimeout(() => {
+                  e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                }, 250);
               }}
               onChange={handleDiscountChange}
               onBlur={handleDiscountBlur}
@@ -267,7 +270,12 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
                 inputMode="decimal"
                 defaultValue={item.quantity}
                 key={`cart-qty-${item.productId}-${item.quantity}`}
-                onFocus={(e) => e.target.select()}
+                onFocus={(e) => {
+                  e.target.select();
+                  setTimeout(() => {
+                    e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }, 250);
+                }}
                 onBlur={(e) => {
                   const val = parseFloat(e.target.value.replace(',', '.'));
                   if (!isNaN(val) && val > 0) {
@@ -319,6 +327,9 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
                   onFocus={(e) => {
                     setIsTotalFocused(true);
                     e.target.select();
+                    setTimeout(() => {
+                      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    }, 250);
                   }}
                   onChange={handleTotalChange}
                   onBlur={handleTotalBlur}
@@ -445,7 +456,7 @@ export const CartPage: React.FC = () => {
   }
 
   return (
-    <div className="p-3 md:p-6 pb-28 space-y-4 max-w-7xl mx-auto w-full">
+    <div className="p-3 md:p-6 pb-40 md:pb-12 space-y-4 max-w-7xl mx-auto w-full">
       {/* Cari Bilgisi Uyarısı veya Başlığı */}
       {!activeCustomer ? (
         <div className="bg-amber-500/10 dark:bg-amber-950/30 border border-amber-500/30 dark:border-amber-800/50 rounded-xl p-3 flex items-center justify-between text-xs text-amber-900 dark:text-amber-300">
