@@ -2,36 +2,38 @@ import React, { useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { useApp } from '../context/AppContext';
-import { b2bStoreCategories } from '../data/b2bCategories';
 import { Layers } from 'lucide-react';
 
-interface CategoryItem {
+export interface CategoryItem {
   id: string;
   name: string;
   shortName: string;
   initialLetter: string;
   image?: string;
-  filterKeyword?: string;
+  count: number;
 }
 
-// Kategoriye özel dinamik renk gradyanları
+// STOK_GRUP'a özel şık Instagram renk gradyanları
 const GRADIENT_PALETTE = [
-  'from-blue-600 to-indigo-700',
-  'from-rose-500 to-red-600',
-  'from-amber-500 to-orange-600',
-  'from-emerald-500 to-teal-700',
-  'from-purple-600 to-pink-600',
-  'from-cyan-600 to-blue-700',
-  'from-fuchsia-600 to-purple-700',
-  'from-lime-600 to-emerald-700',
+  'from-blue-600 via-indigo-600 to-purple-600',
+  'from-rose-500 via-pink-600 to-red-600',
+  'from-amber-500 via-orange-600 to-amber-700',
+  'from-emerald-500 via-teal-600 to-cyan-700',
+  'from-purple-600 via-fuchsia-600 to-pink-600',
+  'from-cyan-500 via-blue-600 to-indigo-700',
+  'from-orange-500 via-rose-600 to-purple-700',
+  'from-lime-500 via-emerald-600 to-teal-700',
+  'from-violet-600 via-purple-700 to-indigo-800',
+  'from-yellow-500 via-amber-600 to-orange-600',
 ];
 
 export const CategoryStoriesBar: React.FC = () => {
   const { selectedCategory, setSelectedCategory, setActiveTab, activeTab } = useApp();
 
+  // IndexedDB'deki güncel ERP12 ürünlerini çek
   const products = useLiveQuery(() => db.products.toArray(), []) || [];
 
-  // Kategorileri ve görsellerini dinamik olarak derle
+  // ERP12 STOK_GRUP verilerini derle
   const categories: CategoryItem[] = useMemo(() => {
     const list: CategoryItem[] = [
       {
@@ -39,10 +41,11 @@ export const CategoryStoriesBar: React.FC = () => {
         name: 'Tümü',
         shortName: 'Tümü',
         initialLetter: 'T',
+        count: products.length,
       },
     ];
 
-    // Ürünlerdeki mevcut tüm kategorileri ve ilk bulunan geçerli görselleri topla
+    // Ürünlerdeki mevcut STOK_GRUP kategorilerini ve varsa ürün görselini topla
     const catMap = new Map<string, { image?: string; count: number }>();
     products.forEach((p) => {
       const catName = p.category?.trim();
@@ -55,34 +58,21 @@ export const CategoryStoriesBar: React.FC = () => {
       catMap.set(catName, current);
     });
 
-    // Varsa B2B sabit kategorileri ekle veya harmanla
-    b2bStoreCategories.forEach((bCat) => {
-      if (bCat.id === 'all') return;
-      const rawName = bCat.name.replace(/^[^\p{L}\p{N}]+/u, '').trim(); // Emojileri temizle
-      if (!list.some((l) => l.id === bCat.id || l.name.toLowerCase() === rawName.toLowerCase())) {
-        list.push({
-          id: bCat.id,
-          name: rawName,
-          shortName: rawName.length > 11 ? rawName.slice(0, 10) + '..' : rawName,
-          initialLetter: rawName.charAt(0).toUpperCase() || 'K',
-          filterKeyword: bCat.filterKeyword,
-        });
-      }
-    });
+    // Alfabetik sıralama (Türkçe kurallarına uygun)
+    const sortedCategories = Array.from(catMap.keys()).sort((a, b) => a.localeCompare(b, 'tr'));
 
-    // DB'deki ürün kategorilerini ekle
-    catMap.forEach((meta, name) => {
-      if (!list.some((l) => l.name.toLowerCase() === name.toLowerCase())) {
-        const cleanName = name.replace(/[\\/]/g, ' ').replace(/\s+/g, ' ').trim();
-        list.push({
-          id: `cat-${encodeURIComponent(name)}`,
-          name: name,
-          shortName: cleanName.length > 11 ? cleanName.slice(0, 10) + '..' : cleanName,
-          initialLetter: cleanName.charAt(0).toUpperCase() || 'K',
-          image: meta.image,
-          filterKeyword: name,
-        });
-      }
+    sortedCategories.forEach((name) => {
+      const meta = catMap.get(name)!;
+      const cleanName = name.replace(/[\\/]/g, ' ').replace(/\s+/g, ' ').trim();
+      
+      list.push({
+        id: name,
+        name: name,
+        shortName: cleanName.length > 12 ? cleanName.slice(0, 11) + '..' : cleanName,
+        initialLetter: cleanName.charAt(0).toLocaleUpperCase('tr-TR') || 'G',
+        image: meta.image,
+        count: meta.count,
+      });
     });
 
     return list;
@@ -100,7 +90,7 @@ export const CategoryStoriesBar: React.FC = () => {
   };
 
   return (
-    <div className="w-full bg-slate-950/95 border-b border-slate-800/80 backdrop-blur-md">
+    <div className="w-full bg-slate-950/95 border-b border-slate-800/80 backdrop-blur-md select-none">
       <div className="flex items-center gap-3 sm:gap-4 px-3.5 py-2.5 overflow-x-auto no-scrollbar scroll-smooth">
         {categories.map((cat, idx) => {
           const isSelected = selectedCategory === cat.id;
@@ -111,7 +101,7 @@ export const CategoryStoriesBar: React.FC = () => {
               key={cat.id}
               onClick={() => handleSelectCategory(cat)}
               className="flex flex-col items-center shrink-0 group focus:outline-none transition-transform active:scale-95"
-              title={`${cat.name} Kategorisindeki Ürünleri Filtrele`}
+              title={`${cat.name} (${cat.count} Ürün)`}
             >
               {/* Instagram Hikaye Halka Efekti */}
               <div
@@ -151,7 +141,7 @@ export const CategoryStoriesBar: React.FC = () => {
 
               {/* Halkanın Altında Kategori İsmi */}
               <span
-                className={`text-[11px] font-bold mt-1 text-center truncate max-w-[68px] sm:max-w-[74px] transition-colors leading-tight ${
+                className={`text-[11px] font-bold mt-1 text-center truncate max-w-[70px] sm:max-w-[78px] transition-colors leading-tight ${
                   isSelected
                     ? 'text-white font-extrabold underline decoration-blue-400 underline-offset-2'
                     : 'text-slate-300 group-hover:text-white'

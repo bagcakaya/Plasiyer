@@ -177,6 +177,26 @@ export const erpQueries = {
     return result;
   },
 
+  // 2.1 STOK GRUPLARI LİSTESİ (STOK_GRUP)
+  async getStockGroups() {
+    try {
+      const products = await erpQueries.getProducts();
+      const map = new Map();
+      products.forEach((p) => {
+        const cat = p.category?.trim();
+        if (!cat) return;
+        const cur = map.get(cat) || { name: cat, count: 0, image: p.image };
+        cur.count += 1;
+        if (!cur.image && p.image) cur.image = p.image;
+        map.set(cat, cur);
+      });
+      return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'tr'));
+    } catch (err) {
+      console.warn('STOK_GRUP listesi oluşturma hatası:', err.message);
+      return [];
+    }
+  },
+
   // 3. MOBİLDEN GELEN SİPARİŞİ ERP12'YE YAZMA
   async createOrder({ order }) {
     erpQueries.invalidateCustomerCache();

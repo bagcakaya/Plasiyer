@@ -2,7 +2,6 @@ import React, { useState, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { useApp } from '../context/AppContext';
-import { b2bStoreCategories } from '../data/b2bCategories';
 import type { Product } from '../types';
 import { 
   Search, 
@@ -30,6 +29,7 @@ import {
 import { BarcodeScannerModal } from '../components/BarcodeScannerModal';
 import { ProductDetailModal } from '../components/ProductDetailModal';
 import { ProductPhotoModal } from '../components/ProductPhotoModal';
+import { CategoryStoriesBar } from '../components/CategoryStoriesBar';
 import { getProductImageUrl } from '../utils/productImages';
 
 export const CatalogPage: React.FC = () => {
@@ -80,23 +80,12 @@ export const CatalogPage: React.FC = () => {
 
       if (!matchesSearch) return false;
 
-      // B2B & Instagram Stories Kategori Filtresi
+      // STOK_GRUP Kategori Filtresi (Instagram Hikayeleri Tarzı)
       if (selectedCategory && selectedCategory !== 'all') {
-        if (selectedCategory.startsWith('cat-')) {
-          const rawCat = decodeURIComponent(selectedCategory.slice(4)).toLowerCase();
-          const matchCat = product.category.toLowerCase().includes(rawCat) || product.name.toLowerCase().includes(rawCat);
-          if (!matchCat) return false;
-        } else {
-          const catObj = b2bStoreCategories.find((c) => c.id === selectedCategory);
-          if (catObj?.filterKeyword) {
-            const kw = catObj.filterKeyword.toLowerCase();
-            const matchCat = product.category.toLowerCase().includes(kw) || product.name.toLowerCase().includes(kw);
-            if (!matchCat) return false;
-          } else if (selectedCategory === 'special-deals') {
-            const priceInfo = calculateCustomerPrice(product, activeCustomer);
-            if (!priceInfo.hasSpecialPrice) return false;
-          }
-        }
+        const catClean = selectedCategory.toLowerCase().trim();
+        const prodCat = (product.category || '').toLowerCase().trim();
+        const match = prodCat === catClean || prodCat.includes(catClean);
+        if (!match) return false;
       }
 
       return true;
@@ -252,31 +241,10 @@ export const CatalogPage: React.FC = () => {
         </div>
       )}
 
-      {/* Canlı SQL / ERP12 Durum ve Eşitleme Çubuğu */}
-      {serverConfig.apiUrl && serverConfig.apiUrl !== 'demo' && (
-        <div className="bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 text-white p-3 rounded-2xl shadow-sm flex items-center justify-between gap-3 text-xs animate-in fade-in">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
-            <div className="min-w-0">
-              <p className="font-bold truncate">
-                {serverConfig.companyTitle || 'OSMANLI GIDA'} (Canlı SQL)
-              </p>
-              <p className="text-[11px] text-blue-100/90 truncate">
-                Toplam <strong>{products.length}</strong> ürün hafızada
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => triggerSync()}
-            disabled={isSyncing}
-            className="px-3.5 py-1.5 bg-white text-blue-700 font-bold rounded-xl transition flex items-center gap-1.5 shrink-0 text-xs shadow-xs hover:bg-blue-50 active:scale-95 disabled:opacity-70"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-600' : ''}`} />
-            <span>{isSyncing ? 'Çekiliyor...' : 'Şimdi Eşitle'}</span>
-          </button>
-        </div>
-      )}
+      {/* Görsel-2: Instagram Hikayeleri Tarzı ERP12 STOK_GRUP Kategori Çubuğu */}
+      <div className="-mx-3 md:-mx-6 -mt-2 mb-2 rounded-2xl overflow-hidden shadow-sm">
+        <CategoryStoriesBar />
+      </div>
 
       {/* Arama Çubuğu & Görünüm Değiştirici & Kamera Barkod Okuyucu */}
       <div className="flex gap-2">
@@ -344,56 +312,23 @@ export const CatalogPage: React.FC = () => {
         onScan={handleBarcodeScanned}
       />
 
-      {/* B2B Bağımsız Kategori Filtre Butonları (QR Menü Tarzı) */}
-      <div className="flex gap-1.5 overflow-x-auto pb-1 text-xs">
-        {/* Kampanya Filtre Butonu */}
-        <button
-          onClick={() => setShowOnlyCampaigns(!showOnlyCampaigns)}
-          className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition flex items-center gap-1.5 shadow-xs shrink-0 ${
-            showOnlyCampaigns
-              ? 'bg-purple-600 text-white shadow-sm ring-2 ring-purple-400/50'
-              : 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/40'
-          }`}
-          title="Kampanyalı Ürünleri Filtrele"
-        >
-          <Gift className="w-3.5 h-3.5" />
-          <span>Fırsatlar</span>
-          {activeCampaigns.length > 0 && (
-            <span className="text-[10px] px-1.5 py-0.2 rounded-full font-black bg-purple-500 text-white">
-              {activeCampaigns.length}
-            </span>
-          )}
-        </button>
-
-        {b2bStoreCategories.map((cat) => {
-          const isSelected = selectedCategory === cat.id;
-
-          return (
-            <button
-              key={cat.id}
-              onClick={() => setSelectedCategory(selectedCategory === cat.id ? 'all' : cat.id)}
-              className={`px-3 py-1.5 rounded-xl font-semibold whitespace-nowrap transition flex items-center gap-1.5 ${
-                isSelected
-                  ? userRole === 'customer'
-                    ? 'bg-emerald-600 text-white shadow-sm'
-                    : 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-sm'
-                  : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800/60'
-              }`}
-            >
-              <span>{cat.name}</span>
-              {cat.badge && (
-                <span className={`text-[9px] px-1 py-0.2 rounded font-bold uppercase ${
-                  isSelected
-                    ? 'bg-white/20 text-white'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-                }`}>
-                  {cat.badge}
-                </span>
-              )}
-            </button>
-          );
-        })}
-      </div>
+      {/* Kampanya Filtre Butonu (Varsa) */}
+      {activeCampaigns.length > 0 && (
+        <div className="flex gap-1.5 overflow-x-auto pb-1 text-xs">
+          <button
+            onClick={() => setShowOnlyCampaigns(!showOnlyCampaigns)}
+            className={`px-3 py-1.5 rounded-xl font-bold whitespace-nowrap transition flex items-center gap-1.5 shadow-xs shrink-0 ${
+              showOnlyCampaigns
+                ? 'bg-purple-600 text-white shadow-sm ring-2 ring-purple-400/50'
+                : 'bg-purple-50 dark:bg-purple-950/40 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 hover:bg-purple-100 dark:hover:bg-purple-900/40'
+            }`}
+            title="Kampanyalı Ürünleri Filtrele"
+          >
+            <Gift className="w-3.5 h-3.5" />
+            <span>Fırsatlar ({activeCampaigns.length})</span>
+          </button>
+        </div>
+      )}
 
       {/* Kampanya Filtresi Aktifse Bilgi & Modal Butonu */}
       {showOnlyCampaigns && (
@@ -417,6 +352,14 @@ export const CatalogPage: React.FC = () => {
           <Package className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
           <p className="text-sm font-semibold">Aradığınız kriterde ürün bulunamadı.</p>
           <p className="text-xs text-slate-400 dark:text-slate-500 mt-1">Lütfen arama terimini veya kategoriyi değiştirin.</p>
+          {selectedCategory !== 'all' && (
+            <button
+              onClick={() => setSelectedCategory('all')}
+              className="mt-3 px-3.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-bold transition shadow-xs"
+            >
+              Tüm Kategorileri Göster
+            </button>
+          )}
         </div>
       ) : viewMode === 'grid' ? (
         /* VİTRİN / GRID MODU (B2B E-Ticaret & Masaüstü Çoklu Izgara) */

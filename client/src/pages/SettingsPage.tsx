@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { useApp } from '../context/AppContext';
 import { db, initialCustomers, initialProducts } from '../db';
 import { apiService } from '../services/apiService';
@@ -73,6 +74,7 @@ export const SettingsPage: React.FC = () => {
   });
 
   const [saveSuccess, setSaveSuccess] = useState(false);
+  const productCount = useLiveQuery(() => db.products.count(), []) || 0;
 
   // ServerConfig harici değişiklikleri (profil seçimi vb.) forma yansıt
   React.useEffect(() => {
@@ -324,6 +326,32 @@ export const SettingsPage: React.FC = () => {
   // Plasiyer Görünümü
   return (
     <div className="p-3 md:p-6 pb-24 space-y-4 max-w-5xl mx-auto text-xs text-slate-900 dark:text-slate-100 w-full">
+      {/* Görsel-1: Canlı SQL / ERP12 Durum ve Eşitleme Çubuğu */}
+      {serverConfig.apiUrl && serverConfig.apiUrl !== 'demo' && (
+        <div className="bg-gradient-to-r from-blue-700 via-blue-600 to-indigo-700 text-white p-3.5 rounded-2xl shadow-md flex items-center justify-between gap-3 text-xs animate-in fade-in">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+            <div className="min-w-0">
+              <p className="font-bold truncate text-sm">
+                {serverConfig.companyTitle || 'OSMANLI GIDA'} (Canlı SQL)
+              </p>
+              <p className="text-[11px] text-blue-100/90 truncate">
+                Toplam <strong>{productCount}</strong> ürün hafızada
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => triggerSync()}
+            disabled={isSyncing}
+            className="px-3.5 py-1.5 bg-white text-blue-700 font-bold rounded-xl transition flex items-center gap-1.5 shrink-0 text-xs shadow-xs hover:bg-blue-50 active:scale-95 disabled:opacity-70"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin text-blue-600' : ''}`} />
+            <span>{isSyncing ? 'Çekiliyor...' : 'Şimdi Eşitle'}</span>
+          </button>
+        </div>
+      )}
+
       {/* Başarı Bildirimi */}
       {saveSuccess && (
         <div className="p-3 bg-emerald-50 dark:bg-emerald-950/50 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 rounded-2xl flex items-center gap-2 font-medium">

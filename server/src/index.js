@@ -139,6 +139,17 @@ app.get('/api/products', async (req, res) => {
   }
 });
 
+// 2.1 STOK GRUPLARI LİSTESİ (STOK_GRUP)
+app.get('/api/stock-groups', async (req, res) => {
+  try {
+    const groups = await erpQueries.getStockGroups();
+    res.json(groups);
+  } catch (err) {
+    console.error('Stok grupları hatası:', err.message);
+    res.status(500).json({ error: 'Stok grupları alınamadı', detail: err.message });
+  }
+});
+
 // 2.1 ÜRÜN FOTOĞRAFI YÜKLE / ÇEK & ERP12 İLE SENKRON ET
 app.post('/api/products/:idOrCode/image', async (req, res) => {
   try {
