@@ -182,21 +182,16 @@ export const LoginPage: React.FC = () => {
         <div className="bg-white/80 dark:bg-slate-900/78 backdrop-blur-md rounded-3xl p-6 sm:p-7 shadow-2xl border border-white/45 dark:border-slate-700/80 text-slate-900 dark:text-slate-100 transition-all">
           {/* Logo: POLATLAR YAZILIM */}
           <div className="text-center mb-5">
-            <div className="inline-block relative">
-              <div className="flex items-baseline justify-center tracking-tight">
-                <span className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-700 via-sky-600 to-indigo-700 dark:from-sky-400 dark:via-blue-400 dark:to-indigo-400 font-sans">
-                  POLATLAR
-                </span>
-              </div>
-              <div className="text-[13px] font-serif italic text-sky-600 dark:text-sky-400 tracking-widest text-right -mt-1 font-semibold">
-                yazılım
-              </div>
+            <div className="flex items-center justify-center tracking-tight">
+              <span className="text-xl sm:text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-700 via-sky-600 to-indigo-700 dark:from-sky-400 dark:via-blue-400 dark:to-indigo-400 font-sans whitespace-nowrap">
+                POLATLAR YAZILIM
+              </span>
             </div>
 
-            <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-3 tracking-tight">
-              Sisteme Giriş
+            <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-2.5 tracking-tight">
+              Plasiyer Sistemi
             </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
               Firma Kodu, Kullanıcı / Plasiyer Kodu ve Şifrenizi giriniz
             </p>
           </div>
@@ -230,7 +225,7 @@ export const LoginPage: React.FC = () => {
                   type="text"
                   value={companyCode}
                   onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
-                  placeholder="Örn: GUNEYSERVER"
+                  placeholder="Örn: POLATLAR"
                   autoComplete="organization"
                   className="w-full bg-slate-50/95 dark:bg-slate-800/85 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-xs sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 uppercase font-mono shadow-2xs transition"
                   required
