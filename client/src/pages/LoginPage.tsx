@@ -142,19 +142,38 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-4 sm:p-6 relative overflow-x-hidden select-none">
-      {/* Kurumsal Arka Plan Görseli (Opaklık / Yarı Saydam Katmanlı) */}
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-3 sm:p-5 relative overflow-x-hidden select-none">
+      {/* Kurumsal Arka Plan Görseli (Uzaklaştırılmış & Duvardaki POLATLAR Yazısı Net Görünür) */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        {/* Kenar boşluklarını yumuşakça dolduran ambiyans katmanı */}
         <img
           src={loginBgImage}
-          alt="Polatlar Kurumsal"
-          className="w-full h-full object-cover object-center opacity-50"
+          alt=""
+          aria-hidden="true"
+          className="w-full h-full object-cover object-center opacity-35 blur-2xl scale-110"
         />
-        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/60 via-slate-900/40 to-slate-950/80" />
+
+        {/* Uzaklaştırılmış ana kurumsal görsel */}
+        <div className="absolute inset-0 flex items-start justify-center pt-8 sm:pt-3 lg:pt-2">
+          <img
+            src={loginBgImage}
+            alt="Polatlar Kurumsal"
+            style={{
+              WebkitMaskImage:
+                'radial-gradient(ellipse 96% 92% at 50% 44%, black 74%, transparent 100%)',
+              maskImage:
+                'radial-gradient(ellipse 96% 92% at 50% 44%, black 74%, transparent 100%)',
+            }}
+            className="w-full h-[48vh] object-cover object-[38%_top] sm:h-auto sm:max-w-[1440px] sm:max-h-[78vh] sm:object-contain sm:object-top opacity-75 sm:scale-[0.90] lg:scale-[0.85] origin-top transition-transform duration-500"
+          />
+        </div>
+
+        {/* Üst kısmı açık bırakan (POLATLAR duvar yazısını öne çıkaran) yumuşak alt geçiş */}
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/10 via-slate-950/30 to-slate-950/85" />
       </div>
 
-      {/* Üst Durum Barı (Tema & Çevrimiçi) */}
-      <div className="flex items-center justify-between z-10 w-full max-w-md mx-auto">
+      {/* Üst Durum Barı (Köşelere yaslı — üst-orta duvar logosu alanını kapatmaz) */}
+      <div className="flex items-center justify-between z-10 w-full max-w-6xl mx-auto">
         <div className="flex items-center gap-1.5 text-xs text-white/95 bg-slate-950/55 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/20 shadow-sm">
           {isOnline ? (
             <Wifi className="w-3.5 h-3.5 text-emerald-400" />
@@ -177,33 +196,33 @@ export const LoginPage: React.FC = () => {
         </button>
       </div>
 
-      {/* Ana Giriş Kartı */}
-      <div className="w-full max-w-md mx-auto my-auto z-10 py-4">
-        <div className="bg-white/88 dark:bg-slate-900/86 backdrop-blur-md rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/45 dark:border-slate-700/80 text-slate-900 dark:text-slate-100 transition-all">
+      {/* Ana Giriş Kartı (Duvardaki POLATLAR logosunu açıkta bırakacak şekilde alt-orta konumlu ve kompakt) */}
+      <div className="w-full max-w-[380px] sm:max-w-[395px] mx-auto mt-auto pt-36 sm:pt-40 lg:pt-44 mb-3 z-10">
+        <div className="bg-white/82 dark:bg-slate-900/80 backdrop-blur-md rounded-3xl p-5 sm:p-6 shadow-2xl border border-white/45 dark:border-slate-700/80 text-slate-900 dark:text-slate-100 transition-all">
           {/* Logo: POLATLAR YAZILIM */}
-          <div className="text-center mb-6">
+          <div className="text-center mb-4">
             <div className="inline-block relative">
               <div className="flex items-baseline justify-center tracking-tight">
-                <span className="text-2xl sm:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-700 via-sky-600 to-indigo-700 dark:from-sky-400 dark:via-blue-400 dark:to-indigo-400 font-sans">
+                <span className="text-xl sm:text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-700 via-sky-600 to-indigo-700 dark:from-sky-400 dark:via-blue-400 dark:to-indigo-400 font-sans">
                   POLATLAR
                 </span>
               </div>
-              <div className="text-[13px] font-serif italic text-sky-600 dark:text-sky-400 tracking-widest text-right -mt-1 font-semibold">
+              <div className="text-[11px] font-serif italic text-sky-600 dark:text-sky-400 tracking-widest text-right -mt-1 font-semibold">
                 yazılım
               </div>
             </div>
 
-            <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-4 tracking-tight">
+            <h2 className="text-lg sm:text-xl font-black text-slate-900 dark:text-white mt-1.5 tracking-tight">
               Sisteme Giriş
             </h2>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+            <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">
               Firma Kodu, Kullanıcı / Plasiyer Kodu ve Şifrenizi giriniz
             </p>
           </div>
 
           {/* Bilgi Mesajı */}
           {infoMessage && (
-            <div className="mb-4 p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 text-xs flex items-start gap-2 animate-in fade-in">
+            <div className="mb-3 p-2.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/60 text-emerald-800 dark:text-emerald-300 text-xs flex items-start gap-2 animate-in fade-in">
               <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-500 mt-0.5" />
               <span>{infoMessage}</span>
             </div>
@@ -211,17 +230,17 @@ export const LoginPage: React.FC = () => {
 
           {/* Hata Mesajı */}
           {error && (
-            <div className="mb-4 p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2 animate-in fade-in">
+            <div className="mb-3 p-2.5 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2 animate-in fade-in">
               <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
               <span>{error}</span>
             </div>
           )}
 
           {/* Giriş Formu */}
-          <form onSubmit={handleLogin} className="space-y-4">
+          <form onSubmit={handleLogin} className="space-y-3">
             {/* 1. Firma Kodu */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
+              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 uppercase tracking-wider">
                 Firma Kodu
               </label>
               <div className="relative">
@@ -232,7 +251,7 @@ export const LoginPage: React.FC = () => {
                   onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
                   placeholder="Örn: GUNEYSERVER"
                   autoComplete="organization"
-                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-xs sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 uppercase font-mono shadow-2xs transition"
+                  className="w-full bg-slate-50/95 dark:bg-slate-800/85 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-2.5 text-xs sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 uppercase font-mono shadow-2xs transition"
                   required
                 />
               </div>
@@ -240,7 +259,7 @@ export const LoginPage: React.FC = () => {
 
             {/* 2. Kullanıcı / Plasiyer Kodu */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
+              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 uppercase tracking-wider">
                 Kullanıcı / Plasiyer Kodu
               </label>
               <div className="relative">
@@ -251,7 +270,7 @@ export const LoginPage: React.FC = () => {
                   onChange={(e) => setRepCode(e.target.value)}
                   placeholder="Örn: PLS01"
                   autoComplete="username"
-                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-xs sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono shadow-2xs transition"
+                  className="w-full bg-slate-50/95 dark:bg-slate-800/85 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-2.5 text-xs sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono shadow-2xs transition"
                   required
                 />
               </div>
@@ -259,7 +278,7 @@ export const LoginPage: React.FC = () => {
 
             {/* 3. Şifre */}
             <div>
-              <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
+              <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 mb-1 uppercase tracking-wider">
                 Şifre
               </label>
               <div className="relative">
@@ -270,7 +289,7 @@ export const LoginPage: React.FC = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   autoComplete="current-password"
-                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-10 py-3 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-2xs transition"
+                  className="w-full bg-slate-50/95 dark:bg-slate-800/85 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-10 py-2.5 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-2xs transition"
                   required
                 />
                 <button
@@ -285,7 +304,7 @@ export const LoginPage: React.FC = () => {
             </div>
 
             {/* 4. Beni Hatırla & Şifremi Unuttum */}
-            <div className="flex items-center justify-between pt-1">
+            <div className="flex items-center justify-between pt-0.5">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -316,7 +335,7 @@ export const LoginPage: React.FC = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white font-black py-3.5 px-4 rounded-2xl shadow-xl shadow-blue-600/30 transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2 text-sm tracking-wide disabled:opacity-50"
+              className="w-full bg-gradient-to-r from-blue-600 via-indigo-600 to-blue-700 hover:from-blue-500 hover:to-indigo-500 text-white font-black py-3 px-4 rounded-2xl shadow-xl shadow-blue-600/30 transition-all duration-200 active:scale-[0.98] flex items-center justify-center gap-2 text-sm tracking-wide disabled:opacity-50"
             >
               {isLoading ? (
                 <>
@@ -335,13 +354,13 @@ export const LoginPage: React.FC = () => {
       </div>
 
       {/* Alt İletişim & Adres Footer */}
-      <div className="w-full max-w-md mx-auto z-10 text-white/95 text-center text-xs space-y-2 px-4 py-2.5 rounded-2xl bg-slate-950/55 backdrop-blur-md border border-white/15 font-medium shadow-md">
-        <div className="flex items-center justify-center gap-2 text-center text-[11px] sm:text-xs leading-relaxed">
-          <MapPin className="w-4 h-4 shrink-0 text-amber-300" />
+      <div className="w-full max-w-[395px] mx-auto z-10 text-white/95 text-center text-xs space-y-1.5 px-4 py-2 rounded-2xl bg-slate-950/60 backdrop-blur-md border border-white/15 font-medium shadow-md">
+        <div className="flex items-center justify-center gap-2 text-center text-[11px] leading-snug">
+          <MapPin className="w-3.5 h-3.5 shrink-0 text-amber-300" />
           <span>Muratpaşa Mah. Uzun Sk. Sina İş Merkezi K:5 N:10 Yakutiye/ERZURUM</span>
         </div>
 
-        <div className="flex items-center justify-center gap-4 text-[11px] sm:text-xs">
+        <div className="flex items-center justify-center gap-4 text-[11px]">
           <a
             href="tel:05336082353"
             className="flex items-center gap-1.5 hover:text-amber-200 transition font-bold"
