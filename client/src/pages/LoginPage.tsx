@@ -338,7 +338,7 @@ export const LoginPage: React.FC = () => {
       <div className="w-full max-w-md mx-auto z-10 text-white/95 text-center text-xs space-y-2 px-4 py-2.5 rounded-2xl bg-slate-950/55 backdrop-blur-md border border-white/15 font-medium shadow-md">
         <div className="flex items-center justify-center gap-2 text-center text-[11px] sm:text-xs leading-relaxed">
           <MapPin className="w-4 h-4 shrink-0 text-amber-300" />
-          <span>Muratpaşa Mah. Uzun Sk. Sina İş Merkezi K:5 N:10 Yakutiye/ERZURUM</span>
+          <span>Lalapaşa Mah. Mumcu Cad. Sina İş Merkezi Kat:5 No:10 Merkez / Erzurum</span>
         </div>
 
         <div className="flex items-center justify-center gap-4 text-[11px] sm:text-xs">
