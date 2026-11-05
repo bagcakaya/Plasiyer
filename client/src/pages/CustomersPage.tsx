@@ -18,7 +18,8 @@ import {
   Building, 
   Check,
   ChevronRight,
-  History
+  BarChart3,
+  ArrowLeft
 } from 'lucide-react';
 import { CustomerReceiptsModal } from '../components/CustomerReceiptsModal';
 import { CustomerInvoicesModal } from '../components/CustomerInvoicesModal';
@@ -31,6 +32,7 @@ export const CustomersPage: React.FC = () => {
     selectedCustomer, 
     selectCustomer,
     setActiveTab,
+    customerSelectReturnTab,
     openCollectionModal, 
     serverConfig
   } = useApp();
@@ -179,6 +181,24 @@ export const CustomersPage: React.FC = () => {
 
   return (
     <div className="w-full flex-1 min-h-0 h-full flex flex-col bg-slate-100 dark:bg-slate-950 p-2 sm:p-3 text-slate-900 dark:text-slate-100 overflow-hidden">
+      {/* Sepetten Cari Seçimine Yönlendirildiyse Geri Dönüş & Bilgi Bandı */}
+      {customerSelectReturnTab === 'cart' && (
+        <div className="w-full max-w-xl mx-auto shrink-0 mb-1.5 flex items-center justify-between gap-2 px-3 py-1.5 rounded-2xl bg-amber-500/15 dark:bg-amber-950/50 border border-amber-500/30 dark:border-amber-800/60 text-amber-900 dark:text-amber-200 text-xs">
+          <div className="flex items-center gap-1.5 min-w-0 font-bold truncate">
+            <ShoppingCart className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+            <span className="truncate">Sepetteki sipariş için cari seçin</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setActiveTab('cart')}
+            className="shrink-0 flex items-center gap-1 px-2.5 py-1 rounded-xl bg-white dark:bg-slate-900 hover:bg-amber-50 dark:hover:bg-slate-800 text-slate-800 dark:text-slate-100 border border-amber-400/40 dark:border-slate-700 font-extrabold text-[11px] shadow-2xs transition active:scale-95"
+          >
+            <ArrowLeft className="w-3 h-3" />
+            <span>Sepete Dön</span>
+          </button>
+        </div>
+      )}
+
       {/* 1. Arama Yeri (iOS Safari ve Çentik Uyumlu Sabit Üst Bar) */}
       <div className="w-full max-w-xl mx-auto shrink-0 mb-2 relative z-20">
         <div className="relative">
@@ -281,19 +301,27 @@ export const CustomersPage: React.FC = () => {
                         </div>
                       </div>
 
-                      {/* Cari İsminin Karşısında "Seç" Butonu -> Tıklayınca Carinin Sipariş Giriş Kısmını Açar */}
+                      {/* Cari İsminin Karşısında "Seç" Butonu -> Sepetten gelindiyse Sepete döner, değilse Sipariş Giriş Kısmını Açar */}
                       <button
                         type="button"
                         onClick={() => {
                           selectCustomer(cust);
-                          setActiveTab('catalog');
+                          if (customerSelectReturnTab === 'cart') {
+                            setActiveTab('cart');
+                          } else {
+                            setActiveTab('catalog');
+                          }
                         }}
                         className={`shrink-0 self-center flex items-center gap-1.5 px-3.5 py-2 rounded-xl font-extrabold text-xs shadow-md transition active:scale-95 ${
                           isSelected
                             ? 'bg-emerald-600 hover:bg-emerald-700 text-white shadow-emerald-500/25'
                             : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-500/25'
                         }`}
-                        title="Bu cariyi seç ve sipariş giriş ekranını aç"
+                        title={
+                          customerSelectReturnTab === 'cart'
+                            ? 'Bu cariyi seç ve sepete dön'
+                            : 'Bu cariyi seç ve sipariş giriş ekranını aç'
+                        }
                       >
                         <Check className="w-3.5 h-3.5" />
                         <span>Seç</span>
@@ -409,7 +437,7 @@ export const CustomersPage: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Kart Üzerinde Fiş, Fatura, Sipariş, Tahsilat ve Detaylar Butonları (Sabit Görünür) */}
+                  {/* Kart Üzerinde Fiş, Fatura, Sipariş, Tahsilat ve Raporlar Butonları (Sabit Görünür) */}
                   <div className="shrink-0 pt-2 border-t border-slate-100 dark:border-slate-800/80">
                     <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
                       {/* Buton 1: Fiş */}
@@ -456,15 +484,15 @@ export const CustomersPage: React.FC = () => {
                         <span>Tahsilat</span>
                       </button>
 
-                      {/* Buton 5: Detaylar (Geçmiş Yıllardaki Tüm İşlem & Ürün Detayları) */}
+                      {/* Buton 5: Raporlar (Geçmiş Yıllardaki Tüm Ürün & Fiyat Hareketleri) */}
                       <button
                         type="button"
                         onClick={() => setHistoryModalCustomer(cust)}
                         className="flex flex-col items-center justify-center py-2.5 px-1 rounded-2xl bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white shadow-md shadow-violet-500/25 transition active:scale-95 group font-bold text-[11px] sm:text-xs"
-                        title="Bu carinin geçmiş yıllardaki tüm işlemlerini ve aldığı ürünleri incele"
+                        title="Raporlar: Bu carinin geçmiş yıllardaki tüm ürün ve fiyat hareketlerini incele"
                       >
-                        <History className="w-4 h-4 mb-1 group-hover:scale-110 transition-transform" />
-                        <span>Detaylar</span>
+                        <BarChart3 className="w-4 h-4 mb-1 group-hover:scale-110 transition-transform" />
+                        <span>Raporlar</span>
                       </button>
                     </div>
                   </div>

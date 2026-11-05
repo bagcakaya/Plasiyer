@@ -4,7 +4,7 @@ import {
   Search,
   Calendar,
   Package,
-  History,
+  BarChart3,
   ShoppingCart,
   RefreshCw,
   AlertCircle,
@@ -80,7 +80,7 @@ export const CustomerHistoryModal: React.FC<CustomerHistoryModalProps> = ({
       );
       setHistory(res);
     } catch (err: any) {
-      setError(err.message || 'Cari işlem geçmişi yüklenemedi.');
+      setError(err.message || 'Cari raporları ve işlem geçmişi yüklenemedi.');
     } finally {
       setLoading(false);
     }
@@ -254,11 +254,11 @@ export const CustomerHistoryModal: React.FC<CustomerHistoryModalProps> = ({
         <div className="shrink-0 px-4 sm:px-5 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 bg-slate-50/90 dark:bg-slate-950/80">
           <div className="flex items-center gap-2.5 min-w-0">
             <div className="w-10 h-10 rounded-2xl bg-violet-600/10 text-violet-600 dark:text-violet-400 flex items-center justify-center shrink-0">
-              <History className="w-5 h-5" />
+              <BarChart3 className="w-5 h-5" />
             </div>
             <div className="min-w-0">
               <h3 className="font-extrabold text-sm sm:text-base truncate">
-                Geçmiş İşlem & Ürün Detayları
+                Raporlar
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400 truncate">
                 {customer.code} &bull; {customer.name}
@@ -391,7 +391,7 @@ export const CustomerHistoryModal: React.FC<CustomerHistoryModalProps> = ({
           {loading ? (
             <div className="py-16 flex flex-col items-center justify-center text-slate-400 gap-2.5">
               <RefreshCw className="w-7 h-7 animate-spin text-violet-500" />
-              <span className="text-xs font-semibold">Geçmiş işlemler yükleniyor...</span>
+              <span className="text-xs font-semibold">Raporlar ve geçmiş işlemler yükleniyor...</span>
             </div>
           ) : error ? (
             <div className="p-4 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800 text-rose-700 dark:text-rose-300 text-xs flex items-center justify-between gap-3">

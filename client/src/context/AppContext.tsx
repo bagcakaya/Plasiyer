@@ -68,6 +68,8 @@ interface AppContextType {
   isCustomerSelectModalOpen: boolean;
   openCustomerSelectModal: () => void;
   closeCustomerSelectModal: () => void;
+  customerSelectReturnTab: 'cart' | 'catalog' | null;
+  clearCustomerSelectReturnTab: () => void;
   
   // Fiyat Hesaplama
   calculateCustomerPrice: (product: Product, customCustomer?: Customer | null) => CustomerPriceInfo;
@@ -345,8 +347,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [rawCart, setRawCart] = useState<OrderItem[]>([]);
+  const [activeTab, setActiveTabState] = useState<'customers' | 'catalog' | 'cart' | 'orders' | 'routes' | 'settings' | 'van_stock'>('catalog');
+  const [customerSelectReturnTab, setCustomerSelectReturnTab] = useState<'cart' | 'catalog' | null>(null);
   const [isCustomerSelectModalOpen, setIsCustomerSelectModalOpen] = useState<boolean>(false);
-  const openCustomerSelectModal = () => setIsCustomerSelectModalOpen(true);
+
+  const setActiveTab = (tab: 'customers' | 'catalog' | 'cart' | 'orders' | 'routes' | 'settings' | 'van_stock') => {
+    setCustomerSelectReturnTab(null);
+    setActiveTabState(tab);
+  };
+
+  const clearCustomerSelectReturnTab = () => setCustomerSelectReturnTab(null);
+
+  const openCustomerSelectModal = () => {
+    setIsCustomerSelectModalOpen(false);
+    setCustomerSelectReturnTab(activeTab === 'cart' ? 'cart' : 'catalog');
+    setActiveTabState('customers');
+  };
+
   const closeCustomerSelectModal = () => setIsCustomerSelectModalOpen(false);
   const [isCampaignsModalOpen, setIsCampaignsModalOpen] = useState<boolean>(false);
   const openCampaignsModal = () => setIsCampaignsModalOpen(true);
@@ -362,8 +379,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const cart = cartEvaluation.processedCart;
   const cartSummary = cartEvaluation.summary;
-
-  const [activeTab, setActiveTab] = useState<'customers' | 'catalog' | 'cart' | 'orders' | 'routes' | 'settings' | 'van_stock'>('catalog');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
@@ -1316,6 +1331,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isCustomerSelectModalOpen,
         openCustomerSelectModal,
         closeCustomerSelectModal,
+        customerSelectReturnTab,
+        clearCustomerSelectReturnTab,
         calculateCustomerPrice,
         cart,
         cartSummary,
