@@ -19,6 +19,7 @@ import {
 import { useApp } from '../context/AppContext';
 import type { AuthUser } from '../types';
 import { formatFullName, plasiyerAuthService } from '../services/plasiyerAuthService';
+import loginBgImage from '../assets/polatlar-login-bg.jpg';
 
 export const LoginPage: React.FC = () => {
   const { login, theme, toggleTheme, isOnline, updateServerConfig } = useApp();
@@ -141,16 +142,22 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#009fd9] via-[#0284c7] to-[#0369a1] text-slate-100 flex flex-col justify-between p-4 sm:p-6 relative overflow-x-hidden select-none">
-      {/* Arka Plan Yumuşak Işık Efektleri */}
-      <div className="absolute -top-32 -left-32 w-96 h-96 bg-white/20 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-32 -right-32 w-96 h-96 bg-blue-900/40 rounded-full blur-3xl pointer-events-none" />
+    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-4 sm:p-6 relative overflow-x-hidden select-none">
+      {/* Kurumsal Arka Plan Görseli (Opaklık / Yarı Saydam Katmanlı) */}
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        <img
+          src={loginBgImage}
+          alt="Polatlar Kurumsal"
+          className="w-full h-full object-cover object-center opacity-50"
+        />
+        <div className="absolute inset-0 bg-gradient-to-b from-slate-950/60 via-slate-900/40 to-slate-950/80" />
+      </div>
 
       {/* Üst Durum Barı (Tema & Çevrimiçi) */}
       <div className="flex items-center justify-between z-10 w-full max-w-md mx-auto">
-        <div className="flex items-center gap-1.5 text-xs text-white/90 bg-white/15 backdrop-blur-md px-3 py-1 rounded-full border border-white/20 shadow-xs">
+        <div className="flex items-center gap-1.5 text-xs text-white/95 bg-slate-950/55 backdrop-blur-md px-3 py-1.5 rounded-full border border-white/20 shadow-sm">
           {isOnline ? (
-            <Wifi className="w-3.5 h-3.5 text-emerald-300" />
+            <Wifi className="w-3.5 h-3.5 text-emerald-400" />
           ) : (
             <WifiOff className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
           )}
@@ -159,7 +166,7 @@ export const LoginPage: React.FC = () => {
 
         <button
           onClick={toggleTheme}
-          className="p-2 rounded-full bg-white/15 backdrop-blur-md text-white hover:bg-white/25 border border-white/20 transition"
+          className="p-2 rounded-full bg-slate-950/55 backdrop-blur-md text-white hover:bg-slate-900/75 border border-white/20 transition shadow-sm"
           title="Tema Değiştir"
         >
           {theme === 'dark' ? (
@@ -172,7 +179,7 @@ export const LoginPage: React.FC = () => {
 
       {/* Ana Giriş Kartı */}
       <div className="w-full max-w-md mx-auto my-auto z-10 py-4">
-        <div className="bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/40 dark:border-slate-800 text-slate-900 dark:text-slate-100 transition-all">
+        <div className="bg-white/88 dark:bg-slate-900/86 backdrop-blur-md rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/45 dark:border-slate-700/80 text-slate-900 dark:text-slate-100 transition-all">
           {/* Logo: POLATLAR YAZILIM */}
           <div className="text-center mb-6">
             <div className="inline-block relative">
@@ -328,7 +335,7 @@ export const LoginPage: React.FC = () => {
       </div>
 
       {/* Alt İletişim & Adres Footer */}
-      <div className="w-full max-w-md mx-auto z-10 text-white/95 text-center text-xs space-y-2 pt-2 pb-1 font-medium">
+      <div className="w-full max-w-md mx-auto z-10 text-white/95 text-center text-xs space-y-2 px-4 py-2.5 rounded-2xl bg-slate-950/55 backdrop-blur-md border border-white/15 font-medium shadow-md">
         <div className="flex items-center justify-center gap-2 text-center text-[11px] sm:text-xs leading-relaxed">
           <MapPin className="w-4 h-4 shrink-0 text-amber-300" />
           <span>Muratpaşa Mah. Uzun Sk. Sina İş Merkezi K:5 N:10 Yakutiye/ERZURUM</span>
