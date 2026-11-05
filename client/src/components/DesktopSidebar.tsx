@@ -100,9 +100,9 @@ export const DesktopSidebar: React.FC = () => {
     },
     {
       id: 'settings' as const,
-      label: 'Sistem Ayarları',
+      label: 'Plasiyer Yönetimi',
       icon: Settings,
-      desc: 'SQL bağlantısı & yapılandırma',
+      desc: 'Plasiyer ekleme & hesaplar',
     },
   ];
 

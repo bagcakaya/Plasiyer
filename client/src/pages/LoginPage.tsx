@@ -23,18 +23,13 @@ import { formatFullName, plasiyerAuthService } from '../services/plasiyerAuthSer
 export const LoginPage: React.FC = () => {
   const { login, theme, toggleTheme, isOnline, updateServerConfig } = useApp();
 
-  const initialAccounts = plasiyerAuthService.getLocalAccounts();
-  const defaultSeedAccount = plasiyerAuthService.hasOnlyDefaultSeed() ? initialAccounts[0] : null;
-
   const [companyCode, setCompanyCode] = useState(() => {
     const saved = localStorage.getItem('polatlar_login_company');
-    if (saved) return saved.toUpperCase();
-    return initialAccounts[0]?.companyCode || '';
+    return saved ? saved.toUpperCase() : '';
   });
   const [repCode, setRepCode] = useState(() => {
     const saved = localStorage.getItem('polatlar_login_user');
-    if (saved) return saved.toUpperCase();
-    return defaultSeedAccount?.repCode || '';
+    return saved || '';
   });
   const [password, setPassword] = useState('');
   const [rememberMe, setRememberMe] = useState(() => {
@@ -51,9 +46,9 @@ export const LoginPage: React.FC = () => {
     const inviteRes = plasiyerAuthService.consumeInviteFromUrl();
     if (inviteRes.imported) {
       if (inviteRes.companyCode) setCompanyCode(inviteRes.companyCode.toUpperCase());
-      if (inviteRes.repCode) setRepCode(inviteRes.repCode.toUpperCase());
+      if (inviteRes.repCode) setRepCode(inviteRes.repCode);
       setInfoMessage(
-        'Firma ve plasiyer tanımları cihaza aktarıldı. Firma Kodu, Plasiyer Kodu ve Şifrenizi girerek giriş yapabilirsiniz.'
+        'Firma ve kullanıcı tanımları cihaza aktarıldı. Bilgilerinizi girerek oturum açabilirsiniz.'
       );
     }
   }, []);
@@ -64,15 +59,15 @@ export const LoginPage: React.FC = () => {
     setInfoMessage('');
 
     const trimmedCompany = companyCode.trim().toUpperCase();
-    const trimmedRepCode = repCode.trim().toUpperCase();
+    const trimmedUserInput = repCode.trim();
 
     if (!trimmedCompany) {
       setError('Lütfen Firma Kodunu giriniz.');
       return;
     }
 
-    if (!trimmedRepCode) {
-      setError('Lütfen Plasiyer Kodunu giriniz.');
+    if (!trimmedUserInput) {
+      setError('Lütfen Kullanıcı / Plasiyer Kodunu giriniz.');
       return;
     }
 
@@ -86,19 +81,19 @@ export const LoginPage: React.FC = () => {
     try {
       const authResult = await plasiyerAuthService.authenticate({
         companyCode: trimmedCompany,
-        repCode: trimmedRepCode,
+        repCode: trimmedUserInput,
         password,
       });
 
-      if (!authResult.success || !authResult.account) {
-        setError(authResult.error || 'Firma Kodu, Plasiyer Kodu veya Şifre hatalı.');
+      if (!authResult.success) {
+        setError(authResult.error || 'Firma Kodu, Kullanıcı Kodu veya Şifre hatalı.');
         setIsLoading(false);
         return;
       }
 
       if (rememberMe) {
         localStorage.setItem('polatlar_login_company', trimmedCompany);
-        localStorage.setItem('polatlar_login_user', trimmedRepCode);
+        localStorage.setItem('polatlar_login_user', trimmedUserInput);
         localStorage.setItem('polatlar_remember_me', 'true');
       } else {
         localStorage.removeItem('polatlar_login_company');
@@ -106,7 +101,19 @@ export const LoginPage: React.FC = () => {
         localStorage.setItem('polatlar_remember_me', 'false');
       }
 
-      // İlgili firmanın SQL / Sunucu yapılandırmasını aktifleştir
+      // Yetkili Kurum (POLATLAR / admin) girişi
+      if (authResult.isAdmin && authResult.adminUser) {
+        login(authResult.adminUser);
+        return;
+      }
+
+      if (!authResult.account) {
+        setError('Hesap bilgisi doğrulanamadı.');
+        setIsLoading(false);
+        return;
+      }
+
+      // İlgili müşteri firmanın SQL / Sunucu yapılandırmasını aktifleştir
       if (authResult.matchedServerConfig) {
         updateServerConfig(authResult.matchedServerConfig);
       } else {
@@ -180,10 +187,10 @@ export const LoginPage: React.FC = () => {
             </div>
 
             <h2 className="text-xl sm:text-2xl font-black text-slate-900 dark:text-white mt-4 tracking-tight">
-              Plasiyer Girişi
+              Sisteme Giriş
             </h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Firma Kodu, Plasiyer Kodu ve Şifrenizi giriniz
+              Firma Kodu, Kullanıcı / Plasiyer Kodu ve Şifrenizi giriniz
             </p>
           </div>
 
@@ -203,7 +210,7 @@ export const LoginPage: React.FC = () => {
             </div>
           )}
 
-          {/* Giriş Formu: Yalnızca Firma Kodu, Plasiyer Kodu ve Şifre (Ad Soyad Hariç) */}
+          {/* Giriş Formu */}
           <form onSubmit={handleLogin} className="space-y-4">
             {/* 1. Firma Kodu */}
             <div>
@@ -224,20 +231,20 @@ export const LoginPage: React.FC = () => {
               </div>
             </div>
 
-            {/* 2. Plasiyer Kodu */}
+            {/* 2. Kullanıcı / Plasiyer Kodu */}
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
-                Plasiyer Kodu
+                Kullanıcı / Plasiyer Kodu
               </label>
               <div className="relative">
                 <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
                 <input
                   type="text"
                   value={repCode}
-                  onChange={(e) => setRepCode(e.target.value.toUpperCase())}
+                  onChange={(e) => setRepCode(e.target.value)}
                   placeholder="Örn: PLS01"
                   autoComplete="username"
-                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-xs sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 uppercase font-mono shadow-2xs transition"
+                  className="w-full bg-slate-50 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-xs sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono shadow-2xs transition"
                   required
                 />
               </div>
@@ -289,7 +296,7 @@ export const LoginPage: React.FC = () => {
                 onClick={() => {
                   setError('');
                   setInfoMessage(
-                    'Şifre sıfırlama işlemi için firma yetkilinizden (Ayarlar > Plasiyer Bilgileri) yeni şifre talep ediniz.'
+                    'Şifre sıfırlama işlemi için firma yetkilinizden veya Polatlar Yazılım destek hattından yeni şifre talep ediniz.'
                   );
                 }}
                 className="text-[11px] text-sky-600 dark:text-sky-400 font-bold hover:underline cursor-pointer"
@@ -316,15 +323,6 @@ export const LoginPage: React.FC = () => {
                 </>
               )}
             </button>
-
-            {/* Yalnızca ilk kurulumda (henüz özel plasiyer şifresi kaydedilmemişken) bilgi ipucu */}
-            {defaultSeedAccount && (
-              <div className="text-center text-[11px] text-slate-400 dark:text-slate-500 pt-1">
-                İlk kurulum varsayılan giriş: <strong>{defaultSeedAccount.companyCode}</strong> •{' '}
-                <strong>{defaultSeedAccount.repCode}</strong> • Şifre:{' '}
-                <strong>{defaultSeedAccount.password}</strong>
-              </div>
-            )}
           </form>
         </div>
       </div>

@@ -10,6 +10,7 @@ import { OrdersQueuePage } from './pages/OrdersQueuePage';
 import { RoutePlanPage } from './pages/RoutePlanPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { VanStockPage } from './pages/VanStockPage';
+import { AdminPortalPage } from './pages/AdminPortalPage';
 import { CollectionModal } from './components/CollectionModal';
 import { ReturnModal } from './components/ReturnModal';
 import { DailyReportModal } from './components/DailyReportModal';
@@ -122,6 +123,17 @@ const AppContent: React.FC = () => {
 
   if (!isAuthenticated) {
     return <LoginPage />;
+  }
+
+  // Yetkili Kurum (POLATLAR / admin) Bağımsız Yönetim Konsolu
+  if (userRole === 'admin') {
+    return (
+      <>
+        <AdminPortalPage />
+        <NotificationToast />
+        <InstallPwaModal />
+      </>
+    );
   }
 
   return (

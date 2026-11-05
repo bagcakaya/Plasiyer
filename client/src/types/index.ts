@@ -1,4 +1,4 @@
-export type UserRole = 'plasiyer' | 'customer';
+export type UserRole = 'admin' | 'plasiyer' | 'customer';
 
 export type AppTheme = 'dark' | 'light';
 

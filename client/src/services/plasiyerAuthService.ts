@@ -1,10 +1,14 @@
-import type { CompanyProfile, PlasiyerAccount, SalesRep, ServerConfig } from '../types';
+import type { AuthUser, CompanyProfile, PlasiyerAccount, SalesRep, ServerConfig } from '../types';
 import { buildSqlHeaders, isDemoMode, resolveApiBaseUrlAsync } from './apiService';
 
 const ACCOUNTS_STORAGE_KEY = 'plasiyer_rep_accounts';
 const PROFILES_STORAGE_KEY = 'plasiyer_company_profiles';
 const SERVER_CONFIG_KEY = 'plasiyer_server_config';
 const REP_STORAGE_KEY = 'plasiyer_rep';
+
+export const ADMIN_COMPANY_CODE = 'POLATLAR';
+export const ADMIN_USERNAME = 'admin';
+const ADMIN_PASSWORD = '16051990Sa.';
 
 export function splitFullName(fullName: string): { firstName: string; lastName: string } {
   const cleaned = (fullName || '').trim().replace(/\s+/g, ' ');
@@ -282,22 +286,127 @@ export const plasiyerAuthService = {
     return localList;
   },
 
-  upsertCompanyProfileFromConfig(config: ServerConfig): void {
-    if (typeof window === 'undefined' || !config.companyCode?.trim()) return;
-    const codeUpper = config.companyCode.trim().toUpperCase();
-
+  getCompanyProfiles(): CompanyProfile[] {
+    if (typeof window === 'undefined') return [];
     let profiles: CompanyProfile[] = [];
     try {
       const raw = localStorage.getItem(PROFILES_STORAGE_KEY);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) profiles = parsed;
+        if (Array.isArray(parsed)) {
+          profiles = parsed.filter(
+            (p) => p?.code && p.code.trim().toUpperCase() !== ADMIN_COMPANY_CODE
+          );
+        }
       }
     } catch {
       profiles = [];
     }
 
-    const profileEntry: CompanyProfile = {
+    // Aktif serverConfig bir müşteri firmasıysa ve listede yoksa otomatik dahil et
+    try {
+      const cfgRaw = localStorage.getItem(SERVER_CONFIG_KEY);
+      if (cfgRaw) {
+        const cfg = JSON.parse(cfgRaw) as ServerConfig;
+        const activeCode = (cfg.companyCode || '').trim().toUpperCase();
+        if (activeCode && activeCode !== ADMIN_COMPANY_CODE) {
+          const exists = profiles.some((p) => p.code.trim().toUpperCase() === activeCode);
+          if (!exists) {
+            profiles.unshift({
+              id: `prof-${activeCode}`,
+              name: cfg.companyTitle?.trim() || activeCode,
+              code: activeCode,
+              period: cfg.period || '2026',
+              serverUrl: isDemoMode(cfg) ? 'demo' : '/api',
+              companyTitle: cfg.companyTitle?.trim() || activeCode,
+              sqlHost: cfg.sqlHost,
+              sqlPort: cfg.sqlPort || '1433',
+              sqlDatabase: cfg.sqlDatabase,
+              sqlUser: cfg.sqlUser,
+              sqlPassword: cfg.sqlPassword,
+              licenseExpireDate: cfg.licenseExpireDate || '2027-12-31',
+            });
+          }
+        }
+      }
+    } catch {
+      // ignore
+    }
+
+    return profiles;
+  },
+
+  saveCompanyProfiles(profiles: CompanyProfile[]): void {
+    if (typeof window === 'undefined') return;
+    const filtered = profiles.filter(
+      (p) => p?.code && p.code.trim().toUpperCase() !== ADMIN_COMPANY_CODE
+    );
+    localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(filtered));
+  },
+
+  upsertCompanyProfile(profileInput: Omit<CompanyProfile, 'id'> & { id?: string }): CompanyProfile {
+    const codeUpper = profileInput.code.trim().toUpperCase();
+    const profiles = this.getCompanyProfiles();
+
+    const entry: CompanyProfile = {
+      id: profileInput.id || `prof-${codeUpper}`,
+      name: profileInput.companyTitle?.trim() || profileInput.name?.trim() || codeUpper,
+      code: codeUpper,
+      period: profileInput.period?.trim() || '2026',
+      serverUrl:
+        profileInput.serverUrl && profileInput.serverUrl !== 'demo' ? '/api' : 'demo',
+      companyTitle: profileInput.companyTitle?.trim() || profileInput.name?.trim() || codeUpper,
+      sqlHost: profileInput.sqlHost?.trim() || '',
+      sqlPort: profileInput.sqlPort?.trim() || '1433',
+      sqlDatabase: profileInput.sqlDatabase?.trim() || '',
+      sqlUser: profileInput.sqlUser?.trim() || '',
+      sqlPassword: profileInput.sqlPassword ?? '',
+      licenseExpireDate: profileInput.licenseExpireDate?.trim() || '2027-12-31',
+      isDefault: profileInput.isDefault,
+    };
+
+    const idx = profiles.findIndex((p) => p.code.trim().toUpperCase() === codeUpper);
+    if (idx >= 0) {
+      profiles[idx] = { ...profiles[idx], ...entry };
+    } else {
+      profiles.unshift(entry);
+    }
+
+    this.saveCompanyProfiles(profiles);
+    return entry;
+  },
+
+  deleteCompanyProfile(codeOrId: string): CompanyProfile[] {
+    const target = codeOrId.trim().toUpperCase();
+    const remaining = this.getCompanyProfiles().filter(
+      (p) => p.id.toUpperCase() !== target && p.code.trim().toUpperCase() !== target
+    );
+    this.saveCompanyProfiles(remaining);
+    return remaining;
+  },
+
+  profileToServerConfig(profile: CompanyProfile): ServerConfig {
+    return {
+      apiUrl: profile.serverUrl && profile.serverUrl !== 'demo' ? '/api' : 'demo',
+      companyCode: profile.code.trim().toUpperCase(),
+      period: profile.period || '2026',
+      autoSync: true,
+      companyTitle: profile.companyTitle || profile.name,
+      sqlHost: profile.sqlHost,
+      sqlPort: profile.sqlPort || '1433',
+      sqlDatabase: profile.sqlDatabase,
+      sqlUser: profile.sqlUser,
+      sqlPassword: profile.sqlPassword,
+      licenseExpireDate: profile.licenseExpireDate || '2027-12-31',
+    };
+  },
+
+  upsertCompanyProfileFromConfig(config: ServerConfig): void {
+    if (typeof window === 'undefined' || !config.companyCode?.trim()) return;
+    const codeUpper = config.companyCode.trim().toUpperCase();
+    if (codeUpper === ADMIN_COMPANY_CODE) return;
+
+    this.upsertCompanyProfile({
       id: `prof-${codeUpper}`,
       name: config.companyTitle?.trim() || codeUpper,
       code: codeUpper,
@@ -310,16 +419,7 @@ export const plasiyerAuthService = {
       sqlUser: config.sqlUser,
       sqlPassword: config.sqlPassword,
       licenseExpireDate: config.licenseExpireDate,
-    };
-
-    const idx = profiles.findIndex((p) => p.code.trim().toUpperCase() === codeUpper);
-    if (idx >= 0) {
-      profiles[idx] = { ...profiles[idx], ...profileEntry };
-    } else {
-      profiles.push(profileEntry);
-    }
-
-    localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(profiles));
+    });
   },
 
   findServerConfigByCompanyCode(companyCode: string): ServerConfig | null {
@@ -338,29 +438,10 @@ export const plasiyerAuthService = {
       // ignore
     }
 
-    try {
-      const profRaw = localStorage.getItem(PROFILES_STORAGE_KEY);
-      if (profRaw) {
-        const profiles = JSON.parse(profRaw) as CompanyProfile[];
-        const found = profiles.find((p) => p.code?.trim().toUpperCase() === codeUpper);
-        if (found) {
-          return {
-            apiUrl: found.serverUrl && found.serverUrl !== 'demo' ? '/api' : 'demo',
-            companyCode: found.code.toUpperCase(),
-            period: found.period || '2026',
-            autoSync: true,
-            companyTitle: found.companyTitle || found.name,
-            sqlHost: found.sqlHost,
-            sqlPort: found.sqlPort || '1433',
-            sqlDatabase: found.sqlDatabase,
-            sqlUser: found.sqlUser,
-            sqlPassword: found.sqlPassword,
-            licenseExpireDate: found.licenseExpireDate,
-          };
-        }
-      }
-    } catch {
-      // ignore
+    const profiles = this.getCompanyProfiles();
+    const found = profiles.find((p) => p.code?.trim().toUpperCase() === codeUpper);
+    if (found) {
+      return this.profileToServerConfig(found);
     }
 
     return null;
@@ -372,25 +453,63 @@ export const plasiyerAuthService = {
     password: string;
   }): Promise<{
     success: boolean;
+    isAdmin?: boolean;
+    adminUser?: AuthUser;
     account?: PlasiyerAccount;
     matchedServerConfig?: ServerConfig | null;
     error?: string;
   }> {
     const cCode = params.companyCode.trim().toUpperCase();
-    const rCode = params.repCode.trim().toUpperCase();
+    const rawUser = params.repCode.trim();
+    const rCode = rawUser.toUpperCase();
     const pwd = params.password;
 
     if (!cCode) {
       return { success: false, error: 'Lütfen Firma Kodunu giriniz.' };
     }
-    if (!rCode) {
-      return { success: false, error: 'Lütfen Plasiyer Kodunu giriniz.' };
+    if (!rawUser) {
+      return { success: false, error: 'Lütfen Kullanıcı / Plasiyer Kodunu giriniz.' };
     }
     if (!pwd) {
-      return { success: false, error: 'Lütfen Plasiyer Şifresini giriniz.' };
+      return { success: false, error: 'Lütfen Şifrenizi giriniz.' };
+    }
+
+    // 0. YETKİLİ KURUM (POLATLAR YAZILIM) SÜPER ADMİN GİRİŞ KONTROLÜ
+    if (cCode === ADMIN_COMPANY_CODE) {
+      if (rawUser.toLowerCase() === ADMIN_USERNAME && pwd === ADMIN_PASSWORD) {
+        return {
+          success: true,
+          isAdmin: true,
+          adminUser: {
+            id: 'admin-polatlar',
+            role: 'admin',
+            code: ADMIN_USERNAME,
+            name: 'Polatlar Yazılım (Yetkili Kurum)',
+            companyCode: ADMIN_COMPANY_CODE,
+          },
+        };
+      }
+      return {
+        success: false,
+        error: 'Yetkili Kurum (POLATLAR) kullanıcı adı veya şifresi hatalı!',
+      };
     }
 
     const matchedServerConfig = this.findServerConfigByCompanyCode(cCode);
+
+    // Lisans Bitiş Tarihi kontrolü
+    if (matchedServerConfig?.licenseExpireDate) {
+      const exp = matchedServerConfig.licenseExpireDate.trim();
+      if (/^\d{4}-\d{2}-\d{2}$/.test(exp)) {
+        const todayStr = new Date().toISOString().slice(0, 10);
+        if (exp < todayStr) {
+          return {
+            success: false,
+            error: `"${cCode}" firmasının kullanım lisans süresi (${exp}) dolmuştur. Lütfen Polatlar Yazılım ile iletişime geçiniz.`,
+          };
+        }
+      }
+    }
 
     // 1. Önce bağlı canlı SQL veritabanı varsa oradan doğrula (farklı bilgisayardan eklenen plasiyerler için)
     if (matchedServerConfig && !isDemoMode(matchedServerConfig) && navigator.onLine) {
@@ -425,7 +544,6 @@ export const plasiyerAuthService = {
             };
           }
           if (data?.found && !data?.authenticated) {
-            // SQL'de kayıt var ama şifre yanlış (yerelde güncellenmiş mi kontrol et, değilse hata dön)
             const localAccounts = this.getLocalAccounts();
             const localMatch = localAccounts.find(
               (a) =>
@@ -438,7 +556,7 @@ export const plasiyerAuthService = {
             }
             return {
               success: false,
-              error: data.error || 'Plasiyer şifresi hatalı! Lütfen şifrenizi kontrol ediniz.',
+              error: data.error || 'Giriş şifresi hatalı! Lütfen şifrenizi kontrol ediniz.',
             };
           }
         }
@@ -453,7 +571,7 @@ export const plasiyerAuthService = {
     if (companyAccounts.length === 0) {
       return {
         success: false,
-        error: `"${cCode}" Firma Koduna ait tanımlı plasiyer bulunamadı. Firma Kodunu kontrol ediniz.`,
+        error: `"${cCode}" Firma Koduna ait tanımlı hesap bulunamadı. Firma Kodunu kontrol ediniz veya yetkili kurumdan kurulum bağlantısı talep ediniz.`,
       };
     }
 
@@ -461,14 +579,14 @@ export const plasiyerAuthService = {
     if (!repAccount) {
       return {
         success: false,
-        error: `"${cCode}" firmasında "${rCode}" Plasiyer Kodu bulunamadı. (Girişte Ad Soyad değil, Plasiyer Kodu girilmelidir.)`,
+        error: `"${cCode}" firmasında "${rCode}" kullanıcı/plasiyer kodu bulunamadı.`,
       };
     }
 
     if (repAccount.password !== pwd) {
       return {
         success: false,
-        error: 'Plasiyer şifresi hatalı! Lütfen şifrenizi kontrol ediniz.',
+        error: 'Giriş şifresi hatalı! Lütfen şifrenizi kontrol ediniz.',
       };
     }
 
@@ -508,6 +626,52 @@ export const plasiyerAuthService = {
     return `${origin}/?invite=${encoded}`;
   },
 
+  buildCompanyInviteLink(profile: CompanyProfile, accounts?: PlasiyerAccount[]): string {
+    const origin =
+      typeof window !== 'undefined' ? window.location.origin : 'https://plasiyer.vercel.app';
+    const codeUpper = profile.code.trim().toUpperCase();
+    const firmAccounts =
+      accounts ??
+      this.getLocalAccounts().filter(
+        (a) => a.companyCode.toUpperCase() === codeUpper && !a.isDefaultSeed
+      );
+    const primaryAcc = firmAccounts[0];
+
+    const payload = {
+      v: 2,
+      cfg: {
+        apiUrl: profile.serverUrl && profile.serverUrl !== 'demo' ? '/api' : 'demo',
+        companyCode: codeUpper,
+        period: profile.period || '2026',
+        companyTitle: profile.companyTitle || profile.name || codeUpper,
+        sqlHost: profile.sqlHost || '',
+        sqlPort: profile.sqlPort || '1433',
+        sqlDatabase: profile.sqlDatabase || '',
+        sqlUser: profile.sqlUser || '',
+        sqlPassword: profile.sqlPassword || '',
+        licenseExpireDate: profile.licenseExpireDate || '2027-12-31',
+      },
+      acc: primaryAcc
+        ? {
+            companyCode: codeUpper,
+            repCode: primaryAcc.repCode.toUpperCase(),
+            firstName: primaryAcc.firstName,
+            lastName: primaryAcc.lastName,
+            password: primaryAcc.password,
+          }
+        : undefined,
+      accs: firmAccounts.map((a) => ({
+        companyCode: codeUpper,
+        repCode: a.repCode.toUpperCase(),
+        firstName: a.firstName,
+        lastName: a.lastName,
+        password: a.password,
+      })),
+    };
+    const encoded = encodeBase64UrlUtf8(JSON.stringify(payload));
+    return `${origin}/?invite=${encoded}`;
+  },
+
   consumeInviteFromUrl(): { imported: boolean; companyCode?: string; repCode?: string } {
     if (typeof window === 'undefined') return { imported: false };
     try {
@@ -534,7 +698,19 @@ export const plasiyerAuthService = {
         this.upsertCompanyProfileFromConfig(importedCfg);
       }
 
-      if (decoded?.acc?.companyCode && decoded?.acc?.repCode && decoded?.acc?.password) {
+      if (Array.isArray(decoded?.accs)) {
+        for (const item of decoded.accs) {
+          if (item?.companyCode && item?.repCode && item?.password) {
+            this.upsertAccountLocal({
+              companyCode: String(item.companyCode).toUpperCase(),
+              repCode: String(item.repCode).toUpperCase(),
+              firstName: String(item.firstName || ''),
+              lastName: String(item.lastName || ''),
+              password: String(item.password),
+            });
+          }
+        }
+      } else if (decoded?.acc?.companyCode && decoded?.acc?.repCode && decoded?.acc?.password) {
         this.upsertAccountLocal({
           companyCode: String(decoded.acc.companyCode).toUpperCase(),
           repCode: String(decoded.acc.repCode).toUpperCase(),

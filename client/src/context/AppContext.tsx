@@ -301,10 +301,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const isAuthenticated = !!currentUser;
 
-  // Rol Yönetimi: 'plasiyer' (Saha Satış) veya 'customer' (B2B Bayi/Müşteri)
+  // Rol Yönetimi: 'admin' (Yetkili Kurum), 'plasiyer' (Müşteri Firma / Saha Satış) veya 'customer' (B2B Bayi)
   const [userRole, setUserRole] = useState<UserRole>(() => {
+    try {
+      const savedAuth = localStorage.getItem('plasiyer_auth_user');
+      if (savedAuth) {
+        const parsed = JSON.parse(savedAuth) as AuthUser;
+        if (parsed?.role === 'admin' || parsed?.role === 'customer' || parsed?.role === 'plasiyer') {
+          return parsed.role;
+        }
+      }
+    } catch {
+      // ignore
+    }
     const saved = localStorage.getItem('b2b_user_role') as UserRole;
-    return saved === 'customer' ? 'customer' : 'plasiyer';
+    if (saved === 'admin' || saved === 'customer') return saved;
+    return 'plasiyer';
   });
 
   // B2B Müşteri Girişi yaptıysa hangi müşteri
@@ -441,7 +453,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const login = (user: AuthUser) => {
     setCurrentUser(user);
     localStorage.setItem('plasiyer_auth_user', JSON.stringify(user));
-    if (user.role === 'customer') {
+    if (user.role === 'admin') {
+      setUserRole('admin');
+      localStorage.setItem('b2b_user_role', 'admin');
+      setCurrentCustomerUser(null);
+      setSelectedCustomer(null);
+    } else if (user.role === 'customer') {
       setUserRole('customer');
       localStorage.setItem('b2b_user_role', 'customer');
       if (user.customerCode) {
@@ -456,6 +473,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } else {
       setUserRole('plasiyer');
       localStorage.setItem('b2b_user_role', 'plasiyer');
+      setActiveTab('catalog');
       if (user.salesRepCode) {
         const rep: SalesRep = {
           code: user.salesRepCode,
@@ -474,6 +492,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const logout = () => {
     setCurrentUser(null);
     localStorage.removeItem('plasiyer_auth_user');
+    localStorage.removeItem('b2b_user_role');
     setSelectedCustomer(null);
     setRawCart([]);
   };
@@ -720,7 +739,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Aşama 6 - B: Arka Planda Canlı Çift Yönlü Otomatik Senkronizasyon (60 sn)
   useEffect(() => {
-    if (!autoSyncEnabled || !isOnline || isDemoMode(serverConfig)) {
+    if (userRole === 'admin' || !autoSyncEnabled || !isOnline || isDemoMode(serverConfig)) {
       return;
     }
 

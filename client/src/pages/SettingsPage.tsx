@@ -43,6 +43,7 @@ import {
 export const SettingsPage: React.FC = () => {
   const { 
     userRole,
+    currentUser,
     currentCustomerUser,
     theme,
     toggleTheme,
@@ -87,18 +88,33 @@ export const SettingsPage: React.FC = () => {
       a.repCode.toUpperCase() === (salesRep.code || 'PLS01').toUpperCase()
   ) || plasiyerAccounts[0];
 
+  const activeFirmCode = (
+    currentUser?.companyCode ||
+    salesRep.companyCode ||
+    serverConfig.companyCode ||
+    '01'
+  ).toUpperCase();
+
   const [repCompanyCode, setRepCompanyCode] = useState(
-    (salesRep.companyCode || existingActiveAccount?.companyCode || serverConfig.companyCode || '01').toUpperCase()
+    userRole === 'admin'
+      ? (salesRep.companyCode || existingActiveAccount?.companyCode || serverConfig.companyCode || '01').toUpperCase()
+      : activeFirmCode
   );
-  const [repCode, setRepCode] = useState((salesRep.code || 'PLS01').toUpperCase());
+  const [repCode, setRepCode] = useState(
+    userRole === 'admin' ? (salesRep.code || 'PLS01').toUpperCase() : ''
+  );
   const [repFirstName, setRepFirstName] = useState(
-    salesRep.firstName ?? existingActiveAccount?.firstName ?? initialSplitName.firstName
+    userRole === 'admin'
+      ? (salesRep.firstName ?? existingActiveAccount?.firstName ?? initialSplitName.firstName)
+      : ''
   );
   const [repLastName, setRepLastName] = useState(
-    salesRep.lastName ?? existingActiveAccount?.lastName ?? initialSplitName.lastName
+    userRole === 'admin'
+      ? (salesRep.lastName ?? existingActiveAccount?.lastName ?? initialSplitName.lastName)
+      : ''
   );
   const [repPassword, setRepPassword] = useState(
-    salesRep.password || existingActiveAccount?.password || '1234'
+    userRole === 'admin' ? (salesRep.password || existingActiveAccount?.password || '1234') : ''
   );
   const [showRepPassword, setShowRepPassword] = useState(false);
   const [repNotice, setRepNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -466,7 +482,364 @@ export const SettingsPage: React.FC = () => {
     );
   }
 
-  // Plasiyer Görünümü
+  // Müşteri Firma / Plasiyer Görünümü: Yalnızca Kendi Firmasına Plasiyer Ekleme & Hesap Yönetimi
+  if (userRole !== 'admin') {
+    const firmPlasiyerAccounts = plasiyerAccounts.filter(
+      (acc) => acc.companyCode.toUpperCase() === activeFirmCode
+    );
+
+    const handleSaveFirmPlasiyer = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setRepNotice(null);
+
+      const cleanRepCode = repCode.trim().toUpperCase();
+      const cleanFirst = repFirstName.trim();
+      const cleanLast = repLastName.trim();
+      const cleanPassword = repPassword.trim();
+
+      if (!cleanRepCode) {
+        setRepNotice({
+          type: 'error',
+          text: 'Lütfen Plasiyer Kodu alanını doldurunuz (Örn: PLS01).',
+        });
+        return;
+      }
+
+      if (!cleanPassword) {
+        setRepNotice({
+          type: 'error',
+          text: 'Lütfen plasiyerin giriş ekranında kullanacağı Şifreyi belirleyiniz.',
+        });
+        return;
+      }
+
+      await plasiyerAuthService.upsertAccount(
+        {
+          companyCode: activeFirmCode,
+          repCode: cleanRepCode,
+          firstName: cleanFirst,
+          lastName: cleanLast,
+          password: cleanPassword,
+        },
+        serverConfig
+      );
+
+      setPlasiyerAccounts(plasiyerAuthService.getLocalAccounts());
+      setRepCode('');
+      setRepFirstName('');
+      setRepLastName('');
+      setRepPassword('');
+      setRepNotice({
+        type: 'success',
+        text: `"${cleanRepCode}" plasiyer hesabı ${activeFirmCode} firmanıza kaydedildi. Giriş ekranında Firma Kodu (${activeFirmCode}), Plasiyer Kodu ve Şifre ile oturum açılabilir.`,
+      });
+    };
+
+    return (
+      <div className="p-3 md:p-6 pb-36 md:pb-12 space-y-4 max-w-3xl mx-auto text-xs text-slate-900 dark:text-slate-100 w-full">
+        {/* Üst Aktif Müşteri Firma Bilgi Kartı */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-10 h-10 rounded-2xl bg-blue-600/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 flex items-center justify-center shrink-0">
+              <Building2 className="w-5 h-5" />
+            </div>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <h2 className="font-extrabold text-sm text-slate-900 dark:text-white truncate">
+                  {serverConfig.companyTitle || activeFirmCode}
+                </h2>
+                <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200/70 dark:border-blue-800/60">
+                  {activeFirmCode}
+                </span>
+              </div>
+              <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
+                Aktif Kullanıcı: <strong>{currentUser?.name || salesRep.name}</strong> ({currentUser?.code || salesRep.code})
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 shrink-0">
+            {serverConfig.apiUrl && serverConfig.apiUrl !== 'demo' && (
+              <button
+                type="button"
+                onClick={() => triggerSync()}
+                disabled={isSyncing}
+                className="px-3 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold flex items-center gap-1.5 transition active:scale-95 disabled:opacity-60"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? 'Eşitleniyor...' : 'Verileri Eşitle'}</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={toggleTheme}
+              className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition"
+              title={theme === 'dark' ? 'Aydınlık Moda Geç' : 'Karanlık Moda Geç'}
+            >
+              {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
+            </button>
+          </div>
+        </div>
+
+        {/* Sadece Plasiyer Ekleme & Yönetimi Kartı */}
+        <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0">
+                <UserPlus className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                  Plasiyer Ekleme
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  Firmanıza saha satış plasiyeri ekleyin veya mevcut plasiyer şifrelerini güncelleyin
+                </p>
+              </div>
+            </div>
+
+            {(repCode || repFirstName || repLastName || repPassword) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setRepCode('');
+                  setRepFirstName('');
+                  setRepLastName('');
+                  setRepPassword('');
+                  setRepNotice(null);
+                }}
+                className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 font-bold text-[11px] transition shrink-0"
+              >
+                Formu Temizle
+              </button>
+            )}
+          </div>
+
+          <form onSubmit={handleSaveFirmPlasiyer} className="space-y-3">
+            {/* Satır 1: Sabit Firma Kodu & Plasiyer Kodu */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Firma Kodu:
+                </label>
+                <input
+                  type="text"
+                  value={activeFirmCode}
+                  disabled
+                  className="w-full bg-slate-100 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-800 rounded-xl p-2.5 font-mono font-bold uppercase text-xs text-slate-500 dark:text-slate-400 cursor-not-allowed"
+                />
+              </div>
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Plasiyer Kodu:
+                </label>
+                <input
+                  type="text"
+                  value={repCode}
+                  onChange={(e) => setRepCode(e.target.value.toUpperCase())}
+                  placeholder="Örn: PLS02"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 font-mono font-bold uppercase text-xs focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                  required
+                />
+              </div>
+            </div>
+
+            {/* Satır 2: Plasiyer Adı & Plasiyer Soyadı */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Plasiyer Adı:
+                </label>
+                <input
+                  type="text"
+                  value={repFirstName}
+                  onChange={(e) => setRepFirstName(e.target.value)}
+                  placeholder="Örn: Mehmet"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                />
+              </div>
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Plasiyer Soyadı:
+                </label>
+                <input
+                  type="text"
+                  value={repLastName}
+                  onChange={(e) => setRepLastName(e.target.value)}
+                  placeholder="Örn: Kaya"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 text-xs focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                />
+              </div>
+            </div>
+
+            {/* Satır 3: Plasiyer Giriş Şifresi & Kaydet Butonu */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 items-end">
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Plasiyer Giriş Şifresi:
+                </label>
+                <div className="relative">
+                  <input
+                    type={showRepPassword ? 'text' : 'password'}
+                    value={repPassword}
+                    onChange={(e) => setRepPassword(e.target.value)}
+                    placeholder="Giriş şifresi belirleyin"
+                    className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 pr-9 font-mono text-xs focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
+                    required
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowRepPassword(!showRepPassword)}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                    title={showRepPassword ? 'Şifreyi Gizle' : 'Şifreyi Göster'}
+                  >
+                    {showRepPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="submit"
+                className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2.5 px-4 rounded-xl flex items-center justify-center gap-1.5 transition active:scale-95 text-xs shadow-sm"
+              >
+                <UserPlus className="w-4 h-4" />
+                <span>Plasiyer Ekle / Kaydet</span>
+              </button>
+            </div>
+          </form>
+
+          {repNotice && (
+            <div
+              className={`p-3 rounded-xl border text-[11px] font-medium flex items-center gap-2 ${
+                repNotice.type === 'success'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300'
+              }`}
+            >
+              {repNotice.type === 'success' ? (
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              )}
+              <span>{repNotice.text}</span>
+            </div>
+          )}
+
+          {/* Firmaya Kayıtlı Plasiyerler Listesi */}
+          <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
+            <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
+              <span>Firmaya Kayıtlı Plasiyerler ({firmPlasiyerAccounts.length})</span>
+              <span>Düzenlemek için satıra tıklayın</span>
+            </div>
+
+            {firmPlasiyerAccounts.length === 0 ? (
+              <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700 text-center text-slate-400">
+                Henüz tanımlı plasiyer bulunmuyor. Yukarıdaki formdan ilk plasiyerinizi ekleyebilirsiniz.
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {firmPlasiyerAccounts.map((acc) => {
+                  const isEditingThis = acc.repCode.toUpperCase() === repCode.trim().toUpperCase();
+                  const fullName = formatFullName(acc.firstName, acc.lastName) || acc.repCode;
+
+                  return (
+                    <div
+                      key={acc.id}
+                      onClick={() => {
+                        setRepCode(acc.repCode);
+                        setRepFirstName(acc.firstName);
+                        setRepLastName(acc.lastName);
+                        setRepPassword(acc.password);
+                        setRepNotice(null);
+                      }}
+                      className={`p-3 rounded-xl border flex items-center justify-between gap-2 cursor-pointer transition ${
+                        isEditingThis
+                          ? 'bg-blue-50/70 dark:bg-blue-950/30 border-blue-400/70 dark:border-blue-700'
+                          : 'bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                      }`}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-lg bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
+                            {acc.repCode}
+                          </span>
+                          <span className="font-bold text-xs text-slate-900 dark:text-white truncate">
+                            {fullName}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => handleCopyInviteLink(acc)}
+                          className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-blue-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-[11px] font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1 transition"
+                          title="Plasiyerin telefonunda tek tıkla kurulum yapmak için bağlantıyı kopyala"
+                        >
+                          {copiedAccountId === acc.id ? (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-500" />
+                              <span className="text-emerald-600 dark:text-emerald-400">Kopyalandı</span>
+                            </>
+                          ) : (
+                            <>
+                              <Share2 className="w-3.5 h-3.5" />
+                              <span>Mobil Link</span>
+                            </>
+                          )}
+                        </button>
+
+                        {firmPlasiyerAccounts.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const remaining = await plasiyerAuthService.deleteAccount(
+                                acc.companyCode,
+                                acc.repCode,
+                                serverConfig
+                              );
+                              setPlasiyerAccounts(remaining);
+                            }}
+                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition"
+                            title="Plasiyer hesabını sil"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {!isPwaInstalled && (
+          <button
+            type="button"
+            onClick={() => promptPwaInstall()}
+            className="w-full py-3 px-4 rounded-2xl bg-blue-50 dark:bg-slate-900 hover:bg-blue-100 dark:hover:bg-slate-800 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-slate-800 font-bold text-xs flex items-center justify-center gap-2 transition"
+          >
+            <Download className="w-4 h-4" />
+            <span>Uygulamayı Ana Ekrana Yükle</span>
+          </button>
+        )}
+
+        {/* Oturumu Kapat */}
+        <button
+          type="button"
+          onClick={logout}
+          className="w-full bg-slate-100 dark:bg-slate-800 hover:bg-rose-50 dark:hover:bg-rose-950/40 text-slate-700 dark:text-slate-300 hover:text-rose-600 dark:hover:text-rose-400 font-bold py-3 rounded-2xl border border-slate-200 dark:border-slate-700 transition flex items-center justify-center gap-2"
+        >
+          <LogOut className="w-4 h-4" />
+          <span>Oturumu Kapat (Giriş Ekranına Dön)</span>
+        </button>
+      </div>
+    );
+  }
+
+  // Yetkili Kurum (Admin) Tam Ayarlar Görünümü (Mevcut Ayarlar Sayfası Birebir Korunur)
   return (
     <div className="p-3 md:p-6 pb-36 md:pb-12 space-y-4 max-w-5xl mx-auto text-xs text-slate-900 dark:text-slate-100 w-full">
       {/* Görsel-1: Canlı SQL / ERP12 Durum ve Eşitleme Çubuğu */}

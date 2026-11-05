@@ -22,7 +22,9 @@ interface RoleSwitcherModalProps {
 export const RoleSwitcherModal: React.FC<RoleSwitcherModalProps> = ({ isOpen, onClose }) => {
   const { userRole, currentCustomerUser, switchUserRole } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedRole, setSelectedRole] = useState<'plasiyer' | 'customer'>(userRole);
+  const [selectedRole, setSelectedRole] = useState<'plasiyer' | 'customer'>(
+    userRole === 'customer' ? 'customer' : 'plasiyer'
+  );
 
   const customers = useLiveQuery(() => db.customers.toArray(), []);
 

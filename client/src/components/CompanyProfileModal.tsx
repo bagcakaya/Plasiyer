@@ -85,10 +85,21 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
   const [formTestResult, setFormTestResult] = useState<{ testing: boolean; success?: boolean; message?: string }>({ testing: false });
   const [formError, setFormError] = useState('');
 
-  // LocalStorage senkronizasyonu
+  // Modal açıldığında güncel profilleri yükle
   useEffect(() => {
-    localStorage.setItem('plasiyer_company_profiles', JSON.stringify(profiles));
-  }, [profiles]);
+    if (!isOpen) return;
+    const saved = localStorage.getItem('plasiyer_company_profiles');
+    if (saved) {
+      try {
+        const parsed: CompanyProfile[] = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setProfiles(parsed);
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -188,7 +199,11 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
       isDefault: false,
     };
 
-    setProfiles(prev => [...prev, newProfile]);
+    setProfiles(prev => {
+      const next = [...prev, newProfile];
+      localStorage.setItem('plasiyer_company_profiles', JSON.stringify(next));
+      return next;
+    });
     setIsAddingNew(false);
     setNewCode('');
     setNewTitle('');
@@ -207,7 +222,11 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
       alert('En az bir firma profili kayıtlı kalmalıdır.');
       return;
     }
-    setProfiles(prev => prev.filter(p => p.id !== id));
+    setProfiles(prev => {
+      const next = prev.filter(p => p.id !== id);
+      localStorage.setItem('plasiyer_company_profiles', JSON.stringify(next));
+      return next;
+    });
   };
 
   return (
