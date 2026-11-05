@@ -9,7 +9,10 @@ export const isDemoMode = (config?: ServerConfig): boolean => {
 
 let cachedLocalBridgeState: { available: boolean; checkedAt: number; url: string } | null = null;
 
-export const resolveApiBaseUrlAsync = async (config?: ServerConfig): Promise<string> => {
+export const resolveApiBaseUrlAsync = async (
+  config?: ServerConfig,
+  forceProbe = false
+): Promise<string> => {
   if (typeof window === 'undefined') return '/api';
   const host = window.location.hostname;
   const protocol = window.location.protocol;
@@ -30,7 +33,7 @@ export const resolveApiBaseUrlAsync = async (config?: ServerConfig): Promise<str
   // önce hızlıca onu kontrol et; yoksa (mobil cihaz / saha) doğrudan '/api' Serverless katmanını kullan.
   const now = Date.now();
   const localCandidate = `http://localhost:${bridge}/api`;
-  if (cachedLocalBridgeState && now - cachedLocalBridgeState.checkedAt < 30000) {
+  if (!forceProbe && cachedLocalBridgeState && now - cachedLocalBridgeState.checkedAt < 30000) {
     return cachedLocalBridgeState.available ? cachedLocalBridgeState.url : '/api';
   }
 
@@ -162,7 +165,7 @@ export const apiService = {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000);
 
-      const baseUrl = (await resolveApiBaseUrlAsync(config));
+      const baseUrl = await resolveApiBaseUrlAsync(config, true);
       const response = await fetch(`${baseUrl}/sql/test`, {
         method: 'POST',
         headers: {
@@ -216,7 +219,7 @@ export const apiService = {
     const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     try {
-      const baseUrl = (await resolveApiBaseUrlAsync(config));
+      const baseUrl = await resolveApiBaseUrlAsync(config, true);
       const response = await fetch(`${baseUrl}/customers?rep=${encodeURIComponent(salesRepCode)}&company=${encodeURIComponent(config.companyCode || '01')}`, {
         headers: {
           ...buildSqlHeaders(config),
@@ -246,7 +249,7 @@ export const apiService = {
     const timeoutId = setTimeout(() => controller.abort(), 25000);
 
     try {
-      const baseUrl = (await resolveApiBaseUrlAsync(config));
+      const baseUrl = await resolveApiBaseUrlAsync(config, true);
       const response = await fetch(`${baseUrl}/products?company=${encodeURIComponent(config.companyCode || '01')}`, {
         headers: {
           ...buildSqlHeaders(config),
@@ -273,7 +276,7 @@ export const apiService = {
     }
 
     try {
-      const baseUrl = (await resolveApiBaseUrlAsync(config));
+      const baseUrl = await resolveApiBaseUrlAsync(config, true);
       const response = await fetch(`${baseUrl}/orders`, {
         method: 'POST',
         headers: {

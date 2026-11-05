@@ -12,6 +12,7 @@ import {
   verifyAdminAuthHeader,
   verifyFirmOrAdminAuth,
 } from './cloudRegistry.js';
+import { sqlCloudMirror } from './sqlCloudMirror.js';
 
 dotenv.config();
 
@@ -95,6 +96,46 @@ app.post('/api/sql/test', async (req, res) => {
   try {
     const cfg = (req.body && req.body.sqlHost) ? req.body : (sqlContext.getStore() || req.body || {});
     const result = await testDirectSqlConnection(cfg);
+
+    if (result?.success && sqlCloudMirror.isRemoteMirrorable(cfg)) {
+      sqlCloudMirror.saveStatus(cfg, result).catch(() => {});
+      if (!process.env.VERCEL) {
+        // Türkiye köprüsü üzerinden başarılı test sonrası bulut aynasını da arka planda güncelle
+        sqlContext.run(cfg, async () => {
+          try {
+            const [custs, prods, groups] = await Promise.all([
+              erpQueries.getCustomers(),
+              erpQueries.getProducts(),
+              erpQueries.getStockGroups().catch(() => []),
+            ]);
+            await Promise.all([
+              sqlCloudMirror.saveCustomers(cfg, custs),
+              sqlCloudMirror.saveProducts(cfg, prods),
+              sqlCloudMirror.saveStockGroups(cfg, groups),
+            ]);
+          } catch {
+            // ignore background mirror error
+          }
+        });
+      }
+      return res.json(result);
+    }
+
+    // Buluttan (Vercel) doğrudan TCP GeoIP engeline takıldıysa Türkiye Bulut Köprüsü aynasını kontrol et
+    if (!result?.success && sqlCloudMirror.isRemoteMirrorable(cfg)) {
+      const mirrored = await sqlCloudMirror.verifyAndGetStatus(cfg);
+      if (mirrored) {
+        return res.json({
+          success: true,
+          bridged: true,
+          dbName: mirrored.dbName,
+          tableCount: mirrored.tableCount,
+          hasErpTables: mirrored.hasErpTables,
+          message: `${mirrored.originalMessage} (Bulut Köprüsü Aktif)`,
+        });
+      }
+    }
+
     res.json(result);
   } catch (err) {
     res.status(500).json({
@@ -138,12 +179,23 @@ app.get('/api/notifications/stream', (req, res) => {
 // 1. CARİ LİSTESİ VE BAKİYELERİ GETİR
 app.get('/api/customers', async (req, res) => {
   const start = Date.now();
+  const activeCfg = sqlContext.getStore();
   try {
     const salesRepCode = req.query.rep;
     const customers = await erpQueries.getCustomers(salesRepCode);
+    if (!process.env.VERCEL && !salesRepCode && sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      sqlCloudMirror.saveCustomers(activeCfg, customers).catch(() => {});
+    }
     res.json(customers);
     console.log(`⚡ [API] GET /api/customers - ${customers.length} cari teslim edildi (${Date.now() - start}ms)`);
   } catch (err) {
+    if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      const mirroredCustomers = await sqlCloudMirror.getCustomers(activeCfg, req.query.rep);
+      if (mirroredCustomers) {
+        console.log(`☁️ [Bulut Köprüsü] GET /api/customers - ${mirroredCustomers.length} cari teslim edildi`);
+        return res.json(mirroredCustomers);
+      }
+    }
     console.error('Cari çekme hatası:', err.message);
     res.status(500).json({ error: 'Cariler alınamadı', detail: err.message });
   }
@@ -187,11 +239,22 @@ app.get('/api/customers/:idOrCode/history', async (req, res) => {
 // 2. STOK LİSTESİ VE GÜNCEL MEVCUTLARI GETİR
 app.get('/api/products', async (req, res) => {
   const start = Date.now();
+  const activeCfg = sqlContext.getStore();
   try {
     const products = await erpQueries.getProducts();
+    if (!process.env.VERCEL && sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      sqlCloudMirror.saveProducts(activeCfg, products).catch(() => {});
+    }
     res.json(products);
     console.log(`⚡ [API] GET /api/products - ${products.length} ürün teslim edildi (${Date.now() - start}ms)`);
   } catch (err) {
+    if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      const mirroredProducts = await sqlCloudMirror.getProducts(activeCfg);
+      if (mirroredProducts) {
+        console.log(`☁️ [Bulut Köprüsü] GET /api/products - ${mirroredProducts.length} ürün teslim edildi`);
+        return res.json(mirroredProducts);
+      }
+    }
     console.error('Stok çekme hatası:', err.message);
     res.status(500).json({ error: 'Stoklar alınamadı', detail: err.message });
   }
@@ -199,10 +262,20 @@ app.get('/api/products', async (req, res) => {
 
 // 2.1 STOK GRUPLARI LİSTESİ (STOK_GRUP)
 app.get('/api/stock-groups', async (req, res) => {
+  const activeCfg = sqlContext.getStore();
   try {
     const groups = await erpQueries.getStockGroups();
+    if (!process.env.VERCEL && sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      sqlCloudMirror.saveStockGroups(activeCfg, groups).catch(() => {});
+    }
     res.json(groups);
   } catch (err) {
+    if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      const mirroredGroups = await sqlCloudMirror.getStockGroups(activeCfg);
+      if (mirroredGroups) {
+        return res.json(mirroredGroups);
+      }
+    }
     console.error('Stok grupları hatası:', err.message);
     res.status(500).json({ error: 'Stok grupları alınamadı', detail: err.message });
   }
@@ -302,6 +375,23 @@ app.post('/api/orders', async (req, res) => {
       message: 'Sipariş ERP12 sistemine aktarıldı.',
     });
   } catch (err) {
+    const activeCfg = sqlContext.getStore();
+    if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      const queued = await sqlCloudMirror.enqueueOutboxItem(activeCfg, {
+        type: 'order',
+        payload: req.body,
+      });
+      if (queued) {
+        const tempDocNo =
+          req.body?.order?.tempId || `BLT-${Date.now().toString().slice(-6)}`;
+        return res.json({
+          success: true,
+          queuedForSqlBridge: true,
+          docNo: tempDocNo,
+          message: 'Sipariş bulut köprüsüne kaydedildi ve ERP12 SQL sunucusuna aktarılıyor.',
+        });
+      }
+    }
     console.error('Sipariş kaydetme hatası:', err.message);
     res.status(500).json({ error: 'Sipariş ERP12 veritabanına yazılamadı', detail: err.message });
   }
@@ -342,6 +432,25 @@ app.post('/api/collections', async (req, res) => {
       message: 'Tahsilat ERP12 sistemine aktarıldı.',
     });
   } catch (err) {
+    const activeCfg = sqlContext.getStore();
+    if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      const queued = await sqlCloudMirror.enqueueOutboxItem(activeCfg, {
+        type: 'collection',
+        payload: req.body,
+      });
+      if (queued) {
+        const tempDocNo =
+          req.body?.collection?.receiptNo ||
+          req.body?.collection?.tempId ||
+          `THS-${Date.now().toString().slice(-6)}`;
+        return res.json({
+          success: true,
+          queuedForSqlBridge: true,
+          docNo: tempDocNo,
+          message: 'Tahsilat bulut köprüsüne kaydedildi ve ERP12 SQL sunucusuna aktarılıyor.',
+        });
+      }
+    }
     console.error('Tahsilat kaydetme hatası:', err.message);
     res.status(500).json({ error: 'Tahsilat ERP12 veritabanına yazılamadı', detail: err.message });
   }
@@ -726,6 +835,60 @@ app.post('/api/registry/authenticate', async (req, res) => {
   }
 });
 
+// Türkiye yerel servisi aktifken kayıtlı uzak SQL firmalarının bulut aynasını ve bekleyen mobil sipariş kuyruğunu senkronize et
+async function syncRegisteredRemoteSqlMirrors(includeCatalog = true) {
+  try {
+    const reg = await cloudRegistry.getFullRegistry();
+    for (const p of reg.profiles || []) {
+      if (!p?.sqlHost || p.serverUrl === 'demo') continue;
+      const cfg = {
+        sqlHost: p.sqlHost,
+        sqlPort: p.sqlPort || '1433',
+        sqlDatabase: p.sqlDatabase,
+        sqlUser: p.sqlUser || '',
+        sqlPassword: p.sqlPassword || '',
+      };
+      if (!sqlCloudMirror.isRemoteMirrorable(cfg)) continue;
+
+      await sqlContext.run(cfg, async () => {
+        // 1. Mobil cihazlardan gelen bekleyen sipariş/tahsilat kuyruğunu gerçek SQL'e yaz
+        await sqlCloudMirror.drainOutbox(cfg, async (item) => {
+          if (item.type === 'order' && item.payload?.order) {
+            const r = await erpQueries.createOrder(item.payload);
+            console.log(`☁️➡️🗄️ Bulut Kuyruğundan Sipariş SQL'e Yazıldı: ${r.docNo} (${p.code})`);
+          } else if (item.type === 'collection' && item.payload?.collection) {
+            const r = await erpQueries.createCollection(item.payload);
+            console.log(`☁️➡️🗄️ Bulut Kuyruğundan Tahsilat SQL'e Yazıldı: ${r.docNo} (${p.code})`);
+          }
+        });
+
+        // 2. Cari, Stok ve Durum aynasını güncelle
+        if (includeCatalog) {
+          const testRes = await testDirectSqlConnection(cfg);
+          if (testRes?.success) {
+            await sqlCloudMirror.saveStatus(cfg, testRes);
+            const [custs, prods, groups] = await Promise.all([
+              erpQueries.getCustomers(),
+              erpQueries.getProducts(),
+              erpQueries.getStockGroups().catch(() => []),
+            ]);
+            await Promise.all([
+              sqlCloudMirror.saveCustomers(cfg, custs),
+              sqlCloudMirror.saveProducts(cfg, prods),
+              sqlCloudMirror.saveStockGroups(cfg, groups),
+            ]);
+            console.log(
+              `☁️✅ [${p.code}] Bulut SQL Aynası Güncellendi: ${custs.length} cari, ${prods.length} stok`
+            );
+          }
+        }
+      });
+    }
+  } catch (err) {
+    console.warn('⚠️ Uzak SQL bulut aynası senkron uyarısı:', err.message);
+  }
+}
+
 // Sunucuyu başlat (Vercel Serverless dışındaki ortamlarda dinle)
 if (!process.env.VERCEL) {
   app.listen(PORT, async () => {
@@ -740,6 +903,11 @@ if (!process.env.VERCEL) {
     } catch (err) {
       console.warn('⚠️ Veritabanı testi uyarısı:', err.message);
     }
+
+    // Açılışta ve periyodik olarak uzak müşteri SQL veritabanlarını bulut köprüsüyle eşitle
+    syncRegisteredRemoteSqlMirrors(true);
+    setInterval(() => syncRegisteredRemoteSqlMirrors(false), 20000);
+    setInterval(() => syncRegisteredRemoteSqlMirrors(true), 180000);
   });
 }
 

@@ -136,7 +136,7 @@ function buildMssqlConfig(cfg) {
       min: 0,
       idleTimeoutMillis: 25000,
     },
-    connectionTimeout: 10000,
+    connectionTimeout: process.env.VERCEL ? 3500 : 10000,
     requestTimeout: 30000,
   };
 
@@ -254,7 +254,7 @@ export async function testDirectSqlConnection(rawConfig) {
     tempPool = new sql.ConnectionPool({
       ...buildMssqlConfig(cfg),
       pool: { max: 2, min: 0, idleTimeoutMillis: 5000 },
-      connectionTimeout: 9000,
+      connectionTimeout: process.env.VERCEL ? 3500 : 9000,
     });
     await tempPool.connect();
 
