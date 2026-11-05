@@ -140,7 +140,9 @@ export const AdminPortalPage: React.FC = () => {
     null
   );
 
-  // Sekme değiştiğinde veya serverConfig güncellendiğinde listeyi tazele
+  const [isSyncingCloud, setIsSyncingCloud] = useState<boolean>(false);
+
+  // Sekme değiştiğinde veya serverConfig güncellendiğinde yerel listeyi tazele
   const refreshData = () => {
     const nextProfiles = plasiyerAuthService.getCompanyProfiles();
     setProfiles(nextProfiles);
@@ -150,9 +152,46 @@ export const AdminPortalPage: React.FC = () => {
     }
   };
 
+  // PC ve Mobil arasında merkezi bulut senkronizasyonu
+  const syncWithCloud = async () => {
+    setIsSyncingCloud(true);
+    try {
+      const res = await plasiyerAuthService.syncAdminCloudRegistry();
+      if (res.synced) {
+        setProfiles(res.profiles);
+        setAccounts(res.accounts);
+        if (!quickAccCompany && res.profiles[0]?.code) {
+          setQuickAccCompany(res.profiles[0].code);
+        }
+      } else {
+        refreshData();
+      }
+    } finally {
+      setIsSyncingCloud(false);
+    }
+  };
+
   useEffect(() => {
     refreshData();
+    syncWithCloud();
   }, [activeAdminTab, serverConfig]);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        syncWithCloud();
+      }
+    };
+    const onFocus = () => {
+      syncWithCloud();
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, []);
 
   // Özet İstatistikler
   const stats = useMemo(() => {
@@ -166,7 +205,7 @@ export const AdminPortalPage: React.FC = () => {
       if (st.tone === 'amber') expiringSoon += 1;
     });
     const customerAccounts = accounts.filter(
-      (a) => a.companyCode.toUpperCase() !== ADMIN_COMPANY_CODE
+      (a) => !a.isDefaultSeed && a.companyCode.toUpperCase() !== ADMIN_COMPANY_CODE
     );
     return {
       totalFirms,
@@ -191,7 +230,7 @@ export const AdminPortalPage: React.FC = () => {
 
   const filteredAccounts = useMemo(() => {
     return accounts
-      .filter((a) => a.companyCode.toUpperCase() !== ADMIN_COMPANY_CODE)
+      .filter((a) => !a.isDefaultSeed && a.companyCode.toUpperCase() !== ADMIN_COMPANY_CODE)
       .filter((a) =>
         accountCompanyFilter === 'ALL'
           ? true
@@ -311,7 +350,7 @@ export const AdminPortalPage: React.FC = () => {
     }
   };
 
-  const handleDeleteFirm = (profile: CompanyProfile) => {
+  const handleDeleteFirm = async (profile: CompanyProfile) => {
     if (
       !window.confirm(
         `"${profile.companyTitle || profile.code}" (${profile.code}) müşteri firma kaydını silmek istediğinize emin misiniz?`
@@ -319,7 +358,7 @@ export const AdminPortalPage: React.FC = () => {
     ) {
       return;
     }
-    const next = plasiyerAuthService.deleteCompanyProfile(profile.code);
+    const next = await plasiyerAuthService.deleteCompanyProfileAsync(profile.code);
     setProfiles(next);
   };
 
@@ -373,10 +412,10 @@ export const AdminPortalPage: React.FC = () => {
     setIsSavingFirm(true);
     try {
       if (editingFirmOriginalCode && editingFirmOriginalCode !== cleanCode) {
-        plasiyerAuthService.deleteCompanyProfile(editingFirmOriginalCode);
+        await plasiyerAuthService.deleteCompanyProfileAsync(editingFirmOriginalCode);
       }
 
-      const savedProfile = plasiyerAuthService.upsertCompanyProfile({
+      const savedProfile = await plasiyerAuthService.upsertCompanyProfileAsync({
         code: cleanCode,
         name: formTitle.trim() || cleanCode,
         companyTitle: formTitle.trim() || cleanCode,
@@ -486,8 +525,21 @@ export const AdminPortalPage: React.FC = () => {
             </div>
           </div>
 
-          {/* Sağ: Durum, Tema ve Güvenli Çıkış */}
+          {/* Sağ: Bulut Senkron, Durum, Tema ve Güvenli Çıkış */}
           <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={syncWithCloud}
+              disabled={isSyncingCloud}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/30 text-[11px] font-bold text-emerald-200 transition active:scale-95"
+              title="Tüm Cihazlarla Şimdi Senkronize Et"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 text-emerald-300 ${isSyncingCloud ? 'animate-spin' : ''}`} />
+              <span className="hidden xs:inline sm:inline">
+                {isSyncingCloud ? 'Eşitleniyor...' : 'Bulut Senkron'}
+              </span>
+            </button>
+
             <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-white/5 border border-white/10 text-[11px] font-semibold">
               {isOnline ? (
                 <>

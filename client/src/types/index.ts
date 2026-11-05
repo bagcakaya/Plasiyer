@@ -344,6 +344,7 @@ export interface CompanyProfile {
   sqlUser?: string;
   sqlPassword?: string;
   licenseExpireDate?: string;
+  updatedAt?: string;
 }
 
 // AŞAMA 6 - C: İADE & DEĞİŞİM MODÜLÜ

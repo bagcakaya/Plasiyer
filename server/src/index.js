@@ -7,6 +7,11 @@ import dotenv from 'dotenv';
 import { erpQueries } from './erpQueries.js';
 import { testConnection, testDirectSqlConnection, sqlContext } from './db.js';
 import { imageService } from './imageService.js';
+import {
+  cloudRegistry,
+  verifyAdminAuthHeader,
+  verifyFirmOrAdminAuth,
+} from './cloudRegistry.js';
 
 dotenv.config();
 
@@ -463,9 +468,30 @@ app.get('/api/campaigns', (req, res) => {
 // 8. PLASİYER KULLANICI YÖNETİMİ VE GİRİŞ DOĞRULAMA (FİRMA KODU + PLASİYER KODU + ŞİFRE)
 app.get('/api/plasiyers', async (req, res) => {
   try {
-    const companyCode = String(req.query.companyCode || '').trim();
-    const accounts = await erpQueries.getPlasiyerAccounts(companyCode);
-    res.json({ success: true, accounts });
+    const companyCode = String(req.query.companyCode || '').trim().toUpperCase();
+    const authCheck = await verifyFirmOrAdminAuth(req, companyCode || undefined);
+
+    let cloudAccounts = [];
+    if (authCheck.authorized) {
+      cloudAccounts = await cloudRegistry.getAccountsByCompany(
+        authCheck.isAdmin ? companyCode : authCheck.companyCode
+      );
+    }
+
+    let sqlAccounts = [];
+    try {
+      sqlAccounts = await erpQueries.getPlasiyerAccounts(companyCode);
+    } catch {
+      // SQL erişimi yoksa bulut kayıtlarıyla devam et
+    }
+
+    const mergedMap = new Map();
+    for (const acc of [...sqlAccounts, ...cloudAccounts]) {
+      if (!acc?.companyCode || !acc?.repCode) continue;
+      mergedMap.set(`${acc.companyCode.toUpperCase()}::${acc.repCode.toUpperCase()}`, acc);
+    }
+
+    res.json({ success: true, accounts: Array.from(mergedMap.values()) });
   } catch (err) {
     res.json({ success: true, accounts: [], warning: err.message });
   }
@@ -480,16 +506,36 @@ app.post('/api/plasiyers', async (req, res) => {
         error: 'Firma Kodu, Plasiyer Kodu ve Şifre zorunludur.',
       });
     }
-    const saved = await erpQueries.upsertPlasiyerAccount({
-      companyCode,
-      repCode,
-      firstName: firstName || '',
-      lastName: lastName || '',
-      password,
-    });
-    res.json({ success: true, account: saved });
+
+    const authCheck = await verifyFirmOrAdminAuth(req, companyCode);
+    let cloudSaved = null;
+    if (authCheck.authorized) {
+      const regRes = await cloudRegistry.upsertAccount({
+        companyCode,
+        repCode,
+        firstName: firstName || '',
+        lastName: lastName || '',
+        password,
+      });
+      cloudSaved = regRes.account;
+    }
+
+    let sqlSaved = null;
+    try {
+      sqlSaved = await erpQueries.upsertPlasiyerAccount({
+        companyCode,
+        repCode,
+        firstName: firstName || '',
+        lastName: lastName || '',
+        password,
+      });
+    } catch (sqlErr) {
+      console.warn('Plasiyer SQL kayıt uyarısı:', sqlErr.message);
+    }
+
+    res.json({ success: true, account: cloudSaved || sqlSaved });
   } catch (err) {
-    console.warn('Plasiyer SQL kayıt uyarısı:', err.message);
+    console.warn('Plasiyer kayıt uyarısı:', err.message);
     res.json({ success: false, warning: err.message });
   }
 });
@@ -501,7 +547,18 @@ app.delete('/api/plasiyers', async (req, res) => {
     if (!companyCode || !repCode) {
       return res.status(400).json({ success: false, error: 'Firma Kodu ve Plasiyer Kodu gereklidir.' });
     }
-    await erpQueries.deletePlasiyerAccount({ companyCode, repCode });
+
+    const authCheck = await verifyFirmOrAdminAuth(req, companyCode);
+    if (authCheck.authorized) {
+      await cloudRegistry.deleteAccount(companyCode, repCode);
+    }
+
+    try {
+      await erpQueries.deletePlasiyerAccount({ companyCode, repCode });
+    } catch {
+      // ignore SQL delete warning if offline/bridged
+    }
+
     res.json({ success: true });
   } catch (err) {
     res.json({ success: false, warning: err.message });
@@ -519,6 +576,151 @@ app.post('/api/plasiyers/login', async (req, res) => {
     }
     const result = await erpQueries.authenticatePlasiyer({ companyCode, repCode, password });
     res.json({ success: true, ...result });
+  } catch (err) {
+    res.json({ success: false, found: false, authenticated: false, warning: err.message });
+  }
+});
+
+// 9. MERKEZİ BULUT FİRMA & KULLANICI SENKRONİZASYONU (TÜM CİHAZLAR ARASI ORTAK KAYIT)
+app.get('/api/registry', async (req, res) => {
+  if (!verifyAdminAuthHeader(req)) {
+    return res.status(401).json({ success: false, error: 'Yetkisiz erişim.' });
+  }
+  try {
+    const data = await cloudRegistry.getFullRegistry();
+    res.json({ success: true, ...data });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/registry/sync', async (req, res) => {
+  if (!verifyAdminAuthHeader(req)) {
+    return res.status(401).json({ success: false, error: 'Yetkisiz erişim.' });
+  }
+  try {
+    const { profiles, accounts } = req.body || {};
+    const synced = await cloudRegistry.syncFromAdmin({
+      profiles: Array.isArray(profiles) ? profiles : [],
+      accounts: Array.isArray(accounts) ? accounts : [],
+    });
+    res.json({ success: true, ...synced });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/registry/companies', async (req, res) => {
+  if (!verifyAdminAuthHeader(req)) {
+    return res.status(401).json({ success: false, error: 'Yetkisiz erişim.' });
+  }
+  try {
+    const profile = req.body?.profile || req.body;
+    if (!profile?.code) {
+      return res.status(400).json({ success: false, error: 'Firma Kodu zorunludur.' });
+    }
+    const saved = await cloudRegistry.upsertCompany(profile);
+    res.json({ success: true, ...saved });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.delete('/api/registry/companies/:code', async (req, res) => {
+  if (!verifyAdminAuthHeader(req)) {
+    return res.status(401).json({ success: false, error: 'Yetkisiz erişim.' });
+  }
+  try {
+    const result = await cloudRegistry.deleteCompany(req.params.code);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.post('/api/registry/authenticate', async (req, res) => {
+  try {
+    const { companyCode, repCode, password } = req.body || {};
+    if (!companyCode || !repCode || !password) {
+      return res.status(400).json({
+        success: false,
+        error: 'Lütfen Firma Kodu, Kullanıcı / Plasiyer Kodu ve Şifre giriniz.',
+      });
+    }
+
+    const central = await cloudRegistry.authenticateCentral({ companyCode, repCode, password });
+
+    if (central.licenseExpired) {
+      return res.json({
+        success: true,
+        found: true,
+        authenticated: false,
+        licenseExpired: true,
+        error: central.error,
+      });
+    }
+
+    if (central.authenticated && central.account) {
+      return res.json({
+        success: true,
+        found: true,
+        authenticated: true,
+        account: central.account,
+        matchedServerConfig: central.matchedServerConfig,
+      });
+    }
+
+    // Bulutta firma kayıtlıysa ve canlı SQL sunucusu tanımlıysa SQL üzerinden de doğrula
+    const sqlCfg = central.matchedServerConfig;
+    if (sqlCfg && sqlCfg.sqlHost && sqlCfg.apiUrl !== 'demo') {
+      try {
+        const sqlAuth = await sqlContext.run(sqlCfg, () =>
+          erpQueries.authenticatePlasiyer({ companyCode, repCode, password })
+        );
+        if (sqlAuth?.authenticated && sqlAuth?.account) {
+          const synced = await cloudRegistry.upsertAccount({
+            companyCode: sqlAuth.account.companyCode || companyCode,
+            repCode: sqlAuth.account.repCode || repCode,
+            firstName: sqlAuth.account.firstName || '',
+            lastName: sqlAuth.account.lastName || '',
+            password,
+          });
+          return res.json({
+            success: true,
+            found: true,
+            authenticated: true,
+            account: synced.account,
+            matchedServerConfig: sqlCfg,
+          });
+        }
+        if (sqlAuth?.found && !sqlAuth?.authenticated) {
+          return res.json({
+            success: true,
+            found: true,
+            authenticated: false,
+            error: sqlAuth.error || 'Giriş şifresi hatalı! Lütfen şifrenizi kontrol ediniz.',
+          });
+        }
+      } catch {
+        // SQL sunucusuna buluttan ulaşılamadıysa bulut sonucunu döndür
+      }
+    }
+
+    if (central.foundAccount && !central.authenticated) {
+      return res.json({
+        success: true,
+        found: true,
+        authenticated: false,
+        error: central.error || 'Giriş şifresi hatalı! Lütfen şifrenizi kontrol ediniz.',
+      });
+    }
+
+    return res.json({
+      success: true,
+      found: false,
+      foundCompany: Boolean(central.foundCompany),
+      authenticated: false,
+    });
   } catch (err) {
     res.json({ success: false, found: false, authenticated: false, warning: err.message });
   }

@@ -5,6 +5,7 @@ const ACCOUNTS_STORAGE_KEY = 'plasiyer_rep_accounts';
 const PROFILES_STORAGE_KEY = 'plasiyer_company_profiles';
 const SERVER_CONFIG_KEY = 'plasiyer_server_config';
 const REP_STORAGE_KEY = 'plasiyer_rep';
+const AUTH_USER_KEY = 'plasiyer_auth_user';
 
 export const ADMIN_COMPANY_CODE = 'POLATLAR';
 export const ADMIN_USERNAME = 'admin';
@@ -29,13 +30,17 @@ export function formatFullName(firstName: string, lastName: string): string {
 const makeAccountKey = (companyCode: string, repCode: string): string =>
   `${companyCode.trim().toUpperCase()}::${repCode.trim().toUpperCase()}`;
 
-function encodeBase64UrlUtf8(str: string): string {
+function encodeBase64Utf8(str: string): string {
   const bytes = new TextEncoder().encode(str);
   let binary = '';
   bytes.forEach((b) => {
     binary += String.fromCharCode(b);
   });
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return btoa(binary);
+}
+
+function encodeBase64UrlUtf8(str: string): string {
+  return encodeBase64Utf8(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 function decodeBase64UrlUtf8(encoded: string): string {
@@ -51,14 +56,73 @@ function decodeBase64UrlUtf8(encoded: string): string {
   return new TextDecoder().decode(bytes);
 }
 
+function isUntouchedDefaultServerConfig(cfg?: ServerConfig | null): boolean {
+  if (!cfg || !cfg.companyCode) return true;
+  const code = cfg.companyCode.trim().toUpperCase();
+  if (!code || code === ADMIN_COMPANY_CODE) return true;
+  const title = (cfg.companyTitle || '').trim();
+  const host = (cfg.sqlHost || '').trim().toLowerCase();
+  if (
+    code === '01' &&
+    (host === '' || host === 'localhost') &&
+    (!title || title.includes('Ahmet Gıda') || title.includes('Demo & Çevrimdışı'))
+  ) {
+    return true;
+  }
+  return false;
+}
+
 export const plasiyerAuthService = {
+  buildAdminHeaders(): Record<string, string> {
+    return {
+      'X-Admin-Auth': encodeBase64Utf8(
+        `${ADMIN_COMPANY_CODE}:${ADMIN_USERNAME}:${ADMIN_PASSWORD}`
+      ),
+    };
+  },
+
+  buildRegistryAuthHeaders(overrideCompanyCode?: string): Record<string, string> {
+    if (typeof window === 'undefined') return {};
+    try {
+      const role = localStorage.getItem('b2b_user_role');
+      const authRaw = localStorage.getItem(AUTH_USER_KEY);
+      const authUser = authRaw ? (JSON.parse(authRaw) as AuthUser) : null;
+
+      if (role === 'admin' || authUser?.role === 'admin') {
+        return this.buildAdminHeaders();
+      }
+
+      const cCode = (overrideCompanyCode || authUser?.companyCode || '').trim().toUpperCase();
+      const rCode = (authUser?.salesRepCode || authUser?.code || '').trim().toUpperCase();
+      if (cCode && rCode) {
+        const localAcc = this.getLocalAccounts().find(
+          (a) => a.companyCode.toUpperCase() === cCode && a.repCode.toUpperCase() === rCode
+        );
+        if (localAcc?.password) {
+          return {
+            'X-Plasiyer-Auth': encodeBase64Utf8(
+              JSON.stringify({
+                companyCode: cCode,
+                repCode: rCode,
+                password: localAcc.password,
+              })
+            ),
+          };
+        }
+      }
+    } catch {
+      // ignore storage errors
+    }
+    return {};
+  },
+
   getLocalAccounts(): PlasiyerAccount[] {
     if (typeof window === 'undefined') return [];
     const raw = localStorage.getItem(ACCOUNTS_STORAGE_KEY);
-    if (raw) {
+    if (raw !== null) {
       try {
         const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed) && parsed.length > 0) {
+        if (Array.isArray(parsed)) {
           return parsed;
         }
       } catch {
@@ -135,6 +199,7 @@ export const plasiyerAuthService = {
     firstName: string;
     lastName: string;
     password: string;
+    updatedAt?: string;
   }): PlasiyerAccount {
     const companyCode = input.companyCode.trim().toUpperCase();
     const repCode = input.repCode.trim().toUpperCase();
@@ -142,7 +207,11 @@ export const plasiyerAuthService = {
     const lastName = input.lastName.trim();
     const password = input.password;
 
-    const current = this.getLocalAccounts().filter((a) => !a.isDefaultSeed || makeAccountKey(a.companyCode, a.repCode) !== makeAccountKey(companyCode, repCode));
+    const current = this.getLocalAccounts().filter(
+      (a) =>
+        !a.isDefaultSeed ||
+        makeAccountKey(a.companyCode, a.repCode) !== makeAccountKey(companyCode, repCode)
+    );
     const targetKey = makeAccountKey(companyCode, repCode);
     const updatedAccount: PlasiyerAccount = {
       id: `acc-${companyCode}-${repCode}`,
@@ -152,7 +221,7 @@ export const plasiyerAuthService = {
       lastName,
       password,
       isDefaultSeed: false,
-      updatedAt: new Date().toISOString(),
+      updatedAt: input.updatedAt || new Date().toISOString(),
     };
 
     const existingIdx = current.findIndex(
@@ -164,7 +233,6 @@ export const plasiyerAuthService = {
       next = [...current];
       next[existingIdx] = updatedAccount;
     } else {
-      // İlk özel hesap kaydedildiğinde varsayılan seed kaydı farklı firma/kod ise temizle
       const withoutUntouchedSeed = current.filter((a) => !a.isDefaultSeed);
       next = [...withoutUntouchedSeed, updatedAccount];
     }
@@ -184,26 +252,49 @@ export const plasiyerAuthService = {
     serverConfig?: ServerConfig
   ): Promise<PlasiyerAccount> {
     const savedLocal = this.upsertAccountLocal(input);
+    const authHeaders = this.buildRegistryAuthHeaders(savedLocal.companyCode);
+    const payload = {
+      companyCode: savedLocal.companyCode,
+      repCode: savedLocal.repCode,
+      firstName: savedLocal.firstName,
+      lastName: savedLocal.lastName,
+      password: savedLocal.password,
+    };
 
-    if (serverConfig && !isDemoMode(serverConfig)) {
+    // 1. Merkezi bulut kaydına (ve buluttan erişilebiliyorsa SQL'e) yaz
+    if (typeof navigator === 'undefined' || navigator.onLine) {
       try {
-        const baseUrl = await resolveApiBaseUrlAsync(serverConfig);
-        await fetch(`${baseUrl}/plasiyers`, {
+        await fetch('/api/plasiyers', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            ...buildSqlHeaders(serverConfig),
+            ...authHeaders,
+            ...(serverConfig && !isDemoMode(serverConfig) ? buildSqlHeaders(serverConfig) : {}),
           },
-          body: JSON.stringify({
-            companyCode: savedLocal.companyCode,
-            repCode: savedLocal.repCode,
-            firstName: savedLocal.firstName,
-            lastName: savedLocal.lastName,
-            password: savedLocal.password,
-          }),
+          body: JSON.stringify(payload),
         });
       } catch {
         // Çevrimdışı durumda yerel kayıt yeterlidir
+      }
+
+      // 2. Eğer yerel köprü (localhost:4000) kullanılıyorsa oraya da senkronize et
+      if (serverConfig && !isDemoMode(serverConfig)) {
+        try {
+          const baseUrl = await resolveApiBaseUrlAsync(serverConfig);
+          if (baseUrl !== '/api') {
+            await fetch(`${baseUrl}/plasiyers`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                ...authHeaders,
+                ...buildSqlHeaders(serverConfig),
+              },
+              body: JSON.stringify(payload),
+            });
+          }
+        } catch {
+          // ignore local bridge warning
+        }
       }
     }
 
@@ -221,18 +312,37 @@ export const plasiyerAuthService = {
     );
     this.saveLocalAccounts(remaining);
 
-    if (serverConfig && !isDemoMode(serverConfig)) {
+    const authHeaders = this.buildRegistryAuthHeaders(companyCode);
+    const qs = `companyCode=${encodeURIComponent(companyCode)}&repCode=${encodeURIComponent(repCode)}`;
+
+    if (typeof navigator === 'undefined' || navigator.onLine) {
       try {
-        const baseUrl = await resolveApiBaseUrlAsync(serverConfig);
-        await fetch(
-          `${baseUrl}/plasiyers?companyCode=${encodeURIComponent(companyCode)}&repCode=${encodeURIComponent(repCode)}`,
-          {
-            method: 'DELETE',
-            headers: buildSqlHeaders(serverConfig),
-          }
-        );
+        await fetch(`/api/plasiyers?${qs}`, {
+          method: 'DELETE',
+          headers: {
+            ...authHeaders,
+            ...(serverConfig && !isDemoMode(serverConfig) ? buildSqlHeaders(serverConfig) : {}),
+          },
+        });
       } catch {
         // ignore network error
+      }
+
+      if (serverConfig && !isDemoMode(serverConfig)) {
+        try {
+          const baseUrl = await resolveApiBaseUrlAsync(serverConfig);
+          if (baseUrl !== '/api') {
+            await fetch(`${baseUrl}/plasiyers?${qs}`, {
+              method: 'DELETE',
+              headers: {
+                ...authHeaders,
+                ...buildSqlHeaders(serverConfig),
+              },
+            });
+          }
+        } catch {
+          // ignore
+        }
       }
     }
 
@@ -241,23 +351,39 @@ export const plasiyerAuthService = {
 
   async syncAccountsFromSql(serverConfig?: ServerConfig): Promise<PlasiyerAccount[]> {
     const localList = this.getLocalAccounts();
-    if (!serverConfig || isDemoMode(serverConfig)) return localList;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return localList;
+
+    const targetCompany = (serverConfig?.companyCode || '').trim().toUpperCase();
+    const authHeaders = this.buildRegistryAuthHeaders(targetCompany || undefined);
+    const qs =
+      targetCompany && targetCompany !== ADMIN_COMPANY_CODE
+        ? `?companyCode=${encodeURIComponent(targetCompany)}`
+        : '';
 
     try {
-      const baseUrl = await resolveApiBaseUrlAsync(serverConfig);
-      const res = await fetch(`${baseUrl}/plasiyers`, {
-        headers: buildSqlHeaders(serverConfig),
+      const res = await fetch(`/api/plasiyers${qs}`, {
+        headers: {
+          ...authHeaders,
+          ...(serverConfig && !isDemoMode(serverConfig) ? buildSqlHeaders(serverConfig) : {}),
+        },
       });
       if (!res.ok) return localList;
       const data = await res.json();
-      if (!Array.isArray(data?.accounts) || data.accounts.length === 0) {
+      if (!Array.isArray(data?.accounts)) {
         return localList;
       }
 
       const map = new Map<string, PlasiyerAccount>();
+      // Diğer firmalara ait yerel hesapları koru; hedef firmanın listesini bulut/SQL ile eşitle
       localList
         .filter((a) => !a.isDefaultSeed)
-        .forEach((acc) => map.set(makeAccountKey(acc.companyCode, acc.repCode), acc));
+        .forEach((acc) => {
+          if (!targetCompany || acc.companyCode.toUpperCase() !== targetCompany) {
+            map.set(makeAccountKey(acc.companyCode, acc.repCode), acc);
+          } else if (data.accounts.length === 0) {
+            map.set(makeAccountKey(acc.companyCode, acc.repCode), acc);
+          }
+        });
 
       for (const remote of data.accounts as PlasiyerAccount[]) {
         if (!remote.companyCode || !remote.repCode || !remote.password) continue;
@@ -286,6 +412,86 @@ export const plasiyerAuthService = {
     return localList;
   },
 
+  /**
+   * Yetkili Kurum (Admin) için PC ve Mobil dahil tüm cihazlar arasında
+   * müşteri firmalarını ve plasiyer hesaplarını merkezi bulut ile çift yönlü senkronize eder.
+   */
+  async syncAdminCloudRegistry(): Promise<{
+    synced: boolean;
+    profiles: CompanyProfile[];
+    accounts: PlasiyerAccount[];
+  }> {
+    const localProfiles = this.getCompanyProfiles();
+    const realFirmCodes = new Set(localProfiles.map((p) => p.code.trim().toUpperCase()));
+    const localRealAccounts = this.getLocalAccounts()
+      .filter((a) => !a.isDefaultSeed || realFirmCodes.has(a.companyCode.trim().toUpperCase()))
+      .map((a) => (a.isDefaultSeed ? { ...a, isDefaultSeed: false } : a));
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      return { synced: false, profiles: localProfiles, accounts: localRealAccounts };
+    }
+
+    try {
+      const res = await fetch('/api/registry/sync', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.buildAdminHeaders(),
+        },
+        body: JSON.stringify({
+          profiles: localProfiles,
+          accounts: localRealAccounts,
+        }),
+      });
+
+      if (!res.ok) {
+        return { synced: false, profiles: localProfiles, accounts: localRealAccounts };
+      }
+
+      const data = await res.json();
+      if (!data?.success) {
+        return { synced: false, profiles: localProfiles, accounts: localRealAccounts };
+      }
+
+      const cloudProfiles: CompanyProfile[] = Array.isArray(data.profiles) ? data.profiles : [];
+      const cloudAccounts: PlasiyerAccount[] = Array.isArray(data.accounts) ? data.accounts : [];
+
+      this.saveCompanyProfiles(cloudProfiles);
+      this.saveLocalAccounts(cloudAccounts);
+
+      // Eğer SERVER_CONFIG_KEY içindeki firma silinmişse tekrar dirilmesini önle
+      try {
+        const cfgRaw = localStorage.getItem(SERVER_CONFIG_KEY);
+        if (cfgRaw) {
+          const cfg = JSON.parse(cfgRaw) as ServerConfig;
+          const activeCode = (cfg.companyCode || '').trim().toUpperCase();
+          if (
+            activeCode &&
+            activeCode !== ADMIN_COMPANY_CODE &&
+            !isUntouchedDefaultServerConfig(cfg)
+          ) {
+            const stillExists = cloudProfiles.some(
+              (p) => p.code.trim().toUpperCase() === activeCode
+            );
+            if (!stillExists) {
+              localStorage.removeItem(SERVER_CONFIG_KEY);
+            }
+          }
+        }
+      } catch {
+        // ignore
+      }
+
+      return {
+        synced: true,
+        profiles: cloudProfiles,
+        accounts: cloudAccounts,
+      };
+    } catch {
+      return { synced: false, profiles: localProfiles, accounts: localRealAccounts };
+    }
+  },
+
   getCompanyProfiles(): CompanyProfile[] {
     if (typeof window === 'undefined') return [];
     let profiles: CompanyProfile[] = [];
@@ -303,13 +509,17 @@ export const plasiyerAuthService = {
       profiles = [];
     }
 
-    // Aktif serverConfig bir müşteri firmasıysa ve listede yoksa otomatik dahil et
+    // Aktif serverConfig gerçek bir müşteri firmasıysa ve listede yoksa otomatik dahil et
     try {
       const cfgRaw = localStorage.getItem(SERVER_CONFIG_KEY);
       if (cfgRaw) {
         const cfg = JSON.parse(cfgRaw) as ServerConfig;
         const activeCode = (cfg.companyCode || '').trim().toUpperCase();
-        if (activeCode && activeCode !== ADMIN_COMPANY_CODE) {
+        if (
+          activeCode &&
+          activeCode !== ADMIN_COMPANY_CODE &&
+          !isUntouchedDefaultServerConfig(cfg)
+        ) {
           const exists = profiles.some((p) => p.code.trim().toUpperCase() === activeCode);
           if (!exists) {
             profiles.unshift({
@@ -325,6 +535,7 @@ export const plasiyerAuthService = {
               sqlUser: cfg.sqlUser,
               sqlPassword: cfg.sqlPassword,
               licenseExpireDate: cfg.licenseExpireDate || '2027-12-31',
+              updatedAt: new Date().toISOString(),
             });
           }
         }
@@ -344,7 +555,9 @@ export const plasiyerAuthService = {
     localStorage.setItem(PROFILES_STORAGE_KEY, JSON.stringify(filtered));
   },
 
-  upsertCompanyProfile(profileInput: Omit<CompanyProfile, 'id'> & { id?: string }): CompanyProfile {
+  saveCompanyProfileLocalOnly(
+    profileInput: Omit<CompanyProfile, 'id'> & { id?: string }
+  ): CompanyProfile {
     const codeUpper = profileInput.code.trim().toUpperCase();
     const profiles = this.getCompanyProfiles();
 
@@ -353,8 +566,7 @@ export const plasiyerAuthService = {
       name: profileInput.companyTitle?.trim() || profileInput.name?.trim() || codeUpper,
       code: codeUpper,
       period: profileInput.period?.trim() || '2026',
-      serverUrl:
-        profileInput.serverUrl && profileInput.serverUrl !== 'demo' ? '/api' : 'demo',
+      serverUrl: profileInput.serverUrl && profileInput.serverUrl !== 'demo' ? '/api' : 'demo',
       companyTitle: profileInput.companyTitle?.trim() || profileInput.name?.trim() || codeUpper,
       sqlHost: profileInput.sqlHost?.trim() || '',
       sqlPort: profileInput.sqlPort?.trim() || '1433',
@@ -363,6 +575,7 @@ export const plasiyerAuthService = {
       sqlPassword: profileInput.sqlPassword ?? '',
       licenseExpireDate: profileInput.licenseExpireDate?.trim() || '2027-12-31',
       isDefault: profileInput.isDefault,
+      updatedAt: profileInput.updatedAt || new Date().toISOString(),
     };
 
     const idx = profiles.findIndex((p) => p.code.trim().toUpperCase() === codeUpper);
@@ -376,12 +589,110 @@ export const plasiyerAuthService = {
     return entry;
   },
 
+  upsertCompanyProfile(profileInput: Omit<CompanyProfile, 'id'> & { id?: string }): CompanyProfile {
+    const entry = this.saveCompanyProfileLocalOnly({
+      ...profileInput,
+      updatedAt: new Date().toISOString(),
+    });
+
+    // Arka planda merkezi buluta da gönder (Admin oturumu açıksa)
+    const adminHeaders = this.buildRegistryAuthHeaders();
+    if (adminHeaders['X-Admin-Auth'] && (typeof navigator === 'undefined' || navigator.onLine)) {
+      fetch('/api/registry/companies', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...adminHeaders,
+        },
+        body: JSON.stringify({ profile: entry }),
+      }).catch(() => {});
+    }
+
+    return entry;
+  },
+
+  async upsertCompanyProfileAsync(
+    profileInput: Omit<CompanyProfile, 'id'> & { id?: string }
+  ): Promise<CompanyProfile> {
+    const entry = this.saveCompanyProfileLocalOnly({
+      ...profileInput,
+      updatedAt: new Date().toISOString(),
+    });
+
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      try {
+        const res = await fetch('/api/registry/companies', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...this.buildAdminHeaders(),
+          },
+          body: JSON.stringify({ profile: entry }),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data?.profiles)) {
+            this.saveCompanyProfiles(data.profiles);
+          }
+        }
+      } catch {
+        // Çevrimdışı durumda yerel kayıt sonraki senkronda buluta aktarılır
+      }
+    }
+
+    return entry;
+  },
+
   deleteCompanyProfile(codeOrId: string): CompanyProfile[] {
     const target = codeOrId.trim().toUpperCase();
+    // SERVER_CONFIG_KEY içinde aynı firma varsa temizle ki yeniden dirilmesin
+    try {
+      const cfgRaw = localStorage.getItem(SERVER_CONFIG_KEY);
+      if (cfgRaw) {
+        const cfg = JSON.parse(cfgRaw) as ServerConfig;
+        if ((cfg.companyCode || '').trim().toUpperCase() === target) {
+          localStorage.removeItem(SERVER_CONFIG_KEY);
+        }
+      }
+    } catch {
+      // ignore
+    }
+
     const remaining = this.getCompanyProfiles().filter(
       (p) => p.id.toUpperCase() !== target && p.code.trim().toUpperCase() !== target
     );
     this.saveCompanyProfiles(remaining);
+
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      fetch(`/api/registry/companies/${encodeURIComponent(target)}`, {
+        method: 'DELETE',
+        headers: this.buildAdminHeaders(),
+      }).catch(() => {});
+    }
+
+    return remaining;
+  },
+
+  async deleteCompanyProfileAsync(codeOrId: string): Promise<CompanyProfile[]> {
+    const remaining = this.deleteCompanyProfile(codeOrId);
+    const target = codeOrId.trim().toUpperCase();
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      try {
+        const res = await fetch(`/api/registry/companies/${encodeURIComponent(target)}`, {
+          method: 'DELETE',
+          headers: this.buildAdminHeaders(),
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data?.profiles)) {
+            this.saveCompanyProfiles(data.profiles);
+            return data.profiles;
+          }
+        }
+      } catch {
+        // ignore offline error
+      }
+    }
     return remaining;
   },
 
@@ -403,6 +714,7 @@ export const plasiyerAuthService = {
 
   upsertCompanyProfileFromConfig(config: ServerConfig): void {
     if (typeof window === 'undefined' || !config.companyCode?.trim()) return;
+    if (isUntouchedDefaultServerConfig(config)) return;
     const codeUpper = config.companyCode.trim().toUpperCase();
     if (codeUpper === ADMIN_COMPANY_CODE) return;
 
@@ -426,6 +738,12 @@ export const plasiyerAuthService = {
     if (typeof window === 'undefined' || !companyCode.trim()) return null;
     const codeUpper = companyCode.trim().toUpperCase();
 
+    const profiles = this.getCompanyProfiles();
+    const found = profiles.find((p) => p.code?.trim().toUpperCase() === codeUpper);
+    if (found) {
+      return this.profileToServerConfig(found);
+    }
+
     try {
       const cfgRaw = localStorage.getItem(SERVER_CONFIG_KEY);
       if (cfgRaw) {
@@ -436,12 +754,6 @@ export const plasiyerAuthService = {
       }
     } catch {
       // ignore
-    }
-
-    const profiles = this.getCompanyProfiles();
-    const found = profiles.find((p) => p.code?.trim().toUpperCase() === codeUpper);
-    if (found) {
-      return this.profileToServerConfig(found);
     }
 
     return null;
@@ -495,6 +807,83 @@ export const plasiyerAuthService = {
       };
     }
 
+    // 1. Çevrimiçi ise önce Merkezi Bulut Kayıt Defterinden doğrula (yeni telefon/PC kurulum linki gerekmeden giriş yapabilsin)
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      try {
+        const cloudRes = await fetch('/api/registry/authenticate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            companyCode: cCode,
+            repCode: rCode,
+            password: pwd,
+          }),
+        });
+
+        if (cloudRes.ok) {
+          const cloudData = await cloudRes.json();
+          if (cloudData?.licenseExpired) {
+            return {
+              success: false,
+              error: cloudData.error || `"${cCode}" firmasının kullanım lisans süresi dolmuştur.`,
+            };
+          }
+
+          if (cloudData?.authenticated && cloudData?.account) {
+            const remoteCfg = (cloudData.matchedServerConfig as ServerConfig | null) || null;
+            if (remoteCfg?.companyCode) {
+              localStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify(remoteCfg));
+              this.saveCompanyProfileLocalOnly({
+                code: remoteCfg.companyCode,
+                name: remoteCfg.companyTitle || remoteCfg.companyCode,
+                companyTitle: remoteCfg.companyTitle || remoteCfg.companyCode,
+                period: remoteCfg.period || '2026',
+                serverUrl: isDemoMode(remoteCfg) ? 'demo' : '/api',
+                sqlHost: remoteCfg.sqlHost,
+                sqlPort: remoteCfg.sqlPort,
+                sqlDatabase: remoteCfg.sqlDatabase,
+                sqlUser: remoteCfg.sqlUser,
+                sqlPassword: remoteCfg.sqlPassword,
+                licenseExpireDate: remoteCfg.licenseExpireDate,
+              });
+            }
+
+            const syncedAcc = this.upsertAccountLocal({
+              companyCode: cloudData.account.companyCode || cCode,
+              repCode: cloudData.account.repCode || rCode,
+              firstName: cloudData.account.firstName || '',
+              lastName: cloudData.account.lastName || '',
+              password: pwd,
+              updatedAt: cloudData.account.updatedAt,
+            });
+
+            return {
+              success: true,
+              account: syncedAcc,
+              matchedServerConfig: remoteCfg || this.findServerConfigByCompanyCode(cCode),
+            };
+          }
+
+          if (cloudData?.found && !cloudData?.authenticated) {
+            const localMatch = this.getLocalAccounts().find(
+              (a) =>
+                a.companyCode.toUpperCase() === cCode &&
+                a.repCode.toUpperCase() === rCode &&
+                a.password === pwd
+            );
+            if (!localMatch) {
+              return {
+                success: false,
+                error: cloudData.error || 'Giriş şifresi hatalı! Lütfen şifrenizi kontrol ediniz.',
+              };
+            }
+          }
+        }
+      } catch {
+        // Ağ hatasında yerel/SQL doğrulamaya devam et
+      }
+    }
+
     const matchedServerConfig = this.findServerConfigByCompanyCode(cCode);
 
     // Lisans Bitiş Tarihi kontrolü
@@ -511,7 +900,7 @@ export const plasiyerAuthService = {
       }
     }
 
-    // 1. Önce bağlı canlı SQL veritabanı varsa oradan doğrula (farklı bilgisayardan eklenen plasiyerler için)
+    // 2. Bağlı canlı SQL veritabanı (veya yerel köprü) varsa oradan doğrula
     if (matchedServerConfig && !isDemoMode(matchedServerConfig) && navigator.onLine) {
       try {
         const baseUrl = await resolveApiBaseUrlAsync(matchedServerConfig);
@@ -565,13 +954,13 @@ export const plasiyerAuthService = {
       }
     }
 
-    // 2. Yerel plasiyer hesaplarından doğrula (Firma Kodu + Plasiyer Kodu + Şifre)
+    // 3. Yerel plasiyer hesaplarından doğrula (Çevrimdışı çalışma desteği)
     const accounts = this.getLocalAccounts();
     const companyAccounts = accounts.filter((a) => a.companyCode.toUpperCase() === cCode);
     if (companyAccounts.length === 0) {
       return {
         success: false,
-        error: `"${cCode}" Firma Koduna ait tanımlı hesap bulunamadı. Firma Kodunu kontrol ediniz veya yetkili kurumdan kurulum bağlantısı talep ediniz.`,
+        error: `"${cCode}" Firma Koduna ait tanımlı hesap bulunamadı. Firma Kodunu kontrol ediniz veya yetkili kurumdan destek alınız.`,
       };
     }
 
@@ -695,7 +1084,19 @@ export const plasiyerAuthService = {
           licenseExpireDate: decoded.cfg.licenseExpireDate,
         };
         localStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify(importedCfg));
-        this.upsertCompanyProfileFromConfig(importedCfg);
+        this.saveCompanyProfileLocalOnly({
+          code: importedCfg.companyCode,
+          name: importedCfg.companyTitle || importedCfg.companyCode,
+          companyTitle: importedCfg.companyTitle || importedCfg.companyCode,
+          period: importedCfg.period || '2026',
+          serverUrl: isDemoMode(importedCfg) ? 'demo' : '/api',
+          sqlHost: importedCfg.sqlHost,
+          sqlPort: importedCfg.sqlPort,
+          sqlDatabase: importedCfg.sqlDatabase,
+          sqlUser: importedCfg.sqlUser,
+          sqlPassword: importedCfg.sqlPassword,
+          licenseExpireDate: importedCfg.licenseExpireDate,
+        });
       }
 
       if (Array.isArray(decoded?.accs)) {
