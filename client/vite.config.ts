@@ -3,11 +3,29 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 
+const buildVersion = Date.now().toString()
+
 // https://vite.dev/config/
 export default defineConfig({
+  define: {
+    __APP_BUILD_VERSION__: JSON.stringify(buildVersion),
+  },
   plugins: [
     react(),
     tailwindcss(),
+    {
+      name: 'version-stamp',
+      generateBundle() {
+        this.emitFile({
+          type: 'asset',
+          fileName: 'version.json',
+          source: JSON.stringify({
+            version: buildVersion,
+            builtAt: new Date().toISOString(),
+          }),
+        })
+      },
+    },
     VitePWA({
       registerType: 'autoUpdate',
       injectRegister: null,
@@ -56,8 +74,16 @@ export default defineConfig({
         clientsClaim: true,
         cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,ico,png,jpg,jpeg,webp,svg,webmanifest}'],
+        globIgnores: ['**/yenile.html', '**/version.json'],
         navigateFallback: '/index.html',
-        navigateFallbackDenylist: [/^\/api\//, /^\/assets\//, /^\/uploads\//, /\.[a-zA-Z0-9]+$/]
+        navigateFallbackDenylist: [
+          /^\/api\//,
+          /^\/assets\//,
+          /^\/uploads\//,
+          /^\/yenile\.html/,
+          /^\/version\.json/,
+          /\.[a-zA-Z0-9]+$/,
+        ],
       }
     })
   ],

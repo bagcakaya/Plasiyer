@@ -15,6 +15,7 @@ import {
   WifiOff,
   AlertCircle,
   CheckCircle2,
+  RefreshCw,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import type { AuthUser } from '../types';
@@ -164,17 +165,31 @@ export const LoginPage: React.FC = () => {
           <span className="font-semibold">{isOnline ? 'ERP12 Çevrimiçi' : 'Çevrimdışı Mod'}</span>
         </div>
 
-        <button
-          onClick={toggleTheme}
-          className="p-2 rounded-full bg-slate-950/55 backdrop-blur-md text-white hover:bg-slate-900/75 border border-white/20 transition shadow-sm"
-          title="Tema Değiştir"
-        >
-          {theme === 'dark' ? (
-            <Sun className="w-4 h-4 text-amber-300" />
-          ) : (
-            <Moon className="w-4 h-4 text-white" />
-          )}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              window.location.href = '/yenile.html';
+            }}
+            className="p-2 rounded-full bg-slate-950/55 backdrop-blur-md text-white hover:bg-slate-900/75 border border-white/20 transition shadow-sm active:scale-95"
+            title="Uygulamayı Güncelle / Önbelleği Yenile"
+          >
+            <RefreshCw className="w-4 h-4 text-sky-300" />
+          </button>
+
+          <button
+            type="button"
+            onClick={toggleTheme}
+            className="p-2 rounded-full bg-slate-950/55 backdrop-blur-md text-white hover:bg-slate-900/75 border border-white/20 transition shadow-sm"
+            title="Tema Değiştir"
+          >
+            {theme === 'dark' ? (
+              <Sun className="w-4 h-4 text-amber-300" />
+            ) : (
+              <Moon className="w-4 h-4 text-white" />
+            )}
+          </button>
+        </div>
       </div>
 
       {/* Ana Giriş Kartı (Sayfaya Tam Ortalanmış) */}

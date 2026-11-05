@@ -4,7 +4,65 @@ import './index.css'
 import App from './App.tsx'
 import { registerSW } from 'virtual:pwa-register'
 
+declare const __APP_BUILD_VERSION__: string;
+
 let refreshing = false;
+
+async function forceRefreshCachesAndReload(targetVersion?: string) {
+  if (refreshing) return;
+  try {
+    if (targetVersion) {
+      const lastUpdatedTo = sessionStorage.getItem('plasiyer_updated_to_version');
+      if (lastUpdatedTo === targetVersion) return;
+      sessionStorage.setItem('plasiyer_updated_to_version', targetVersion);
+    }
+  } catch {
+    // ignore storage errors
+  }
+
+  refreshing = true;
+  try {
+    if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
+      const regs = await navigator.serviceWorker.getRegistrations();
+      await Promise.all(regs.map((r) => r.unregister()));
+    }
+  } catch {
+    // ignore
+  }
+
+  try {
+    if ('caches' in window && caches.keys) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch {
+    // ignore
+  }
+
+  window.location.replace(window.location.pathname + '?v=' + Date.now());
+}
+
+async function checkLiveServerVersion() {
+  if (typeof window === 'undefined' || !navigator.onLine || refreshing) return;
+  try {
+    const res = await fetch(`/version.json?t=${Date.now()}`, {
+      cache: 'no-store',
+      headers: { 'Cache-Control': 'no-cache' },
+    });
+    if (!res.ok) return;
+    const data = (await res.json()) as { version?: string };
+    if (
+      data?.version &&
+      typeof __APP_BUILD_VERSION__ !== 'undefined' &&
+      data.version !== __APP_BUILD_VERSION__
+    ) {
+      await forceRefreshCachesAndReload(data.version);
+    }
+  } catch {
+    // Çevrimdışı veya yerel geliştirme ortamında sessizce devam et
+  }
+}
+
 if (typeof window !== 'undefined') {
   // Dağıtım sonrası eski chunk hash hatası oluşursa sayfayı temiz şekilde yenile
   window.addEventListener('vite:preloadError', (event) => {
@@ -24,6 +82,18 @@ if (typeof window !== 'undefined') {
       }
     });
   }
+
+  // Mobil PWA açılışında, sekme öne geldiğinde ve internet bağlandığında anında sürüm kontrolü yap
+  checkLiveServerVersion();
+  window.addEventListener('pageshow', () => {
+    checkLiveServerVersion();
+  });
+  window.addEventListener('focus', () => {
+    checkLiveServerVersion();
+  });
+  window.addEventListener('online', () => {
+    checkLiveServerVersion();
+  });
 }
 
 // Auto-register service worker for PWA offline & Android WebAPK support
@@ -35,14 +105,19 @@ const updateSW = registerSW({
   },
   onRegistered(registration) {
     if (registration) {
+      // Açılışta beklemeden anında SW güncellemesini denetle
+      registration.update().catch(() => {});
+
       // 60 saniyede bir ve uygulama öne geldiğinde yeni sürüm kontrolü yap
       setInterval(() => {
         registration?.update().catch(() => {});
+        checkLiveServerVersion();
       }, 60000);
 
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') {
           registration?.update().catch(() => {});
+          checkLiveServerVersion();
         }
       });
     }
