@@ -9,7 +9,6 @@ import {
   Minus, 
   ShoppingBag, 
   Package, 
-  UserPlus, 
   X, 
   ArrowRight, 
   ScanBarcode, 
@@ -231,24 +230,7 @@ export const CatalogPage: React.FC = () => {
         </div>
       ) : (
         /* Plasiyer Modu Aktif Cari Bildirimi */
-        !selectedCustomer ? (
-          <div className="bg-amber-500/10 dark:bg-amber-950/30 border border-amber-500/30 dark:border-amber-800/50 rounded-xl p-3 flex items-center justify-between text-xs text-amber-900 dark:text-amber-300">
-            <div>
-              <span className="font-bold block">Sipariş İçin Cari Seçilmedi</span>
-              <span className="text-[11px] text-amber-800 dark:text-amber-400">
-                Standart Liste 1 fiyatları gösterilmektedir.
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={openCustomerSelectModal}
-              className="flex items-center gap-1 bg-amber-600 hover:bg-amber-700 text-white font-medium px-2.5 py-1.5 rounded-lg shadow-xs shrink-0"
-            >
-              <UserPlus className="w-3.5 h-3.5" />
-              <span>Cari Seç</span>
-            </button>
-          </div>
-        ) : (
+        selectedCustomer && (
           <div className="bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/60 rounded-xl p-2.5 text-xs text-blue-900 dark:text-blue-200 flex justify-between items-center gap-2">
             <div className="truncate min-w-0 flex-1">
               <span className="text-slate-500 dark:text-slate-400 text-[10px] block">Sipariş Alınan Müşteri</span>
