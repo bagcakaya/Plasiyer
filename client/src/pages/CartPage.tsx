@@ -72,7 +72,8 @@ interface CartItemRowProps {
   updateCartItemQuantity: (productId: string, quantity: number) => void;
   updateCartItemPrice: (productId: string, unitPrice: number) => void;
   updateCartItemDiscount: (productId: string, discountPercent: number) => void;
-  updateCartItemGrandTotal: (productId: string, grandTotal: number) => void;
+  updateCartItemVatRate: (productId: string, vatRate: number) => void;
+  updateCartItemNetTotal: (productId: string, netTotal: number) => void;
   getVanStockByCode: (productCode: string) => number;
 }
 
@@ -84,21 +85,26 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
   updateCartItemQuantity,
   updateCartItemPrice,
   updateCartItemDiscount,
-  updateCartItemGrandTotal,
+  updateCartItemVatRate,
+  updateCartItemNetTotal,
   getVanStockByCode,
 }) => {
-  // Birim adet fiyatı yerel metin durumu
+  // Birim fiyat yerel metin durumu
   const [unitPriceStr, setUnitPriceStr] = useState<string>(formatNumberTr(item.unitPrice));
   const [isUnitPriceFocused, setIsUnitPriceFocused] = useState(false);
 
-  // İskonto yerel metin durumu (0'ın silinebilmesi ve küsuratın rahat yazılabilmesi için)
+  // İskonto yerel metin durumu
   const [discountStr, setDiscountStr] = useState<string>(
     item.discountPercent > 0 ? String(item.discountPercent) : ''
   );
   const [isDiscountFocused, setIsDiscountFocused] = useState(false);
 
-  // KDV Dahil tutar yerel metin durumu
-  const [totalStr, setTotalStr] = useState<string>(formatNumberTr(item.grandTotal));
+  // KDV oranı yerel metin durumu
+  const [vatRateStr, setVatRateStr] = useState<string>(String(item.vatRate ?? 0));
+  const [isVatFocused, setIsVatFocused] = useState(false);
+
+  // Tutar (KDV hariç satır tutarı) yerel metin durumu
+  const [totalStr, setTotalStr] = useState<string>(formatNumberTr(item.totalAmount));
   const [isTotalFocused, setIsTotalFocused] = useState(false);
 
   // Input odaklı değilken güncel değeri binlik ayraçlı net formatla senkronize et
@@ -115,10 +121,16 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
   }, [item.discountPercent, isDiscountFocused]);
 
   useEffect(() => {
-    if (!isTotalFocused) {
-      setTotalStr(formatNumberTr(item.grandTotal));
+    if (!isVatFocused) {
+      setVatRateStr(String(item.vatRate ?? 0));
     }
-  }, [item.grandTotal, isTotalFocused]);
+  }, [item.vatRate, isVatFocused]);
+
+  useEffect(() => {
+    if (!isTotalFocused) {
+      setTotalStr(formatNumberTr(item.totalAmount));
+    }
+  }, [item.totalAmount, isTotalFocused]);
 
   const handleUnitPriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
@@ -162,6 +174,32 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
     }
   };
 
+  const handleVatChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setVatRateStr(raw);
+    if (raw.trim() === '') {
+      updateCartItemVatRate(item.productId, 0);
+      return;
+    }
+    const val = parseTurkishFloat(raw);
+    if (!isNaN(val) && val >= 0 && val <= 100) {
+      updateCartItemVatRate(item.productId, val);
+    }
+  };
+
+  const handleVatBlur = () => {
+    setIsVatFocused(false);
+    const val = parseTurkishFloat(vatRateStr);
+    if (vatRateStr.trim() === '' || isNaN(val) || val < 0) {
+      updateCartItemVatRate(item.productId, 0);
+      setVatRateStr('0');
+    } else {
+      const clamped = Math.min(100, val);
+      updateCartItemVatRate(item.productId, clamped);
+      setVatRateStr(String(clamped));
+    }
+  };
+
   const handleTotalChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
     setTotalStr(raw);
@@ -171,7 +209,7 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
     }
     const val = parseTurkishFloat(raw);
     if (!isNaN(val) && val >= 0) {
-      updateCartItemGrandTotal(item.productId, val);
+      updateCartItemNetTotal(item.productId, val);
     }
   };
 
@@ -179,18 +217,17 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
     setIsTotalFocused(false);
     if (totalStr.trim() === '' || isNaN(parseTurkishFloat(totalStr))) {
       updateCartItemDiscount(item.productId, 0);
-      setTotalStr(formatNumberTr(item.grandTotal));
+      setTotalStr(formatNumberTr(item.totalAmount));
     } else {
-      setTotalStr(formatNumberTr(item.grandTotal));
+      setTotalStr(formatNumberTr(item.totalAmount));
     }
   };
 
-  const unitGrossWithVat = item.netPrice * (1 + item.vatRate / 100);
   const formattedTotalLen = totalStr.length;
   const totalFontSizeClass =
-    formattedTotalLen > 11
+    formattedTotalLen > 12
       ? 'text-[11px]'
-      : formattedTotalLen > 8
+      : formattedTotalLen > 9
       ? 'text-xs'
       : 'text-sm';
 
@@ -227,15 +264,12 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
               </>
             ) : (
               <>
-                <span className="px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-[10px] font-semibold text-slate-600 dark:text-slate-300">
-                  KDV: %{item.vatRate}
-                </span>
-                <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                  KDV Dahil Birim: <strong className="text-slate-700 dark:text-slate-200">{formatCurrency(unitGrossWithVat)}</strong>
+                <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">
+                  {item.productCode} • {item.unit}
                 </span>
                 {item.discountPercent > 0 && (
                   <span className="text-emerald-600 dark:text-emerald-400 font-semibold text-[10px]">
-                    (İskontolu Net: {formatCurrency(item.netPrice)})
+                    İskontolu Birim: {formatCurrency(item.netPrice)}
                   </span>
                 )}
               </>
@@ -299,145 +333,183 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
           </div>
         </div>
       ) : (
-        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
-          {/* 1. BİRİM ADET FİYATI */}
-          <div className="space-y-1 min-w-0">
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">
-              Birim Fiyat ({item.unit})
-            </span>
-            {userRole === 'plasiyer' ? (
-              <div className="h-9 flex items-center gap-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 px-2.5 rounded-xl transition-all">
-                <span className="text-xs font-bold text-slate-500 dark:text-slate-400 shrink-0">₺</span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={unitPriceStr}
-                  placeholder="0,00"
-                  onFocus={(e) => {
-                    setIsUnitPriceFocused(true);
-                    setUnitPriceStr(toRawEditableNumber(item.unitPrice));
-                    setTimeout(() => e.target.select(), 10);
-                  }}
-                  onChange={handleUnitPriceChange}
-                  onBlur={handleUnitPriceBlur}
-                  className="w-full min-w-0 bg-transparent text-xs sm:text-sm font-extrabold text-right text-slate-900 dark:text-white focus:outline-none font-mono"
-                />
-              </div>
-            ) : (
-              <div className="h-9 flex items-center justify-end bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-800 px-2.5 rounded-xl font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white font-mono">
-                {formatCurrency(item.unitPrice)}
-              </div>
-            )}
-          </div>
+        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 space-y-2.5 text-xs">
+          {/* ÜST SATIR: Birim Fiyat, İskonto ve KDV Oranı yan yana */}
+          <div className="grid grid-cols-3 gap-2">
+            {/* 1. BİRİM FİYAT */}
+            <div className="space-y-1 min-w-0">
+              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block truncate">
+                Birim Fiyat
+              </span>
+              {userRole === 'plasiyer' ? (
+                <div className="h-9 flex items-center gap-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 px-2 rounded-xl transition-all">
+                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 shrink-0">₺</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={unitPriceStr}
+                    placeholder="0,00"
+                    onFocus={(e) => {
+                      setIsUnitPriceFocused(true);
+                      setUnitPriceStr(toRawEditableNumber(item.unitPrice));
+                      setTimeout(() => e.target.select(), 10);
+                    }}
+                    onChange={handleUnitPriceChange}
+                    onBlur={handleUnitPriceBlur}
+                    className="w-full min-w-0 bg-transparent text-xs sm:text-sm font-extrabold text-right text-slate-900 dark:text-white focus:outline-none font-mono"
+                  />
+                </div>
+              ) : (
+                <div className="h-9 flex items-center justify-end bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-800 px-2 rounded-xl font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white font-mono">
+                  {formatCurrency(item.unitPrice)}
+                </div>
+              )}
+            </div>
 
-          {/* 2. İSKONTO (%) */}
-          <div className="space-y-1 min-w-0">
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">
-              İskonto (%)
-            </span>
-            {userRole === 'plasiyer' ? (
-              <div className="h-9 flex items-center justify-between gap-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 px-2.5 rounded-xl transition-all">
-                <Percent className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={discountStr}
-                  placeholder="0"
-                  onFocus={(e) => {
-                    setIsDiscountFocused(true);
-                    e.target.select();
-                  }}
-                  onChange={handleDiscountChange}
-                  onBlur={handleDiscountBlur}
-                  className="w-full min-w-0 bg-transparent text-xs sm:text-sm font-extrabold text-slate-800 dark:text-white text-center focus:outline-none placeholder:text-slate-400/60 font-mono"
-                />
-                <span className="text-[11px] text-slate-400 font-bold shrink-0">%</span>
-              </div>
-            ) : (
-              <div className="h-9 flex items-center justify-center bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-800 px-2.5 rounded-xl font-bold text-xs text-emerald-600 dark:text-emerald-400">
-                %{item.discountPercent || 0}
-              </div>
-            )}
-          </div>
+            {/* 2. İSKONTO */}
+            <div className="space-y-1 min-w-0">
+              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block truncate">
+                İskonto
+              </span>
+              {userRole === 'plasiyer' ? (
+                <div className="h-9 flex items-center justify-between gap-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 px-2 rounded-xl transition-all">
+                  <Percent className="w-3 h-3 text-slate-400 shrink-0" />
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={discountStr}
+                    placeholder="0"
+                    onFocus={(e) => {
+                      setIsDiscountFocused(true);
+                      e.target.select();
+                    }}
+                    onChange={handleDiscountChange}
+                    onBlur={handleDiscountBlur}
+                    className="w-full min-w-0 bg-transparent text-xs sm:text-sm font-extrabold text-slate-800 dark:text-white text-right focus:outline-none placeholder:text-slate-400/60 font-mono"
+                  />
+                </div>
+              ) : (
+                <div className="h-9 flex items-center justify-center bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-800 px-2 rounded-xl font-bold text-xs text-emerald-600 dark:text-emerald-400">
+                  %{item.discountPercent || 0}
+                </div>
+              )}
+            </div>
 
-          {/* 3. SİPARİŞ ADEDİ */}
-          <div className="space-y-1 min-w-0">
-            <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">
-              Adet ({item.unit})
-            </span>
-            <div className={`h-9 flex items-center justify-between gap-1 rounded-xl p-1 ${
-              userRole === 'customer'
-                ? 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60'
-                : 'bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60'
-            }`}>
-              <button
-                type="button"
-                onClick={() => updateCartItemQuantity(item.productId, item.quantity - 1)}
-                className="w-7 h-7 bg-white dark:bg-slate-800 text-slate-700 dark:text-white rounded-lg flex items-center justify-center font-bold shadow-xs active:scale-90 shrink-0"
-              >
-                <Minus className="w-3.5 h-3.5" />
-              </button>
-              <input
-                type="text"
-                inputMode="decimal"
-                defaultValue={item.quantity}
-                key={`cart-qty-${item.productId}-${item.quantity}`}
-                onFocus={(e) => e.target.select()}
-                onBlur={(e) => {
-                  const val = parseFloat(e.target.value.replace(',', '.'));
-                  if (!isNaN(val) && val > 0) {
-                    updateCartItemQuantity(item.productId, val);
-                  } else {
-                    e.target.value = item.quantity.toString();
-                  }
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    (e.target as HTMLInputElement).blur();
-                  }
-                }}
-                className="flex-1 min-w-0 w-full h-7 font-black text-xs sm:text-sm text-slate-900 dark:text-white text-center bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 px-1 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs font-mono"
-              />
-              <button
-                type="button"
-                onClick={() => updateCartItemQuantity(item.productId, item.quantity + 1)}
-                className={`w-7 h-7 text-white rounded-lg flex items-center justify-center font-bold shadow-xs active:scale-90 shrink-0 ${
-                  userRole === 'customer' ? 'bg-emerald-600' : 'bg-blue-600'
-                }`}
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
+            {/* 3. KDV ORANI */}
+            <div className="space-y-1 min-w-0">
+              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block truncate">
+                KDV Oranı
+              </span>
+              {userRole === 'plasiyer' ? (
+                <div className="h-9 flex items-center justify-between gap-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 px-2 rounded-xl transition-all">
+                  <span className="text-[11px] text-slate-400 font-bold shrink-0">%</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={vatRateStr}
+                    placeholder="0"
+                    onFocus={(e) => {
+                      setIsVatFocused(true);
+                      e.target.select();
+                    }}
+                    onChange={handleVatChange}
+                    onBlur={handleVatBlur}
+                    className="w-full min-w-0 bg-transparent text-xs sm:text-sm font-extrabold text-slate-800 dark:text-white text-right focus:outline-none placeholder:text-slate-400/60 font-mono"
+                  />
+                </div>
+              ) : (
+                <div className="h-9 flex items-center justify-center bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-800 px-2 rounded-xl font-bold text-xs text-slate-700 dark:text-slate-300 font-mono">
+                  %{item.vatRate ?? 0}
+                </div>
+              )}
             </div>
           </div>
 
-          {/* 4. KDV DAHİL TOPLAM TUTAR */}
-          <div className="space-y-1 min-w-0">
-            <span className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide block text-right">
-              KDV Dahil Fiyat
-            </span>
-            {userRole === 'plasiyer' ? (
-              <div className="h-9 flex items-center justify-between gap-1 bg-emerald-50/70 dark:bg-emerald-950/35 border border-emerald-300 dark:border-emerald-800/80 focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500 px-2 rounded-xl transition-all">
-                <span className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400 shrink-0">₺</span>
+          {/* ALT SATIR: Miktar ve Tutar (KDV hariç hesaplanır, etikette yalnızca Tutar yazar) */}
+          <div className="grid grid-cols-2 gap-2">
+            {/* 4. MİKTAR */}
+            <div className="space-y-1 min-w-0">
+              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">
+                Miktar
+              </span>
+              <div
+                className={`h-9 flex items-center justify-between gap-1 rounded-xl p-1 ${
+                  userRole === 'customer'
+                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60'
+                    : 'bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60'
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => updateCartItemQuantity(item.productId, item.quantity - 1)}
+                  className="w-7 h-7 bg-white dark:bg-slate-800 text-slate-700 dark:text-white rounded-lg flex items-center justify-center font-bold shadow-xs active:scale-90 shrink-0"
+                >
+                  <Minus className="w-3.5 h-3.5" />
+                </button>
                 <input
                   type="text"
                   inputMode="decimal"
-                  value={totalStr}
-                  placeholder="0,00"
-                  onFocus={(e) => {
-                    setIsTotalFocused(true);
-                    setTotalStr(toRawEditableNumber(item.grandTotal));
-                    setTimeout(() => e.target.select(), 10);
+                  defaultValue={item.quantity}
+                  key={`cart-qty-${item.productId}-${item.quantity}`}
+                  onFocus={(e) => e.target.select()}
+                  onBlur={(e) => {
+                    const val = parseFloat(e.target.value.replace(',', '.'));
+                    if (!isNaN(val) && val > 0) {
+                      updateCartItemQuantity(item.productId, val);
+                    } else {
+                      e.target.value = item.quantity.toString();
+                    }
                   }}
-                  onChange={handleTotalChange}
-                  onBlur={handleTotalBlur}
-                  className={`w-full min-w-0 bg-transparent ${totalFontSizeClass} font-black text-right text-emerald-700 dark:text-emerald-300 focus:outline-none placeholder:text-slate-400/60 font-mono tracking-tight`}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      (e.target as HTMLInputElement).blur();
+                    }
+                  }}
+                  className="flex-1 min-w-0 w-full h-7 font-black text-xs sm:text-sm text-slate-900 dark:text-white text-center bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 px-1 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs font-mono"
                 />
+                <button
+                  type="button"
+                  onClick={() => updateCartItemQuantity(item.productId, item.quantity + 1)}
+                  className={`w-7 h-7 text-white rounded-lg flex items-center justify-center font-bold shadow-xs active:scale-90 shrink-0 ${
+                    userRole === 'customer' ? 'bg-emerald-600' : 'bg-blue-600'
+                  }`}
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
               </div>
-            ) : (
-              <div className={`h-9 flex items-center justify-end bg-emerald-50/70 dark:bg-emerald-950/35 border border-emerald-300 dark:border-emerald-800/80 px-2 rounded-xl font-black ${totalFontSizeClass} text-emerald-700 dark:text-emerald-300 font-mono tracking-tight`}>
-                {formatCurrency(item.grandTotal)}
-              </div>
-            )}
+            </div>
+
+            {/* 5. TUTAR (KDV hariç net tutar) */}
+            <div className="space-y-1 min-w-0">
+              <span className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide block text-right">
+                Tutar
+              </span>
+              {userRole === 'plasiyer' ? (
+                <div className="h-9 flex items-center justify-between gap-1 bg-emerald-50/70 dark:bg-emerald-950/35 border border-emerald-300 dark:border-emerald-800/80 focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500 px-2.5 rounded-xl transition-all">
+                  <span className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400 shrink-0">₺</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={totalStr}
+                    placeholder="0,00"
+                    onFocus={(e) => {
+                      setIsTotalFocused(true);
+                      setTotalStr(toRawEditableNumber(item.totalAmount));
+                      setTimeout(() => e.target.select(), 10);
+                    }}
+                    onChange={handleTotalChange}
+                    onBlur={handleTotalBlur}
+                    className={`w-full min-w-0 bg-transparent ${totalFontSizeClass} font-black text-right text-emerald-700 dark:text-emerald-300 focus:outline-none placeholder:text-slate-400/60 font-mono tracking-tight`}
+                  />
+                </div>
+              ) : (
+                <div
+                  className={`h-9 flex items-center justify-end bg-emerald-50/70 dark:bg-emerald-950/35 border border-emerald-300 dark:border-emerald-800/80 px-2.5 rounded-xl font-black ${totalFontSizeClass} text-emerald-700 dark:text-emerald-300 font-mono tracking-tight`}
+                >
+                  {formatCurrency(item.totalAmount)}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -457,7 +529,8 @@ export const CartPage: React.FC = () => {
     updateCartItemQuantity, 
     updateCartItemPrice,
     updateCartItemDiscount, 
-    updateCartItemGrandTotal,
+    updateCartItemVatRate,
+    updateCartItemNetTotal,
     removeFromCart, 
     clearCart,
     submitCurrentOrder,
@@ -795,7 +868,8 @@ export const CartPage: React.FC = () => {
             updateCartItemQuantity={updateCartItemQuantity}
             updateCartItemPrice={updateCartItemPrice}
             updateCartItemDiscount={updateCartItemDiscount}
-            updateCartItemGrandTotal={updateCartItemGrandTotal}
+            updateCartItemVatRate={updateCartItemVatRate}
+            updateCartItemNetTotal={updateCartItemNetTotal}
             getVanStockByCode={getVanStockByCode}
           />
         ))}

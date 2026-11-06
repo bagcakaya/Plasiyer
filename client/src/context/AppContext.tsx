@@ -88,7 +88,9 @@ interface AppContextType {
   addToCart: (product: Product, quantity?: number) => void;
   updateCartItemQuantity: (productId: string, quantity: number) => void;
   updateCartItemDiscount: (productId: string, discountPercent: number) => void;
+  updateCartItemVatRate: (productId: string, vatRate: number) => void;
   updateCartItemPrice: (productId: string, unitPrice: number) => void;
+  updateCartItemNetTotal: (productId: string, netTotal: number) => void;
   updateCartItemGrandTotal: (productId: string, grandTotal: number) => void;
   removeFromCart: (productId: string) => void;
   clearCart: () => void;
@@ -1011,6 +1013,83 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
+  const updateCartItemVatRate = (productId: string, vatRate: number) => {
+    const safeVat = Math.max(0, Math.min(100, vatRate));
+    setRawCart((prev) =>
+      prev.map((item) => {
+        if (item.productId === productId && !item.isGift) {
+          const vatAmount = item.totalAmount * (safeVat / 100);
+          return {
+            ...item,
+            vatRate: safeVat,
+            vatAmount,
+            grandTotal: item.totalAmount + vatAmount,
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  const updateCartItemNetTotal = (productId: string, netTotal: number) => {
+    const safeNetTotal = Math.max(0, netTotal);
+    setRawCart((prev) =>
+      prev.map((item) => {
+        if (item.productId === productId && !item.isGift) {
+          const qty = item.quantity > 0 ? item.quantity : 1;
+          const baseUnitPrice = item.originalUnitPrice || item.unitPrice;
+          const baseNetTotal = qty * baseUnitPrice;
+
+          if (baseNetTotal <= 0) {
+            const newUnit = safeNetTotal / qty;
+            const vatAmount = safeNetTotal * (item.vatRate / 100);
+            return {
+              ...item,
+              unitPrice: newUnit,
+              originalUnitPrice: newUnit,
+              discountPercent: 0,
+              netPrice: newUnit,
+              totalAmount: safeNetTotal,
+              vatAmount,
+              grandTotal: safeNetTotal + vatAmount,
+            };
+          }
+
+          if (safeNetTotal <= baseNetTotal) {
+            const rawDiscount = ((baseNetTotal - safeNetTotal) / baseNetTotal) * 100;
+            const discountPercent = Math.round(rawDiscount * 100) / 100;
+            const netPrice = safeNetTotal / qty;
+            const vatAmount = safeNetTotal * (item.vatRate / 100);
+            return {
+              ...item,
+              unitPrice: baseUnitPrice,
+              originalUnitPrice: baseUnitPrice,
+              discountPercent,
+              netPrice,
+              totalAmount: safeNetTotal,
+              vatAmount,
+              grandTotal: safeNetTotal + vatAmount,
+            };
+          } else {
+            const newUnitPrice = safeNetTotal / qty;
+            const vatAmount = safeNetTotal * (item.vatRate / 100);
+            return {
+              ...item,
+              unitPrice: newUnitPrice,
+              originalUnitPrice: baseUnitPrice,
+              discountPercent: 0,
+              netPrice: newUnitPrice,
+              totalAmount: safeNetTotal,
+              vatAmount,
+              grandTotal: safeNetTotal + vatAmount,
+            };
+          }
+        }
+        return item;
+      })
+    );
+  };
+
   const updateCartItemGrandTotal = (productId: string, grandTotal: number) => {
     const safeGrandTotal = Math.max(0, grandTotal);
     setRawCart((prev) =>
@@ -1407,7 +1486,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         addToCart,
         updateCartItemQuantity,
         updateCartItemDiscount,
+        updateCartItemVatRate,
         updateCartItemPrice,
+        updateCartItemNetTotal,
         updateCartItemGrandTotal,
         removeFromCart,
         clearCart,
