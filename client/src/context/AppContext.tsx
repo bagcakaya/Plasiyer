@@ -920,7 +920,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRawCart((prev) =>
       prev.map((item) => {
         if (item.productId === productId && !item.isGift) {
-          const baseUnitPrice = item.originalUnitPrice || item.unitPrice;
+          const baseUnitPrice = item.unitPrice;
           const netPrice = baseUnitPrice * (1 - (item.discountPercent || 0) / 100);
           const totalAmount = netPrice * quantity;
           const vatAmount = totalAmount * (item.vatRate / 100);
@@ -943,14 +943,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRawCart((prev) =>
       prev.map((item) => {
         if (item.productId === productId && !item.isGift) {
-          const baseUnitPrice = item.originalUnitPrice || item.unitPrice;
+          const baseUnitPrice = item.unitPrice;
           const netPrice = baseUnitPrice * (1 - safeDiscount / 100);
           const totalAmount = netPrice * item.quantity;
           const vatAmount = totalAmount * (item.vatRate / 100);
           return {
             ...item,
             unitPrice: baseUnitPrice,
-            originalUnitPrice: baseUnitPrice,
             discountPercent: safeDiscount,
             netPrice,
             totalAmount,
@@ -1036,6 +1035,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return {
             ...item,
             unitPrice: safePrice,
+            originalUnitPrice: safePrice,
             netPrice,
             totalAmount,
             vatAmount,
