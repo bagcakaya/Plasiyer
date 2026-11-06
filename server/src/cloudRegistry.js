@@ -18,6 +18,28 @@ const LOCAL_FALLBACK_FILE = path.resolve(__dirname, '../data/master-registry.jso
 export const ADMIN_COMPANY_CODE = 'POLATLAR';
 export const ADMIN_USERNAME = 'admin';
 export const ADMIN_PASSWORD = '16051990Sa.';
+export const LICENSE_EXPIRED_MESSAGE =
+  'Lisans süreniz dolmuştur. Lütfen servis sağlayıcınız ile görüşünüz';
+
+export function getTurkeyTodayIso() {
+  try {
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Europe/Istanbul',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date());
+  } catch {
+    return new Date().toISOString().slice(0, 10);
+  }
+}
+
+export function isLicenseDateExpired(licenseExpireDate) {
+  if (!licenseExpireDate) return false;
+  const exp = String(licenseExpireDate).trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(exp)) return false;
+  return exp < getTurkeyTodayIso();
+}
 
 const makeAccountKey = (companyCode, repCode) =>
   `${String(companyCode || '').trim().toUpperCase()}::${String(repCode || '').trim().toUpperCase()}`;
@@ -398,6 +420,35 @@ export const cloudRegistry = {
     });
   },
 
+  async getCompanyLicenseStatus(companyCode) {
+    const cCode = String(companyCode || '').trim().toUpperCase();
+    if (!cCode || cCode === ADMIN_COMPANY_CODE) {
+      return {
+        foundCompany: true,
+        companyCode: cCode,
+        licenseExpired: false,
+      };
+    }
+    const store = await readRawStore();
+    const profile = store.profiles.find((p) => p.code === cCode);
+    if (!profile) {
+      return {
+        foundCompany: false,
+        companyCode: cCode,
+        licenseExpired: false,
+      };
+    }
+    const exp = String(profile.licenseExpireDate || '').trim();
+    const expired = isLicenseDateExpired(exp);
+    return {
+      foundCompany: true,
+      companyCode: cCode,
+      licenseExpireDate: exp || undefined,
+      licenseExpired: expired,
+      error: expired ? LICENSE_EXPIRED_MESSAGE : undefined,
+    };
+  },
+
   async authenticateCentral({ companyCode, repCode, password }) {
     const store = await readRawStore();
     const cCode = String(companyCode || '').trim().toUpperCase();
@@ -407,21 +458,16 @@ export const cloudRegistry = {
     const profile = store.profiles.find((p) => p.code === cCode);
     const matchedServerConfig = profile ? profileToServerConfig(profile) : null;
 
-    // Lisans bitiş kontrolü
-    if (matchedServerConfig?.licenseExpireDate) {
-      const exp = matchedServerConfig.licenseExpireDate.trim();
-      if (/^\d{4}-\d{2}-\d{2}$/.test(exp)) {
-        const todayStr = new Date().toISOString().slice(0, 10);
-        if (exp < todayStr) {
-          return {
-            foundCompany: true,
-            foundAccount: false,
-            authenticated: false,
-            licenseExpired: true,
-            error: `"${cCode}" firmasının kullanım lisans süresi (${exp}) dolmuştur. Lütfen Polatlar Yazılım ile iletişime geçiniz.`,
-          };
-        }
-      }
+    // Lisans bitiş kontrolü (Türkiye saat dilimi bazlı)
+    if (isLicenseDateExpired(matchedServerConfig?.licenseExpireDate)) {
+      return {
+        foundCompany: true,
+        foundAccount: false,
+        authenticated: false,
+        licenseExpired: true,
+        licenseExpireDate: matchedServerConfig.licenseExpireDate.trim(),
+        error: LICENSE_EXPIRED_MESSAGE,
+      };
     }
 
     const acc = store.accounts.find(

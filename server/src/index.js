@@ -812,6 +812,17 @@ app.post('/api/plasiyers/login', async (req, res) => {
         error: 'Lütfen Firma Kodu, Plasiyer Kodu ve Şifre alanlarını doldurunuz.',
       });
     }
+    const lic = await cloudRegistry.getCompanyLicenseStatus(companyCode);
+    if (lic.licenseExpired) {
+      return res.json({
+        success: true,
+        found: true,
+        authenticated: false,
+        licenseExpired: true,
+        licenseExpireDate: lic.licenseExpireDate,
+        error: lic.error,
+      });
+    }
     const result = await erpQueries.authenticatePlasiyer({ companyCode, repCode, password });
     res.json({ success: true, ...result });
   } catch (err) {
@@ -876,6 +887,19 @@ app.delete('/api/registry/companies/:code', async (req, res) => {
   }
 });
 
+app.get('/api/registry/license-status', async (req, res) => {
+  try {
+    const companyCode = String(req.query.companyCode || '').trim();
+    if (!companyCode) {
+      return res.status(400).json({ success: false, error: 'Firma Kodu gereklidir.' });
+    }
+    const status = await cloudRegistry.getCompanyLicenseStatus(companyCode);
+    res.json({ success: true, ...status });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.post('/api/registry/authenticate', async (req, res) => {
   try {
     const { companyCode, repCode, password } = req.body || {};
@@ -894,6 +918,7 @@ app.post('/api/registry/authenticate', async (req, res) => {
         found: true,
         authenticated: false,
         licenseExpired: true,
+        licenseExpireDate: central.licenseExpireDate,
         error: central.error,
       });
     }

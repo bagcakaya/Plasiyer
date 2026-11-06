@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import type { CompanyProfile, ServerConfig } from '../types';
 import { apiService } from '../services/apiService';
+import { useApp } from '../context/AppContext';
 
 interface CompanyProfileModalProps {
   isOpen: boolean;
@@ -47,6 +48,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
   currentConfig,
   onSelectProfile,
 }) => {
+  const { userRole } = useApp();
   const [profiles, setProfiles] = useState<CompanyProfile[]>(() => {
     const saved = localStorage.getItem('plasiyer_company_profiles');
     if (saved) {
@@ -542,19 +544,21 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                   </div>
                 </div>
 
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-1">
-                    LİSANS BİTİŞ TARİHİ
-                  </label>
-                  <div className="flex items-stretch border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-800 focus-within:border-blue-500 shadow-2xs">
-                    <input
-                      type="date"
-                      value={newLicenseExpireDate}
-                      onChange={(e) => setNewLicenseExpireDate(e.target.value)}
-                      className="w-full bg-transparent px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none"
-                    />
+                {userRole === 'admin' && (
+                  <div>
+                    <label className="block text-[11px] font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wide mb-1">
+                      LİSANS BİTİŞ TARİHİ
+                    </label>
+                    <div className="flex items-stretch border border-slate-300 dark:border-slate-700 rounded-xl overflow-hidden bg-white dark:bg-slate-800 focus-within:border-blue-500 shadow-2xs">
+                      <input
+                        type="date"
+                        value={newLicenseExpireDate}
+                        onChange={(e) => setNewLicenseExpireDate(e.target.value)}
+                        className="w-full bg-transparent px-3 py-2 text-xs font-semibold text-slate-900 dark:text-white focus:outline-none"
+                      />
+                    </div>
                   </div>
-                </div>
+                )}
               </div>
 
               {/* Gelişmiş Entegrasyon & Dönem (Collapsible) */}

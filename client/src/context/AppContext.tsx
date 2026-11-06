@@ -35,7 +35,11 @@ import type {
 import { campaignService } from '../services/campaignService';
 import { vanStockService } from '../services/vanStockService';
 import { DEFAULT_QUOTA_TARGET, calculatePerformanceSummary } from '../services/quotaService';
-import { plasiyerAuthService } from '../services/plasiyerAuthService';
+import {
+  LICENSE_EXPIRED_MESSAGE,
+  LICENSE_EXPIRED_SESSION_KEY,
+  plasiyerAuthService,
+} from '../services/plasiyerAuthService';
 
 interface AppContextType {
   isOnline: boolean;
@@ -496,6 +500,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSelectedCustomer(null);
     setRawCart([]);
   };
+
+  // Aktif oturumdaki müşteri firmanın lisans süresi dolmuşsa oturumu anında sonlandır ve ikaz göster
+  useEffect(() => {
+    if (!currentUser || currentUser.role === 'admin') return;
+    const targetCompany = currentUser.companyCode || serverConfig.companyCode;
+    if (!targetCompany) return;
+
+    let cancelled = false;
+    const verifyActiveLicense = async () => {
+      const status = await plasiyerAuthService.checkCompanyLicenseStatus(targetCompany);
+      if (cancelled) return;
+      if (status.licenseExpireDate && status.licenseExpireDate !== serverConfig.licenseExpireDate) {
+        setServerConfig((prev) => {
+          const next = { ...prev, licenseExpireDate: status.licenseExpireDate };
+          localStorage.setItem('plasiyer_server_config', JSON.stringify(next));
+          return next;
+        });
+      }
+      if (status.licenseExpired) {
+        try {
+          sessionStorage.setItem(LICENSE_EXPIRED_SESSION_KEY, LICENSE_EXPIRED_MESSAGE);
+        } catch {
+          // ignore
+        }
+        logout();
+      }
+    };
+
+    verifyActiveLicense();
+    const onFocus = () => {
+      verifyActiveLicense();
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        verifyActiveLicense();
+      }
+    };
+    window.addEventListener('focus', onFocus);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      window.removeEventListener('focus', onFocus);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [currentUser?.id, currentUser?.role, currentUser?.companyCode, serverConfig.companyCode]);
 
   // HTML class senkronizasyonu
   useEffect(() => {

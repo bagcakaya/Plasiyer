@@ -11,6 +11,25 @@ export const ADMIN_COMPANY_CODE = 'POLATLAR';
 export const ADMIN_USERNAME = 'admin';
 const ADMIN_PASSWORD = '16051990Sa.';
 
+export const LICENSE_EXPIRED_MESSAGE =
+  'Lisans süreniz dolmuştur. Lütfen servis sağlayıcınız ile görüşünüz';
+export const LICENSE_EXPIRED_SESSION_KEY = 'polatlar_license_expired_notice';
+
+export function getLocalTodayIso(): string {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, '0');
+  const d = String(now.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+export function isLicenseExpired(expireDate?: string | null): boolean {
+  if (!expireDate) return false;
+  const exp = expireDate.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(exp)) return false;
+  return exp < getLocalTodayIso();
+}
+
 export function splitFullName(fullName: string): { firstName: string; lastName: string } {
   const cleaned = (fullName || '').trim().replace(/\s+/g, ' ');
   if (!cleaned) return { firstName: '', lastName: '' };
@@ -759,6 +778,98 @@ export const plasiyerAuthService = {
     return null;
   },
 
+  syncLocalLicenseExpireDate(companyCode: string, licenseExpireDate?: string): void {
+    if (typeof window === 'undefined' || !companyCode.trim() || !licenseExpireDate?.trim()) return;
+    const codeUpper = companyCode.trim().toUpperCase();
+    const exp = licenseExpireDate.trim();
+
+    try {
+      const profiles = this.getCompanyProfiles();
+      let changed = false;
+      const updatedProfiles = profiles.map((p) => {
+        if (p.code?.trim().toUpperCase() === codeUpper && p.licenseExpireDate !== exp) {
+          changed = true;
+          return { ...p, licenseExpireDate: exp };
+        }
+        return p;
+      });
+      if (changed) {
+        this.saveCompanyProfiles(updatedProfiles);
+      }
+    } catch {
+      // ignore
+    }
+
+    try {
+      const cfgRaw = localStorage.getItem(SERVER_CONFIG_KEY);
+      if (cfgRaw) {
+        const cfg = JSON.parse(cfgRaw) as ServerConfig;
+        if (cfg.companyCode?.trim().toUpperCase() === codeUpper && cfg.licenseExpireDate !== exp) {
+          localStorage.setItem(
+            SERVER_CONFIG_KEY,
+            JSON.stringify({ ...cfg, licenseExpireDate: exp })
+          );
+        }
+      }
+    } catch {
+      // ignore
+    }
+  },
+
+  async checkCompanyLicenseStatus(companyCode?: string): Promise<{
+    licenseExpired: boolean;
+    licenseExpireDate?: string;
+    error?: string;
+  }> {
+    const codeUpper = (companyCode || '').trim().toUpperCase();
+    if (!codeUpper || codeUpper === ADMIN_COMPANY_CODE) {
+      return { licenseExpired: false };
+    }
+
+    if (typeof navigator === 'undefined' || navigator.onLine) {
+      try {
+        const res = await fetch(
+          `/api/registry/license-status?companyCode=${encodeURIComponent(codeUpper)}`
+        );
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.foundCompany && data?.licenseExpireDate) {
+            this.syncLocalLicenseExpireDate(codeUpper, data.licenseExpireDate);
+          }
+          if (data?.licenseExpired || isLicenseExpired(data?.licenseExpireDate)) {
+            return {
+              licenseExpired: true,
+              licenseExpireDate: data?.licenseExpireDate,
+              error: LICENSE_EXPIRED_MESSAGE,
+            };
+          }
+          if (data?.foundCompany) {
+            return {
+              licenseExpired: false,
+              licenseExpireDate: data?.licenseExpireDate,
+            };
+          }
+        }
+      } catch {
+        // Ağ hatasında yerel lisans tarihini kontrol et
+      }
+    }
+
+    const localCfg = this.findServerConfigByCompanyCode(codeUpper);
+    if (isLicenseExpired(localCfg?.licenseExpireDate)) {
+      return {
+        licenseExpired: true,
+        licenseExpireDate: localCfg?.licenseExpireDate,
+        error: LICENSE_EXPIRED_MESSAGE,
+      };
+    }
+
+    return {
+      licenseExpired: false,
+      licenseExpireDate: localCfg?.licenseExpireDate,
+    };
+  },
+
   async authenticate(params: {
     companyCode: string;
     repCode: string;
@@ -769,6 +880,7 @@ export const plasiyerAuthService = {
     adminUser?: AuthUser;
     account?: PlasiyerAccount;
     matchedServerConfig?: ServerConfig | null;
+    licenseExpired?: boolean;
     error?: string;
   }> {
     const cCode = params.companyCode.trim().toUpperCase();
@@ -823,9 +935,13 @@ export const plasiyerAuthService = {
         if (cloudRes.ok) {
           const cloudData = await cloudRes.json();
           if (cloudData?.licenseExpired) {
+            if (cloudData.licenseExpireDate) {
+              this.syncLocalLicenseExpireDate(cCode, cloudData.licenseExpireDate);
+            }
             return {
               success: false,
-              error: cloudData.error || `"${cCode}" firmasının kullanım lisans süresi dolmuştur.`,
+              licenseExpired: true,
+              error: LICENSE_EXPIRED_MESSAGE,
             };
           }
 
@@ -887,17 +1003,12 @@ export const plasiyerAuthService = {
     const matchedServerConfig = this.findServerConfigByCompanyCode(cCode);
 
     // Lisans Bitiş Tarihi kontrolü
-    if (matchedServerConfig?.licenseExpireDate) {
-      const exp = matchedServerConfig.licenseExpireDate.trim();
-      if (/^\d{4}-\d{2}-\d{2}$/.test(exp)) {
-        const todayStr = new Date().toISOString().slice(0, 10);
-        if (exp < todayStr) {
-          return {
-            success: false,
-            error: `"${cCode}" firmasının kullanım lisans süresi (${exp}) dolmuştur. Lütfen Polatlar Yazılım ile iletişime geçiniz.`,
-          };
-        }
-      }
+    if (isLicenseExpired(matchedServerConfig?.licenseExpireDate)) {
+      return {
+        success: false,
+        licenseExpired: true,
+        error: LICENSE_EXPIRED_MESSAGE,
+      };
     }
 
     // 2. Bağlı canlı SQL veritabanı (veya yerel köprü) varsa oradan doğrula
@@ -918,6 +1029,16 @@ export const plasiyerAuthService = {
         });
         if (res.ok) {
           const data = await res.json();
+          if (data?.licenseExpired) {
+            if (data.licenseExpireDate) {
+              this.syncLocalLicenseExpireDate(cCode, data.licenseExpireDate);
+            }
+            return {
+              success: false,
+              licenseExpired: true,
+              error: LICENSE_EXPIRED_MESSAGE,
+            };
+          }
           if (data?.found && data?.authenticated && data?.account) {
             const syncedAcc = this.upsertAccountLocal({
               companyCode: data.account.companyCode || cCode,
@@ -1061,7 +1182,12 @@ export const plasiyerAuthService = {
     return `${origin}/?invite=${encoded}`;
   },
 
-  consumeInviteFromUrl(): { imported: boolean; companyCode?: string; repCode?: string } {
+  consumeInviteFromUrl(): {
+    imported: boolean;
+    companyCode?: string;
+    repCode?: string;
+    licenseExpired?: boolean;
+  } {
     if (typeof window === 'undefined') return { imported: false };
     try {
       const url = new URL(window.location.href);
@@ -1128,6 +1254,7 @@ export const plasiyerAuthService = {
         imported: true,
         companyCode: decoded?.acc?.companyCode || decoded?.cfg?.companyCode,
         repCode: decoded?.acc?.repCode,
+        licenseExpired: isLicenseExpired(decoded?.cfg?.licenseExpireDate),
       };
     } catch {
       return { imported: false };

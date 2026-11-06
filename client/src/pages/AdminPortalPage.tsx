@@ -30,6 +30,8 @@ import {
   RefreshCw,
   ArrowUpRight,
   Sparkles,
+  Clock,
+  Ban,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import type { CompanyProfile, PlasiyerAccount, ServerConfig } from '../types';
@@ -50,6 +52,22 @@ const formatDateTr = (iso?: string) => {
   return iso;
 };
 
+const toLocalIsoDate = (date: Date) => {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+};
+
+const computeLicensePresetDate = (opts: { days?: number; months?: number; years?: number }) => {
+  const dt = new Date();
+  dt.setHours(0, 0, 0, 0);
+  if (opts.years) dt.setFullYear(dt.getFullYear() + opts.years);
+  if (opts.months) dt.setMonth(dt.getMonth() + opts.months);
+  if (opts.days) dt.setDate(dt.getDate() + opts.days);
+  return toLocalIsoDate(dt);
+};
+
 const getLicenseStatus = (expireIso?: string) => {
   if (!expireIso || !/^\d{4}-\d{2}-\d{2}$/.test(expireIso.trim())) {
     return { label: 'Süresiz / Tanımlı', tone: 'emerald' as const, daysLeft: 999 };
@@ -57,14 +75,17 @@ const getLicenseStatus = (expireIso?: string) => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const exp = new Date(`${expireIso.trim()}T00:00:00`);
-  const diffDays = Math.ceil((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+  const diffDays = Math.round((exp.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
   if (diffDays < 0) {
     return { label: 'Lisans Süresi Doldu', tone: 'rose' as const, daysLeft: diffDays };
+  }
+  if (diffDays === 0) {
+    return { label: 'Son Gün (Bugün)', tone: 'amber' as const, daysLeft: 0 };
   }
   if (diffDays <= 30) {
     return { label: `${diffDays} Gün Kaldı`, tone: 'amber' as const, daysLeft: diffDays };
   }
-  return { label: 'Aktif Lisans', tone: 'emerald' as const, daysLeft: diffDays };
+  return { label: `Aktif (${diffDays} Gün)`, tone: 'emerald' as const, daysLeft: diffDays };
 };
 
 export const AdminPortalPage: React.FC = () => {
@@ -94,13 +115,19 @@ export const AdminPortalPage: React.FC = () => {
   >({});
   const [copiedInviteKey, setCopiedInviteKey] = useState<string | null>(null);
   const [expandedFirmCode, setExpandedFirmCode] = useState<string | null>(null);
+  const [licenseEditFirmCode, setLicenseEditFirmCode] = useState<string | null>(null);
+  const [licenseEditDate, setLicenseEditDate] = useState<string>('');
+  const [savingLicenseCode, setSavingLicenseCode] = useState<string | null>(null);
+  const [licenseSavedCode, setLicenseSavedCode] = useState<string | null>(null);
 
   // Yeni Firma / Firma Düzenleme Form State
   const [editingFirmOriginalCode, setEditingFirmOriginalCode] = useState<string | null>(null);
   const [formCode, setFormCode] = useState('');
   const [formTitle, setFormTitle] = useState('');
   const [formPeriod, setFormPeriod] = useState('2026');
-  const [formLicenseExpire, setFormLicenseExpire] = useState('2027-12-31');
+  const [formLicenseExpire, setFormLicenseExpire] = useState(() =>
+    computeLicensePresetDate({ years: 1 })
+  );
   const [formMode, setFormMode] = useState<'live' | 'demo'>('live');
   const [formSqlHost, setFormSqlHost] = useState('');
   const [formSqlPort, setFormSqlPort] = useState('1433');
@@ -199,9 +226,11 @@ export const AdminPortalPage: React.FC = () => {
     const liveSqlFirms = profiles.filter((p) => p.serverUrl && p.serverUrl !== 'demo').length;
     let activeLicenses = 0;
     let expiringSoon = 0;
+    let expiredLicenses = 0;
     profiles.forEach((p) => {
       const st = getLicenseStatus(p.licenseExpireDate);
       if (st.tone !== 'rose') activeLicenses += 1;
+      else expiredLicenses += 1;
       if (st.tone === 'amber') expiringSoon += 1;
     });
     const customerAccounts = accounts.filter(
@@ -212,6 +241,7 @@ export const AdminPortalPage: React.FC = () => {
       liveSqlFirms,
       activeLicenses,
       expiringSoon,
+      expiredLicenses,
       totalAccounts: customerAccounts.length,
     };
   }, [profiles, accounts]);
@@ -243,7 +273,7 @@ export const AdminPortalPage: React.FC = () => {
     setFormCode('');
     setFormTitle('');
     setFormPeriod('2026');
-    setFormLicenseExpire('2027-12-31');
+    setFormLicenseExpire(computeLicensePresetDate({ years: 1 }));
     setFormMode('live');
     setFormSqlHost('');
     setFormSqlPort('1433');
@@ -360,6 +390,27 @@ export const AdminPortalPage: React.FC = () => {
     }
     const next = await plasiyerAuthService.deleteCompanyProfileAsync(profile.code);
     setProfiles(next);
+  };
+
+  const handleQuickSaveLicense = async (profile: CompanyProfile, nextExpireIso: string) => {
+    const cleanedDate = nextExpireIso.trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(cleanedDate)) return;
+    setSavingLicenseCode(profile.code);
+    try {
+      const saved = await plasiyerAuthService.upsertCompanyProfileAsync({
+        ...profile,
+        licenseExpireDate: cleanedDate,
+      });
+      if (serverConfig.companyCode?.toUpperCase() === profile.code.toUpperCase()) {
+        updateServerConfig({ licenseExpireDate: saved.licenseExpireDate });
+      }
+      refreshData();
+      setLicenseSavedCode(profile.code);
+      setTimeout(() => setLicenseSavedCode(null), 2500);
+      setLicenseEditFirmCode(null);
+    } finally {
+      setSavingLicenseCode(null);
+    }
   };
 
   const handleTestFormSql = async () => {
@@ -696,13 +747,19 @@ export const AdminPortalPage: React.FC = () => {
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-400">
                   Aktif Lisanslar
                 </span>
-                <div className="mt-1.5 flex items-baseline justify-between">
+                <div className="mt-1.5 flex items-baseline justify-between gap-2">
                   <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
                     {stats.activeLicenses}
                   </span>
-                  <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">
-                    {stats.expiringSoon > 0 ? `${stats.expiringSoon} yaklaşıyor` : 'Tümü güncel'}
-                  </span>
+                  {stats.expiredLicenses > 0 ? (
+                    <span className="text-[11px] font-extrabold text-rose-600 dark:text-rose-400">
+                      {stats.expiredLicenses} süresi doldu
+                    </span>
+                  ) : (
+                    <span className="text-[11px] font-semibold text-amber-600 dark:text-amber-400">
+                      {stats.expiringSoon > 0 ? `${stats.expiringSoon} yaklaşıyor` : 'Tümü güncel'}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -867,6 +924,101 @@ export const AdminPortalPage: React.FC = () => {
                           </div>
                         )}
 
+                        {/* Hızlı Lisans Süresi Belirleme Paneli */}
+                        {licenseEditFirmCode === profile.code && (() => {
+                          const previewLic = getLicenseStatus(licenseEditDate);
+                          const isSavingLic = savingLicenseCode === profile.code;
+                          return (
+                            <div className="p-3.5 rounded-2xl bg-emerald-50/50 dark:bg-zinc-950 border border-emerald-500/30 space-y-2.5">
+                              <div className="flex items-center justify-between gap-2">
+                                <span className="text-[11px] font-extrabold text-slate-800 dark:text-zinc-100 flex items-center gap-1.5">
+                                  <Clock className="w-3.5 h-3.5 text-emerald-500" />
+                                  <span>Lisans Süresi Belirle</span>
+                                </span>
+                                <span
+                                  className={`text-[10px] font-extrabold px-2 py-0.5 rounded-lg border ${
+                                    previewLic.tone === 'emerald'
+                                      ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border-emerald-500/30'
+                                      : previewLic.tone === 'amber'
+                                      ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border-amber-500/30'
+                                      : 'bg-rose-500/15 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                                  }`}
+                                >
+                                  {previewLic.label}
+                                </span>
+                              </div>
+
+                              {/* Hızlı Süre Butonları */}
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                {[
+                                  { label: '1 Ay', opts: { months: 1 } },
+                                  { label: '3 Ay', opts: { months: 3 } },
+                                  { label: '6 Ay', opts: { months: 6 } },
+                                  { label: '1 Yıl', opts: { years: 1 } },
+                                  { label: '2 Yıl', opts: { years: 2 } },
+                                ].map((preset) => (
+                                  <button
+                                    key={preset.label}
+                                    type="button"
+                                    onClick={() =>
+                                      setLicenseEditDate(computeLicensePresetDate(preset.opts))
+                                    }
+                                    className="px-2.5 py-1 rounded-lg bg-white dark:bg-zinc-800 hover:bg-emerald-500 hover:text-zinc-950 border border-slate-200 dark:border-zinc-700 text-[11px] font-bold text-slate-700 dark:text-zinc-200 transition"
+                                  >
+                                    +{preset.label}
+                                  </button>
+                                ))}
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    setLicenseEditDate(computeLicensePresetDate({ days: -1 }))
+                                  }
+                                  className="px-2.5 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-600 hover:text-white border border-rose-500/30 text-[11px] font-bold text-rose-700 dark:text-rose-300 flex items-center gap-1 transition"
+                                  title="Lisans süresini doldurarak firmanın girişini anında kapat"
+                                >
+                                  <Ban className="w-3 h-3" />
+                                  <span>Lisansı Sonlandır</span>
+                                </button>
+                              </div>
+
+                              {/* Tarih Seçici + Kaydet */}
+                              <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+                                <input
+                                  type="date"
+                                  value={licenseEditDate}
+                                  onChange={(e) => setLicenseEditDate(e.target.value)}
+                                  className="flex-1 bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                                />
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    disabled={isSavingLic}
+                                    onClick={() => handleQuickSaveLicense(profile, licenseEditDate)}
+                                    className="flex-1 sm:flex-initial px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 transition disabled:opacity-50"
+                                  >
+                                    <Check className="w-3.5 h-3.5" />
+                                    <span>{isSavingLic ? 'Kaydediliyor...' : 'Kaydet'}</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setLicenseEditFirmCode(null)}
+                                    className="px-2.5 py-2 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 font-bold text-xs hover:bg-slate-200 dark:hover:bg-zinc-700 transition"
+                                  >
+                                    İptal
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {licenseSavedCode === profile.code && (
+                          <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-700 dark:text-emerald-300 text-[11px] font-bold flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                            <span>Lisans süresi güncellendi ve merkezi buluta senkronize edildi.</span>
+                          </div>
+                        )}
+
                         {/* Genişletilebilir Plasiyer Özeti */}
                         {isExpanded && (
                           <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 space-y-2">
@@ -945,6 +1097,30 @@ export const AdminPortalPage: React.FC = () => {
                                 <span>Kurulum Linki</span>
                               </>
                             )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (licenseEditFirmCode === profile.code) {
+                                setLicenseEditFirmCode(null);
+                              } else {
+                                setLicenseEditFirmCode(profile.code);
+                                setLicenseEditDate(
+                                  profile.licenseExpireDate ||
+                                    computeLicensePresetDate({ years: 1 })
+                                );
+                              }
+                            }}
+                            className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-bold flex items-center gap-1 transition ${
+                              license.tone === 'rose'
+                                ? 'bg-rose-500/15 hover:bg-rose-500/25 text-rose-700 dark:text-rose-300 border-rose-500/30'
+                                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/25'
+                            }`}
+                            title="Bu firmanın lisans süresini belirle veya uzat"
+                          >
+                            <Clock className="w-3.5 h-3.5" />
+                            <span>Lisans Süresi</span>
                           </button>
 
                           <button
@@ -1079,15 +1255,59 @@ export const AdminPortalPage: React.FC = () => {
                     </div>
 
                     <div>
-                      <label className="block font-bold text-slate-700 dark:text-zinc-300 mb-1">
-                        Lisans Bitiş Tarihi
-                      </label>
+                      <div className="flex items-center justify-between mb-1 gap-2">
+                        <label className="block font-bold text-slate-700 dark:text-zinc-300">
+                          Lisans Süresi &amp; Bitiş Tarihi
+                        </label>
+                        {(() => {
+                          const st = getLicenseStatus(formLicenseExpire);
+                          return (
+                            <span
+                              className={`text-[10px] font-extrabold px-2 py-0.5 rounded-lg ${
+                                st.tone === 'emerald'
+                                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                  : st.tone === 'amber'
+                                  ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                  : 'bg-rose-500/15 text-rose-700 dark:text-rose-300'
+                              }`}
+                            >
+                              {st.label}
+                            </span>
+                          );
+                        })()}
+                      </div>
                       <input
                         type="date"
                         value={formLicenseExpire}
                         onChange={(e) => setFormLicenseExpire(e.target.value)}
                         className="w-full bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl px-3.5 py-2.5 font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                        required
                       />
+                      <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                        {[
+                          { label: '1 Aylık', opts: { months: 1 } },
+                          { label: '3 Aylık', opts: { months: 3 } },
+                          { label: '6 Aylık', opts: { months: 6 } },
+                          { label: '1 Yıllık', opts: { years: 1 } },
+                          { label: '2 Yıllık', opts: { years: 2 } },
+                        ].map((p) => (
+                          <button
+                            key={p.label}
+                            type="button"
+                            onClick={() => setFormLicenseExpire(computeLicensePresetDate(p.opts))}
+                            className="px-2 py-1 rounded-lg bg-slate-100 dark:bg-zinc-800 hover:bg-emerald-500 hover:text-zinc-950 text-[10px] font-bold text-slate-700 dark:text-zinc-300 border border-slate-200 dark:border-zinc-700 transition"
+                          >
+                            {p.label}
+                          </button>
+                        ))}
+                        <button
+                          type="button"
+                          onClick={() => setFormLicenseExpire(computeLicensePresetDate({ days: -1 }))}
+                          className="px-2 py-1 rounded-lg bg-rose-500/15 hover:bg-rose-600 hover:text-white text-[10px] font-bold text-rose-700 dark:text-rose-300 border border-rose-500/30 transition"
+                        >
+                          Süresi Doldu Yap
+                        </button>
+                      </div>
                     </div>
                   </div>
 

@@ -14,12 +14,18 @@ import {
   Wifi,
   WifiOff,
   AlertCircle,
+  ShieldAlert,
   CheckCircle2,
   RefreshCw,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import type { AuthUser } from '../types';
-import { formatFullName, plasiyerAuthService } from '../services/plasiyerAuthService';
+import {
+  formatFullName,
+  LICENSE_EXPIRED_MESSAGE,
+  LICENSE_EXPIRED_SESSION_KEY,
+  plasiyerAuthService,
+} from '../services/plasiyerAuthService';
 import loginBgImage from '../assets/polatlar-login-bg.jpg';
 
 export const LoginPage: React.FC = () => {
@@ -40,24 +46,42 @@ export const LoginPage: React.FC = () => {
   });
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
+  const [isLicenseExpiredError, setIsLicenseExpiredError] = useState(false);
   const [infoMessage, setInfoMessage] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
-  // Mobil kurulum bağlantısı (?invite=...) ile açıldıysa firma ve plasiyer tanımlarını cihaza aktar
+  // Mobil kurulum bağlantısı (?invite=...) veya lisans dolumu nedeniyle sonlandırılan oturum kontrolü
   useEffect(() => {
+    try {
+      const expiredNotice = sessionStorage.getItem(LICENSE_EXPIRED_SESSION_KEY);
+      if (expiredNotice) {
+        sessionStorage.removeItem(LICENSE_EXPIRED_SESSION_KEY);
+        setIsLicenseExpiredError(true);
+        setError(LICENSE_EXPIRED_MESSAGE);
+      }
+    } catch {
+      // ignore
+    }
+
     const inviteRes = plasiyerAuthService.consumeInviteFromUrl();
     if (inviteRes.imported) {
       if (inviteRes.companyCode) setCompanyCode(inviteRes.companyCode.toUpperCase());
       if (inviteRes.repCode) setRepCode(inviteRes.repCode);
-      setInfoMessage(
-        'Firma ve kullanıcı tanımları cihaza aktarıldı. Bilgilerinizi girerek oturum açabilirsiniz.'
-      );
+      if (inviteRes.licenseExpired) {
+        setIsLicenseExpiredError(true);
+        setError(LICENSE_EXPIRED_MESSAGE);
+      } else {
+        setInfoMessage(
+          'Firma ve kullanıcı tanımları cihaza aktarıldı. Bilgilerinizi girerek oturum açabilirsiniz.'
+        );
+      }
     }
   }, []);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
+    setIsLicenseExpiredError(false);
     setInfoMessage('');
 
     const trimmedCompany = companyCode.trim().toUpperCase();
@@ -88,7 +112,12 @@ export const LoginPage: React.FC = () => {
       });
 
       if (!authResult.success) {
-        setError(authResult.error || 'Firma Kodu, Kullanıcı Kodu veya Şifre hatalı.');
+        if (authResult.licenseExpired || authResult.error === LICENSE_EXPIRED_MESSAGE) {
+          setIsLicenseExpiredError(true);
+          setError(LICENSE_EXPIRED_MESSAGE);
+        } else {
+          setError(authResult.error || 'Firma Kodu, Kullanıcı Kodu veya Şifre hatalı.');
+        }
         setIsLoading(false);
         return;
       }
@@ -216,11 +245,23 @@ export const LoginPage: React.FC = () => {
             </div>
           )}
 
-          {/* Hata Mesajı */}
+          {/* Hata / Lisans İkaz Mesajı */}
           {error && (
-            <div className="mb-4 p-3 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300 text-xs flex items-start gap-2 animate-in fade-in">
-              <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
-              <span>{error}</span>
+            <div
+              className={`mb-4 p-3.5 rounded-2xl border text-xs flex items-start gap-2.5 animate-in fade-in ${
+                isLicenseExpiredError
+                  ? 'bg-rose-600/15 dark:bg-rose-950/80 border-rose-500/60 dark:border-rose-500/50 text-rose-800 dark:text-rose-200 ring-1 ring-rose-500/30 shadow-md shadow-rose-600/10'
+                  : 'bg-rose-50 dark:bg-rose-950/60 border-rose-200 dark:border-rose-900/60 text-rose-700 dark:text-rose-300'
+              }`}
+            >
+              {isLicenseExpiredError ? (
+                <ShieldAlert className="w-5 h-5 shrink-0 text-rose-600 dark:text-rose-400 mt-0.5" />
+              ) : (
+                <AlertCircle className="w-4 h-4 shrink-0 text-rose-500 mt-0.5" />
+              )}
+              <span className={isLicenseExpiredError ? 'font-extrabold leading-relaxed' : ''}>
+                {error}
+              </span>
             </div>
           )}
 
