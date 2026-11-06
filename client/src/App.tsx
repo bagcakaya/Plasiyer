@@ -89,7 +89,7 @@ const GlobalModals: React.FC = () => {
 };
 
 const MainContent: React.FC = () => {
-  const { activeTab, userRole } = useApp();
+  const { activeTab, userRole, isCompanyManager } = useApp();
   const isReelsCustomersView = activeTab === 'customers' && userRole !== 'customer';
 
   return (
@@ -105,7 +105,7 @@ const MainContent: React.FC = () => {
       {activeTab === 'cart' && <CartPage />}
       {activeTab === 'orders' && <OrdersQueuePage />}
       {activeTab === 'van_stock' && <VanStockPage />}
-      {activeTab === 'settings' && <SettingsPage />}
+      {activeTab === 'settings' && (userRole !== 'plasiyer' || isCompanyManager ? <SettingsPage /> : <CatalogPage />)}
     </main>
   );
 };

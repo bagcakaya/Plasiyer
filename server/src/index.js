@@ -703,22 +703,22 @@ app.get('/api/campaigns', (req, res) => {
   res.json({ success: true, campaigns });
 });
 
-// 8. PLASİYER KULLANICI YÖNETİMİ VE GİRİŞ DOĞRULAMA (FİRMA KODU + PLASİYER KODU + ŞİFRE)
+// 8. PLASİYER & FİRMA YETKİLİSİ KULLANICI YÖNETİMİ VE GİRİŞ DOĞRULAMA
 app.get('/api/plasiyers', async (req, res) => {
   try {
     const companyCode = String(req.query.companyCode || '').trim().toUpperCase();
     const authCheck = await verifyFirmOrAdminAuth(req, companyCode || undefined);
 
-    let cloudAccounts = [];
-    if (authCheck.authorized) {
-      cloudAccounts = await cloudRegistry.getAccountsByCompany(
-        authCheck.isAdmin ? companyCode : authCheck.companyCode
-      );
+    if (!authCheck.authorized || (!authCheck.isAdmin && !authCheck.isCompanyManager)) {
+      return res.json({ success: true, accounts: [] });
     }
+
+    const targetCompany = authCheck.isAdmin ? companyCode : authCheck.companyCode;
+    const cloudAccounts = await cloudRegistry.getAccountsByCompany(targetCompany);
 
     let sqlAccounts = [];
     try {
-      sqlAccounts = await erpQueries.getPlasiyerAccounts(companyCode);
+      sqlAccounts = await erpQueries.getPlasiyerAccounts(targetCompany);
     } catch {
       // SQL erişimi yoksa bulut kayıtlarıyla devam et
     }
@@ -737,26 +737,42 @@ app.get('/api/plasiyers', async (req, res) => {
 
 app.post('/api/plasiyers', async (req, res) => {
   try {
-    const { companyCode, repCode, firstName, lastName, password } = req.body || {};
+    const { companyCode, repCode, firstName, lastName, password, accountRole } = req.body || {};
     if (!companyCode || !repCode || !password) {
       return res.status(400).json({
         success: false,
-        error: 'Firma Kodu, Plasiyer Kodu ve Şifre zorunludur.',
+        error: 'Firma Kodu, Kullanıcı/Plasiyer Kodu ve Şifre zorunludur.',
       });
     }
 
     const authCheck = await verifyFirmOrAdminAuth(req, companyCode);
-    let cloudSaved = null;
-    if (authCheck.authorized) {
-      const regRes = await cloudRegistry.upsertAccount({
-        companyCode,
-        repCode,
-        firstName: firstName || '',
-        lastName: lastName || '',
-        password,
+    if (!authCheck.authorized || (!authCheck.isAdmin && !authCheck.isCompanyManager)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Bu işlem yalnızca Yetkili Kurum veya Firma Yetkilisi tarafından yapılabilir.',
       });
-      cloudSaved = regRes.account;
     }
+
+    const cleanRep = String(repCode).trim().toUpperCase();
+    let effectiveRole;
+    if (authCheck.isAdmin) {
+      if (accountRole === 'manager' || accountRole === 'plasiyer') {
+        effectiveRole = accountRole;
+      }
+    } else {
+      // Firma yetkilisi kendi şifresini güncelliyorsa yetkisini koru; eklediği plasiyerler her zaman 'plasiyer' olur
+      effectiveRole = cleanRep === authCheck.repCode ? 'manager' : 'plasiyer';
+    }
+
+    const regRes = await cloudRegistry.upsertAccount({
+      companyCode,
+      repCode,
+      firstName: firstName || '',
+      lastName: lastName || '',
+      password,
+      accountRole: effectiveRole,
+    });
+    const cloudSaved = regRes.account;
 
     let sqlSaved = null;
     try {
@@ -766,6 +782,7 @@ app.post('/api/plasiyers', async (req, res) => {
         firstName: firstName || '',
         lastName: lastName || '',
         password,
+        accountRole: cloudSaved?.accountRole || effectiveRole,
       });
     } catch (sqlErr) {
       console.warn('Plasiyer SQL kayıt uyarısı:', sqlErr.message);
@@ -783,13 +800,25 @@ app.delete('/api/plasiyers', async (req, res) => {
     const companyCode = String(req.query.companyCode || req.body?.companyCode || '').trim();
     const repCode = String(req.query.repCode || req.body?.repCode || '').trim();
     if (!companyCode || !repCode) {
-      return res.status(400).json({ success: false, error: 'Firma Kodu ve Plasiyer Kodu gereklidir.' });
+      return res.status(400).json({ success: false, error: 'Firma Kodu ve Kullanıcı Kodu gereklidir.' });
     }
 
     const authCheck = await verifyFirmOrAdminAuth(req, companyCode);
-    if (authCheck.authorized) {
-      await cloudRegistry.deleteAccount(companyCode, repCode);
+    if (!authCheck.authorized || (!authCheck.isAdmin && !authCheck.isCompanyManager)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Bu işlem yalnızca Yetkili Kurum veya Firma Yetkilisi tarafından yapılabilir.',
+      });
     }
+
+    if (!authCheck.isAdmin && repCode.toUpperCase() === authCheck.repCode) {
+      return res.status(400).json({
+        success: false,
+        error: 'Firma yetkilisi kendi yönetici hesabını silemez.',
+      });
+    }
+
+    await cloudRegistry.deleteAccount(companyCode, repCode);
 
     try {
       await erpQueries.deletePlasiyerAccount({ companyCode, repCode });
@@ -947,6 +976,7 @@ app.post('/api/registry/authenticate', async (req, res) => {
             firstName: sqlAuth.account.firstName || '',
             lastName: sqlAuth.account.lastName || '',
             password,
+            accountRole: sqlAuth.account.accountRole,
           });
           return res.json({
             success: true,

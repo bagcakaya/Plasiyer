@@ -56,6 +56,7 @@ interface AppContextType {
   // Rol, Kimlik & Giriş (Paket 2)
   isAuthenticated: boolean;
   currentUser: AuthUser | null;
+  isCompanyManager: boolean;
   login: (user: AuthUser) => void;
   logout: () => void;
   userRole: UserRole;
@@ -364,6 +365,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return null;
   });
 
+  const isCompanyManager = useMemo(() => {
+    if (!currentUser) return false;
+    if (currentUser.role === 'admin') return true;
+    if (currentUser.role !== 'plasiyer') return false;
+    if (currentUser.accountRole === 'manager') return true;
+    if (currentUser.accountRole === 'plasiyer') return false;
+    const cCode = (currentUser.companyCode || '').trim().toUpperCase();
+    const rCode = (currentUser.salesRepCode || currentUser.code || '').trim().toUpperCase();
+    if (cCode && rCode) {
+      const matched = plasiyerAuthService
+        .getLocalAccounts()
+        .find((a) => a.companyCode.toUpperCase() === cCode && a.repCode.toUpperCase() === rCode);
+      if (matched?.accountRole === 'manager') return true;
+    }
+    return false;
+  }, [currentUser]);
+
   const [rawCart, setRawCart] = useState<OrderItem[]>([]);
   const [activeTab, setActiveTabState] = useState<'customers' | 'catalog' | 'cart' | 'orders' | 'routes' | 'settings' | 'van_stock'>('catalog');
   const [customerSelectReturnTab, setCustomerSelectReturnTab] = useState<'cart' | 'catalog' | null>(null);
@@ -371,8 +389,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const setActiveTab = (tab: 'customers' | 'catalog' | 'cart' | 'orders' | 'routes' | 'settings' | 'van_stock') => {
     setCustomerSelectReturnTab(null);
+    if (tab === 'settings' && userRole === 'plasiyer' && !isCompanyManager) {
+      setActiveTabState('catalog');
+      return;
+    }
     setActiveTabState(tab);
   };
+
+  useEffect(() => {
+    if (activeTab === 'settings' && userRole === 'plasiyer' && !isCompanyManager) {
+      setActiveTabState('catalog');
+    }
+  }, [activeTab, userRole, isCompanyManager]);
 
   const clearCustomerSelectReturnTab = () => setCustomerSelectReturnTab(null);
 
@@ -487,7 +515,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           firstName: user.firstName,
           lastName: user.lastName,
           companyCode: user.companyCode,
-          title: 'Saha Satış Temsilcisi',
+          accountRole: user.accountRole === 'manager' ? 'manager' : 'plasiyer',
+          title: user.accountRole === 'manager' ? 'Firma Yetkilisi' : 'Saha Satış Temsilcisi',
         };
         setSalesRep(rep);
         localStorage.setItem('plasiyer_rep', JSON.stringify(rep));
@@ -1464,6 +1493,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleTheme,
         isAuthenticated,
         currentUser,
+        isCompanyManager,
         login,
         logout,
         userRole,

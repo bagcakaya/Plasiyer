@@ -3,9 +3,9 @@ import { useApp } from '../context/AppContext';
 import { Users, Package, ShoppingCart, Clock, Settings, Store, UserCheck, Navigation, Truck } from 'lucide-react';
 
 export const BottomNav: React.FC = () => {
-  const { activeTab, setActiveTab, cartSummary, pendingOrdersCount, userRole, saleMode } = useApp();
+  const { activeTab, setActiveTab, cartSummary, pendingOrdersCount, userRole, isCompanyManager, saleMode } = useApp();
 
-  // Plasiyer için menü öğeleri (Rut: Sipariş ile Ayarlar arasında)
+  // Plasiyer / Firma Yetkilisi için menü öğeleri (Ayarlar yalnızca Firma Yetkilisinde görünür)
   const plasiyerNavItems = [
     {
       id: 'customers' as const,
@@ -43,11 +43,15 @@ export const BottomNav: React.FC = () => {
       label: 'Rut',
       icon: Navigation,
     },
-    {
-      id: 'settings' as const,
-      label: 'Ayarlar',
-      icon: Settings,
-    },
+    ...(isCompanyManager
+      ? [
+          {
+            id: 'settings' as const,
+            label: 'Ayarlar',
+            icon: Settings,
+          },
+        ]
+      : []),
   ];
 
   // B2B Müşteri (Bayi) için menü öğeleri
@@ -77,7 +81,12 @@ export const BottomNav: React.FC = () => {
   ];
 
   const currentNavItems = userRole === 'customer' ? customerNavItems : plasiyerNavItems;
-  const gridColsClass = userRole === 'customer' ? 'grid-cols-4' : 'grid-cols-7';
+  const gridColsClass =
+    userRole === 'customer'
+      ? 'grid-cols-4'
+      : isCompanyManager
+      ? 'grid-cols-7'
+      : 'grid-cols-6';
 
   return (
     <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-white dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 shadow-lg safe-bottom transition-colors">

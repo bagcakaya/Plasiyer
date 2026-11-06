@@ -34,7 +34,7 @@ import {
   Ban,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import type { CompanyProfile, PlasiyerAccount, ServerConfig } from '../types';
+import type { CompanyProfile, FirmAccountRole, PlasiyerAccount, ServerConfig } from '../types';
 import {
   ADMIN_COMPANY_CODE,
   formatFullName,
@@ -120,6 +120,17 @@ export const AdminPortalPage: React.FC = () => {
   const [savingLicenseCode, setSavingLicenseCode] = useState<string | null>(null);
   const [licenseSavedCode, setLicenseSavedCode] = useState<string | null>(null);
 
+  // Mevcut Firma Kartında Hızlı Firma Yetkilisi Tanımla / Düzenle State
+  const [managerEditFirmCode, setManagerEditFirmCode] = useState<string | null>(null);
+  const [mgrCode, setMgrCode] = useState<string>('YONETICI');
+  const [mgrFirst, setMgrFirst] = useState<string>('');
+  const [mgrLast, setMgrLast] = useState<string>('');
+  const [mgrPass, setMgrPass] = useState<string>('');
+  const [showMgrPass, setShowMgrPass] = useState<boolean>(true);
+  const [savingManagerCode, setSavingManagerCode] = useState<string | null>(null);
+  const [managerSavedCode, setManagerSavedCode] = useState<string | null>(null);
+  const [managerFormError, setManagerFormError] = useState<string | null>(null);
+
   // Yeni Firma / Firma Düzenleme Form State
   const [editingFirmOriginalCode, setEditingFirmOriginalCode] = useState<string | null>(null);
   const [formCode, setFormCode] = useState('');
@@ -136,8 +147,8 @@ export const AdminPortalPage: React.FC = () => {
   const [formSqlPassword, setFormSqlPassword] = useState('');
   const [showFormSqlPass, setShowFormSqlPass] = useState(false);
 
-  // İlk Müşteri Firma Kullanıcı / Plasiyer Tanımı
-  const [initRepCode, setInitRepCode] = useState('PLS01');
+  // Firma Yöneticisi (Firma Yetkilisi) Tanımı
+  const [initRepCode, setInitRepCode] = useState('YONETICI');
   const [initFirstName, setInitFirstName] = useState('');
   const [initLastName, setInitLastName] = useState('');
   const [initPassword, setInitPassword] = useState('');
@@ -155,9 +166,10 @@ export const AdminPortalPage: React.FC = () => {
   } | null>(null);
   const [isSavingFirm, setIsSavingFirm] = useState(false);
 
-  // Tüm Plasiyerler Sekmesi State
+  // Tüm Plasiyerler & Yetkililer Sekmesi State
   const [accountCompanyFilter, setAccountCompanyFilter] = useState<string>('ALL');
   const [quickAccCompany, setQuickAccCompany] = useState<string>('');
+  const [quickAccRole, setQuickAccRole] = useState<FirmAccountRole>('manager');
   const [quickAccCode, setQuickAccCode] = useState<string>('');
   const [quickAccFirst, setQuickAccFirst] = useState<string>('');
   const [quickAccLast, setQuickAccLast] = useState<string>('');
@@ -236,6 +248,8 @@ export const AdminPortalPage: React.FC = () => {
     const customerAccounts = accounts.filter(
       (a) => !a.isDefaultSeed && a.companyCode.toUpperCase() !== ADMIN_COMPANY_CODE
     );
+    const managerCount = customerAccounts.filter((a) => a.accountRole === 'manager').length;
+    const plasiyerCount = customerAccounts.length - managerCount;
     return {
       totalFirms,
       liveSqlFirms,
@@ -243,6 +257,8 @@ export const AdminPortalPage: React.FC = () => {
       expiringSoon,
       expiredLicenses,
       totalAccounts: customerAccounts.length,
+      managerCount,
+      plasiyerCount,
     };
   }, [profiles, accounts]);
 
@@ -280,7 +296,7 @@ export const AdminPortalPage: React.FC = () => {
     setFormSqlDb('');
     setFormSqlUser('');
     setFormSqlPassword('');
-    setInitRepCode('PLS01');
+    setInitRepCode('YONETICI');
     setInitFirstName('');
     setInitLastName('');
     setInitPassword('');
@@ -301,24 +317,110 @@ export const AdminPortalPage: React.FC = () => {
     setFormSqlUser(profile.sqlUser || '');
     setFormSqlPassword(profile.sqlPassword || '');
 
-    const firmAcc = accounts.find(
-      (a) => a.companyCode.toUpperCase() === profile.code.toUpperCase()
+    const firmManager = accounts.find(
+      (a) =>
+        a.companyCode.toUpperCase() === profile.code.toUpperCase() &&
+        a.accountRole === 'manager'
     );
-    if (firmAcc) {
-      setInitRepCode(firmAcc.repCode);
-      setInitFirstName(firmAcc.firstName);
-      setInitLastName(firmAcc.lastName);
-      setInitPassword(firmAcc.password);
+    if (firmManager) {
+      setInitRepCode(firmManager.repCode);
+      setInitFirstName(firmManager.firstName);
+      setInitLastName(firmManager.lastName);
+      setInitPassword(firmManager.password);
     } else {
-      setInitRepCode('PLS01');
-      setInitFirstName('');
-      setInitLastName('');
+      setInitRepCode('YONETICI');
+      setInitFirstName('Firma');
+      setInitLastName('Yetkilisi');
       setInitPassword('');
     }
 
     setFormSqlTest({ testing: false });
     setFormFeedback(null);
     setActiveAdminTab('add_company');
+  };
+
+  const openInlineManagerEditor = (profile: CompanyProfile) => {
+    if (managerEditFirmCode === profile.code) {
+      setManagerEditFirmCode(null);
+      setManagerFormError(null);
+      return;
+    }
+    const existingMgr = accounts.find(
+      (a) =>
+        a.companyCode.toUpperCase() === profile.code.toUpperCase() &&
+        a.accountRole === 'manager'
+    );
+    if (existingMgr) {
+      setMgrCode(existingMgr.repCode);
+      setMgrFirst(existingMgr.firstName);
+      setMgrLast(existingMgr.lastName);
+      setMgrPass(existingMgr.password);
+    } else {
+      setMgrCode('YONETICI');
+      setMgrFirst('Firma');
+      setMgrLast('Yetkilisi');
+      setMgrPass('');
+    }
+    setManagerFormError(null);
+    setManagerEditFirmCode(profile.code);
+  };
+
+  const handleQuickSaveManager = async (profile: CompanyProfile) => {
+    const rCode = mgrCode.trim().toUpperCase();
+    const pwd = mgrPass.trim();
+    if (!rCode || !pwd) {
+      setManagerFormError('Firma yetkilisi için Kullanıcı Adı ve Şifre zorunludur.');
+      return;
+    }
+    setSavingManagerCode(profile.code);
+    setManagerFormError(null);
+    try {
+      const firmCfg = plasiyerAuthService.profileToServerConfig(profile);
+      await plasiyerAuthService.upsertAccount(
+        {
+          companyCode: profile.code.toUpperCase(),
+          repCode: rCode,
+          firstName: mgrFirst.trim() || 'Firma',
+          lastName: mgrLast.trim() || 'Yetkilisi',
+          password: pwd,
+          accountRole: 'manager',
+        },
+        firmCfg
+      );
+      refreshData();
+      setManagerSavedCode(profile.code);
+      setTimeout(() => setManagerSavedCode(null), 3000);
+      setManagerEditFirmCode(null);
+    } finally {
+      setSavingManagerCode(null);
+    }
+  };
+
+  const handleToggleAccountRole = async (acc: PlasiyerAccount, nextRole: FirmAccountRole) => {
+    const firmCfg =
+      plasiyerAuthService.findServerConfigByCompanyCode(acc.companyCode) || undefined;
+    await plasiyerAuthService.upsertAccount(
+      {
+        companyCode: acc.companyCode,
+        repCode: acc.repCode,
+        firstName: acc.firstName,
+        lastName: acc.lastName,
+        password: acc.password,
+        accountRole: nextRole,
+      },
+      firmCfg
+    );
+    refreshData();
+    if (
+      editingFirmOriginalCode &&
+      editingFirmOriginalCode.toUpperCase() === acc.companyCode.toUpperCase() &&
+      nextRole === 'manager'
+    ) {
+      setInitRepCode(acc.repCode);
+      setInitFirstName(acc.firstName);
+      setInitLastName(acc.lastName);
+      setInitPassword(acc.password);
+    }
   };
 
   const handleTestFirmCardSql = async (profile: CompanyProfile) => {
@@ -460,6 +562,14 @@ export const AdminPortalPage: React.FC = () => {
       return;
     }
 
+    if (!editingFirmOriginalCode && (!initRepCode.trim() || !initPassword.trim())) {
+      setFormFeedback({
+        type: 'error',
+        text: 'Yeni firma tanımlarken firmanın kendi plasiyerlerini ekleyebilmesi için Firma Yöneticisi (Yetkilisi) kullanıcı adı ve şifresi zorunludur.',
+      });
+      return;
+    }
+
     setIsSavingFirm(true);
     try {
       if (editingFirmOriginalCode && editingFirmOriginalCode !== cleanCode) {
@@ -482,25 +592,30 @@ export const AdminPortalPage: React.FC = () => {
 
       const firmServerCfg = plasiyerAuthService.profileToServerConfig(savedProfile);
 
-      // İlk giriş / plasiyer hesabı girildiyse kaydet ve canlı SQL varsa veritabanına da yaz
+      // Firma Yöneticisi (Firma Yetkilisi) hesabı girildiyse kaydet ve canlı SQL varsa veritabanına da yaz
+      let managerSaved = false;
       if (initRepCode.trim() && initPassword.trim()) {
         await plasiyerAuthService.upsertAccount(
           {
             companyCode: cleanCode,
             repCode: initRepCode.trim().toUpperCase(),
-            firstName: initFirstName.trim(),
-            lastName: initLastName.trim(),
+            firstName: initFirstName.trim() || 'Firma',
+            lastName: initLastName.trim() || 'Yetkilisi',
             password: initPassword.trim(),
+            accountRole: 'manager',
           },
           firmServerCfg
         );
+        managerSaved = true;
       }
 
       refreshData();
       setEditingFirmOriginalCode(cleanCode);
       setFormFeedback({
         type: 'success',
-        text: `"${savedProfile.companyTitle}" (${cleanCode}) firması başarıyla kaydedildi. Aşağıdaki kurulum bağlantısını müşterinize iletebilirsiniz.`,
+        text: managerSaved
+          ? `"${savedProfile.companyTitle}" (${cleanCode}) firması ve Firma Yetkilisi (${initRepCode.trim().toUpperCase()}) başarıyla kaydedildi. Firma yetkilisi Ayarlar menüsünden kendi plasiyerlerini ekleyebilir.`
+          : `"${savedProfile.companyTitle}" (${cleanCode}) firma bilgileri güncellendi.`,
         savedProfile,
       });
     } finally {
@@ -520,7 +635,7 @@ export const AdminPortalPage: React.FC = () => {
       return;
     }
     if (!rCode || !pwd) {
-      setQuickAccMsg({ type: 'error', text: 'Plasiyer/Kullanıcı Kodu ve Şifre zorunludur.' });
+      setQuickAccMsg({ type: 'error', text: 'Kullanıcı/Plasiyer Kodu ve Şifre zorunludur.' });
       return;
     }
 
@@ -532,6 +647,7 @@ export const AdminPortalPage: React.FC = () => {
         firstName: quickAccFirst.trim(),
         lastName: quickAccLast.trim(),
         password: pwd,
+        accountRole: quickAccRole,
       },
       firmCfg
     );
@@ -543,7 +659,9 @@ export const AdminPortalPage: React.FC = () => {
     setQuickAccPass('');
     setQuickAccMsg({
       type: 'success',
-      text: `${cCode} firmasına "${rCode}" hesabı başarıyla tanımlandı.`,
+      text: `${cCode} firmasına "${rCode}" (${
+        quickAccRole === 'manager' ? 'Firma Yetkilisi' : 'Saha Plasiyeri'
+      }) hesabı başarıyla tanımlandı.`,
     });
   };
 
@@ -765,14 +883,14 @@ export const AdminPortalPage: React.FC = () => {
 
               <div className="p-4 rounded-2xl bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-800 shadow-xs">
                 <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-400">
-                  Tanımlı Plasiyer / Kullanıcı
+                  Firma Yetkilisi &amp; Plasiyer
                 </span>
-                <div className="mt-1.5 flex items-baseline justify-between">
+                <div className="mt-1.5 flex items-baseline justify-between gap-2">
                   <span className="text-2xl font-black text-violet-600 dark:text-violet-400">
                     {stats.totalAccounts}
                   </span>
                   <span className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400">
-                    Tüm Firmalar
+                    {stats.managerCount} yetkili &bull; {stats.plasiyerCount} plasiyer
                   </span>
                 </div>
               </div>
@@ -834,11 +952,15 @@ export const AdminPortalPage: React.FC = () => {
                   const firmAccounts = accounts.filter(
                     (a) => a.companyCode.toUpperCase() === profile.code.toUpperCase()
                   );
+                  const firmManagers = firmAccounts.filter((a) => a.accountRole === 'manager');
+                  const firmPlasiyers = firmAccounts.filter((a) => a.accountRole !== 'manager');
                   const testStatus = firmTestMap[profile.code];
                   const isTesting = testingFirmCode === profile.code;
                   const isActiveInSettings =
                     serverConfig.companyCode?.toUpperCase() === profile.code.toUpperCase();
                   const isExpanded = expandedFirmCode === profile.code;
+                  const isEditingManager = managerEditFirmCode === profile.code;
+                  const isSavingMgr = savingManagerCode === profile.code;
 
                   return (
                     <div
@@ -903,6 +1025,46 @@ export const AdminPortalPage: React.FC = () => {
                             <span className="text-[11px] text-slate-600 dark:text-zinc-400">
                               Bitiş: <strong className="text-slate-900 dark:text-zinc-200">{formatDateTr(profile.licenseExpireDate)}</strong>
                             </span>
+                          </div>
+
+                          <div className="sm:col-span-2 pt-2 border-t border-slate-200/70 dark:border-zinc-800/80 flex items-center justify-between gap-2 flex-wrap">
+                            {firmManagers.length > 0 ? (
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                <ShieldCheck className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                                <span className="text-[11px] font-bold text-slate-700 dark:text-zinc-200">
+                                  Firma Yetkilisi:
+                                </span>
+                                {firmManagers.map((m) => (
+                                  <span
+                                    key={m.id}
+                                    className="font-mono text-[10px] font-extrabold px-2 py-0.5 rounded-md bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30"
+                                  >
+                                    {m.repCode}
+                                    {formatFullName(m.firstName, m.lastName)
+                                      ? ` (${formatFullName(m.firstName, m.lastName)})`
+                                      : ''}
+                                  </span>
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="flex items-center gap-1.5 text-amber-700 dark:text-amber-300">
+                                <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                                <span className="text-[11px] font-bold">
+                                  Firma Yetkilisi tanımlı değil
+                                </span>
+                              </div>
+                            )}
+
+                            <button
+                              type="button"
+                              onClick={() => openInlineManagerEditor(profile)}
+                              className="text-[11px] font-extrabold text-amber-700 dark:text-amber-300 hover:underline flex items-center gap-1"
+                            >
+                              <UserPlus className="w-3 h-3" />
+                              <span>
+                                {firmManagers.length > 0 ? 'Yetkili Düzenle' : '+ Firma Yetkilisi Ekle'}
+                              </span>
+                            </button>
                           </div>
                         </div>
 
@@ -1019,11 +1181,142 @@ export const AdminPortalPage: React.FC = () => {
                           </div>
                         )}
 
-                        {/* Genişletilebilir Plasiyer Özeti */}
+                        {/* Hızlı Firma Yetkilisi (Yönetici) Ekle / Düzenle Paneli */}
+                        {isEditingManager && (
+                          <div className="p-3.5 rounded-2xl bg-amber-50/70 dark:bg-zinc-950 border border-amber-500/40 space-y-2.5">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[11px] font-extrabold text-slate-800 dark:text-zinc-100 flex items-center gap-1.5">
+                                <ShieldCheck className="w-3.5 h-3.5 text-amber-500" />
+                                <span>
+                                  {firmManagers.length > 0
+                                    ? 'Firma Yetkilisi Hesabını Düzenle'
+                                    : 'Firma Yetkilisi (Yönetici) Ekle'}
+                                </span>
+                              </span>
+                              <span className="text-[10px] font-bold text-amber-700 dark:text-amber-300">
+                                Ayarlar Menüsü Açık
+                              </span>
+                            </div>
+
+                            <p className="text-[11px] text-slate-600 dark:text-zinc-400">
+                              Bu yönetici hesabı sisteme giriş yaptığında <strong>Ayarlar</strong> menüsünü görür ve firmanın kendi saha plasiyerlerini ekleyip yönetir.
+                            </p>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-600 dark:text-zinc-400 mb-0.5">
+                                  Yetkili Kullanıcı Kodu
+                                </label>
+                                <input
+                                  type="text"
+                                  value={mgrCode}
+                                  onChange={(e) => setMgrCode(e.target.value.toUpperCase())}
+                                  placeholder="Örn: YONETICI"
+                                  className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-2.5 py-2 text-xs font-mono font-bold uppercase text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-600 dark:text-zinc-400 mb-0.5">
+                                  Giriş Şifresi
+                                </label>
+                                <div className="relative">
+                                  <input
+                                    type={showMgrPass ? 'text' : 'password'}
+                                    value={mgrPass}
+                                    onChange={(e) => setMgrPass(e.target.value)}
+                                    placeholder="Şifre belirleyin"
+                                    className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-2.5 pr-8 py-2 text-xs font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowMgrPass(!showMgrPass)}
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-zinc-200"
+                                  >
+                                    {showMgrPass ? (
+                                      <EyeOff className="w-3.5 h-3.5" />
+                                    ) : (
+                                      <Eye className="w-3.5 h-3.5" />
+                                    )}
+                                  </button>
+                                </div>
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-600 dark:text-zinc-400 mb-0.5">
+                                  Adı
+                                </label>
+                                <input
+                                  type="text"
+                                  value={mgrFirst}
+                                  onChange={(e) => setMgrFirst(e.target.value)}
+                                  placeholder="Örn: Firma"
+                                  className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-2.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-600 dark:text-zinc-400 mb-0.5">
+                                  Soyadı
+                                </label>
+                                <input
+                                  type="text"
+                                  value={mgrLast}
+                                  onChange={(e) => setMgrLast(e.target.value)}
+                                  placeholder="Örn: Yetkilisi"
+                                  className="w-full bg-white dark:bg-zinc-900 border border-slate-200 dark:border-zinc-700 rounded-xl px-2.5 py-2 text-xs text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-amber-500"
+                                />
+                              </div>
+                            </div>
+
+                            {managerFormError && (
+                              <div className="p-2 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-700 dark:text-rose-300 text-[11px] font-semibold">
+                                {managerFormError}
+                              </div>
+                            )}
+
+                            <div className="flex items-center justify-end gap-1.5 pt-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setManagerEditFirmCode(null);
+                                  setManagerFormError(null);
+                                }}
+                                className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-zinc-800 text-slate-600 dark:text-zinc-300 font-bold text-xs hover:bg-slate-200 dark:hover:bg-zinc-700 transition"
+                              >
+                                İptal
+                              </button>
+                              <button
+                                type="button"
+                                disabled={isSavingMgr}
+                                onClick={() => handleQuickSaveManager(profile)}
+                                className="px-3.5 py-1.5 rounded-xl bg-amber-600 hover:bg-amber-500 text-white font-extrabold text-xs flex items-center gap-1.5 transition disabled:opacity-50"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                                <span>
+                                  {isSavingMgr ? 'Kaydediliyor...' : 'Firma Yetkilisini Kaydet'}
+                                </span>
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        {managerSavedCode === profile.code && (
+                          <div className="p-2 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-800 dark:text-amber-300 text-[11px] font-bold flex items-center gap-1.5">
+                            <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+                            <span>
+                              Firma Yetkilisi kaydedildi ve merkezi buluta senkronize edildi.
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Genişletilebilir Kullanıcı / Plasiyer Özeti */}
                         {isExpanded && (
                           <div className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950 border border-slate-200 dark:border-zinc-800 space-y-2">
                             <div className="flex items-center justify-between text-[11px] font-bold text-slate-600 dark:text-zinc-300">
-                              <span>Tanımlı Kullanıcı / Plasiyerler ({firmAccounts.length})</span>
+                              <span>
+                                Tanımlı Hesaplar ({firmManagers.length} yetkili &bull; {firmPlasiyers.length} plasiyer)
+                              </span>
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1039,28 +1332,54 @@ export const AdminPortalPage: React.FC = () => {
                             </div>
                             {firmAccounts.length === 0 ? (
                               <p className="text-[11px] text-slate-400">
-                                Bu firmaya henüz giriş kullanıcısı tanımlanmamış. "Düzenle" veya "Yeni Ekle" ile ilk hesabı oluşturun.
+                                Bu firmaya henüz giriş kullanıcısı tanımlanmamış. "+ Firma Yetkilisi Ekle" veya "Düzenle" ile yönetici hesabını oluşturun.
                               </p>
                             ) : (
-                              <div className="space-y-1">
-                                {firmAccounts.map((acc) => (
-                                  <div
-                                    key={acc.id}
-                                    className="flex items-center justify-between text-[11px] py-1 px-2 rounded-lg bg-white dark:bg-zinc-900 border border-slate-200/70 dark:border-zinc-800"
-                                  >
-                                    <div>
-                                      <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400 mr-2">
-                                        {acc.repCode}
-                                      </span>
-                                      <span className="font-semibold">
-                                        {formatFullName(acc.firstName, acc.lastName) || acc.repCode}
-                                      </span>
+                              <div className="space-y-1.5">
+                                {firmAccounts.map((acc) => {
+                                  const isMgr = acc.accountRole === 'manager';
+                                  return (
+                                    <div
+                                      key={acc.id}
+                                      className="flex flex-wrap items-center justify-between gap-2 text-[11px] py-1.5 px-2.5 rounded-lg bg-white dark:bg-zinc-900 border border-slate-200/70 dark:border-zinc-800"
+                                    >
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span
+                                          className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ${
+                                            isMgr
+                                              ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                                              : 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
+                                          }`}
+                                        >
+                                          {isMgr ? 'Firma Yetkilisi' : 'Plasiyer'}
+                                        </span>
+                                        <span className="font-mono font-bold text-emerald-600 dark:text-emerald-400">
+                                          {acc.repCode}
+                                        </span>
+                                        <span className="font-semibold">
+                                          {formatFullName(acc.firstName, acc.lastName) || acc.repCode}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="font-mono text-slate-400">
+                                          Şifre: {acc.password}
+                                        </span>
+                                        <button
+                                          type="button"
+                                          onClick={() =>
+                                            handleToggleAccountRole(
+                                              acc,
+                                              isMgr ? 'plasiyer' : 'manager'
+                                            )
+                                          }
+                                          className="px-2 py-0.5 rounded bg-slate-100 dark:bg-zinc-800 hover:bg-amber-500/20 text-[10px] font-bold text-slate-700 dark:text-zinc-200 transition"
+                                        >
+                                          {isMgr ? 'Plasiyer Yap' : 'Yetkili Yap'}
+                                        </button>
+                                      </div>
                                     </div>
-                                    <span className="font-mono text-slate-400">
-                                      Şifre: {acc.password}
-                                    </span>
-                                  </div>
-                                ))}
+                                  );
+                                })}
                               </div>
                             )}
                           </div>
@@ -1078,6 +1397,22 @@ export const AdminPortalPage: React.FC = () => {
                           >
                             <RefreshCw className={`w-3.5 h-3.5 ${isTesting ? 'animate-spin' : ''}`} />
                             <span>SQL Test</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => openInlineManagerEditor(profile)}
+                            className={`px-2.5 py-1.5 rounded-xl border text-[11px] font-bold flex items-center gap-1 transition ${
+                              firmManagers.length === 0
+                                ? 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-800 dark:text-amber-200 border-amber-500/40'
+                                : 'bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/25'
+                            }`}
+                            title="Bu firmanın kendi plasiyerlerini yönetecek Firma Yetkilisini ekle veya düzenle"
+                          >
+                            <ShieldCheck className="w-3.5 h-3.5" />
+                            <span>
+                              {firmManagers.length > 0 ? 'Firma Yetkilisi' : '+ Yetkili Ekle'}
+                            </span>
                           </button>
 
                           <button
@@ -1131,7 +1466,7 @@ export const AdminPortalPage: React.FC = () => {
                             className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-zinc-800 hover:bg-slate-200 dark:hover:bg-zinc-700 text-slate-700 dark:text-zinc-200 text-[11px] font-bold flex items-center gap-1 transition"
                           >
                             <Users className="w-3.5 h-3.5" />
-                            <span>Plasiyer ({firmAccounts.length})</span>
+                            <span>Kullanıcılar ({firmAccounts.length})</span>
                           </button>
                         </div>
 
@@ -1470,34 +1805,105 @@ export const AdminPortalPage: React.FC = () => {
                   </div>
                 )}
 
-                {/* 3. MÜŞTERİ FİRMA İLK GİRİŞ / YETKİLİ HESABI */}
+                {/* 3. FİRMA YÖNETİCİSİ (FİRMA YETKİLİSİ) HESABI */}
                 <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-zinc-800">
-                  <div>
-                    <h3 className="text-xs font-black uppercase tracking-wider text-slate-500 dark:text-zinc-400">
-                      3. Müşteri Firma İlk Giriş / Plasiyer Hesabı
-                    </h3>
-                    <p className="text-[11px] text-slate-400 mt-0.5">
-                      Müşteri firmanın sisteme giriş yapıp kendi plasiyerlerini ekleyebilmesi için ilk kullanıcı kodunu ve şifresini belirleyin.
-                    </p>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div>
+                      <h3 className="text-xs font-black uppercase tracking-wider text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+                        <ShieldCheck className="w-4 h-4" />
+                        <span>3. Firma Yöneticisi (Firma Yetkilisi) Hesabı</span>
+                      </h3>
+                      <p className="text-[11px] text-slate-500 dark:text-zinc-400 mt-0.5">
+                        Bu yönetici hesabı sisteme giriş yaptığında <strong>Ayarlar</strong> menüsünü görür ve firmanın kendi saha plasiyerlerini ekleyip yönetir. Plasiyerlerde Ayarlar menüsü görünmez.
+                      </p>
+                    </div>
                   </div>
+
+                  {editingFirmOriginalCode && (() => {
+                    const existingFirmAccs = accounts.filter(
+                      (a) => a.companyCode.toUpperCase() === editingFirmOriginalCode.toUpperCase()
+                    );
+                    const hasManager = existingFirmAccs.some((a) => a.accountRole === 'manager');
+                    return (
+                      <div className="space-y-2.5">
+                        {!hasManager && (
+                          <div className="p-3 rounded-xl bg-amber-50 dark:bg-amber-950/30 border border-amber-300/70 dark:border-amber-700/60 text-[11px] text-amber-900 dark:text-amber-200 font-medium">
+                            Bu firmada henüz <strong>Firma Yetkilisi</strong> tanımlı değil. Aşağıdan yeni bir Firma Yetkilisi oluşturup şifre belirleyerek kaydedebilir veya mevcut bir hesabı tek tıkla <strong>Yetkili Yap</strong>abilirsiniz.
+                          </div>
+                        )}
+
+                        {existingFirmAccs.length > 0 && (
+                          <div className="p-3 rounded-xl bg-slate-50 dark:bg-zinc-950/70 border border-slate-200 dark:border-zinc-800 space-y-1.5">
+                            <div className="text-[11px] font-bold text-slate-600 dark:text-zinc-300">
+                              Bu Firmadaki Mevcut Hesaplar ({existingFirmAccs.length})
+                            </div>
+                            <div className="space-y-1">
+                              {existingFirmAccs.map((acc) => {
+                                const isMgr = acc.accountRole === 'manager';
+                                return (
+                                  <div
+                                    key={acc.id}
+                                    className="flex flex-wrap items-center justify-between gap-2 py-1.5 px-2.5 rounded-lg bg-white dark:bg-zinc-900 border border-slate-200/70 dark:border-zinc-800 text-[11px]"
+                                  >
+                                    <div className="flex items-center gap-1.5 flex-wrap">
+                                      <span
+                                        className={`text-[10px] font-extrabold px-1.5 py-0.5 rounded ${
+                                          isMgr
+                                            ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                                            : 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
+                                        }`}
+                                      >
+                                        {isMgr ? 'Firma Yetkilisi' : 'Plasiyer'}
+                                      </span>
+                                      <span className="font-mono font-bold text-slate-900 dark:text-white">
+                                        {acc.repCode}
+                                      </span>
+                                      <span className="text-slate-600 dark:text-zinc-300">
+                                        {formatFullName(acc.firstName, acc.lastName) || acc.repCode}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-mono text-slate-400">
+                                        Şifre: {acc.password}
+                                      </span>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          handleToggleAccountRole(acc, isMgr ? 'plasiyer' : 'manager')
+                                        }
+                                        className="px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 dark:text-amber-300 font-bold text-[10px] transition"
+                                      >
+                                        {isMgr ? 'Plasiyer Yap' : 'Firma Yetkilisi Yap'}
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
                     <div>
                       <label className="block font-bold text-slate-700 dark:text-zinc-300 mb-1">
-                        Kullanıcı / Plasiyer Kodu
+                        Firma Yetkilisi Kullanıcı Kodu
                       </label>
                       <input
                         type="text"
                         value={initRepCode}
                         onChange={(e) => setInitRepCode(e.target.value.toUpperCase())}
-                        placeholder="Örn: PLS01"
+                        placeholder="Örn: YONETICI"
+                        required={!editingFirmOriginalCode}
                         className="w-full bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 py-2.5 font-mono font-bold uppercase text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                       />
                     </div>
 
                     <div>
                       <label className="block font-bold text-slate-700 dark:text-zinc-300 mb-1">
-                        Adı
+                        Yetkili Adı
                       </label>
                       <input
                         type="text"
@@ -1510,7 +1916,7 @@ export const AdminPortalPage: React.FC = () => {
 
                     <div>
                       <label className="block font-bold text-slate-700 dark:text-zinc-300 mb-1">
-                        Soyadı
+                        Yetkili Soyadı
                       </label>
                       <input
                         type="text"
@@ -1523,7 +1929,7 @@ export const AdminPortalPage: React.FC = () => {
 
                     <div>
                       <label className="block font-bold text-slate-700 dark:text-zinc-300 mb-1">
-                        Giriş Şifresi
+                        Yetkili Giriş Şifresi
                       </label>
                       <div className="relative">
                         <input
@@ -1531,6 +1937,7 @@ export const AdminPortalPage: React.FC = () => {
                           value={initPassword}
                           onChange={(e) => setInitPassword(e.target.value)}
                           placeholder="Şifre belirleyin"
+                          required={!editingFirmOriginalCode}
                           className="w-full bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl px-3 pr-9 py-2.5 font-mono font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-emerald-500"
                         />
                         <button
@@ -1627,15 +2034,62 @@ export const AdminPortalPage: React.FC = () => {
                 </div>
                 <div>
                   <h3 className="font-black text-sm text-slate-900 dark:text-white">
-                    Firmaya Kullanıcı / Plasiyer Ekle
+                    Firma Yetkilisi / Plasiyer Ekle
                   </h3>
                   <p className="text-[11px] text-slate-400">
-                    İstediğiniz müşteri firmaya hesap açın
+                    Müşteri firmaya yönetici veya plasiyer açın
                   </p>
                 </div>
               </div>
 
               <form onSubmit={handleSaveQuickAccount} className="space-y-3">
+                <div>
+                  <label className="block font-bold text-slate-700 dark:text-zinc-300 mb-1">
+                    Hesap Yetki Rolü
+                  </label>
+                  <div className="grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQuickAccRole('manager');
+                        if (!quickAccCode || quickAccCode === 'PLS01') {
+                          setQuickAccCode('YONETICI');
+                        }
+                      }}
+                      className={`py-2 px-2.5 rounded-xl border text-[11px] font-extrabold transition ${
+                        quickAccRole === 'manager'
+                          ? 'bg-amber-500/15 border-amber-500 text-amber-800 dark:text-amber-300'
+                          : 'bg-slate-50 dark:bg-zinc-800 border-slate-200 dark:border-zinc-700 text-slate-500'
+                      }`}
+                    >
+                      Firma Yetkilisi
+                      <span className="block text-[9px] font-medium opacity-80">
+                        Ayarlar Açık
+                      </span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setQuickAccRole('plasiyer');
+                        if (!quickAccCode || quickAccCode === 'YONETICI') {
+                          setQuickAccCode('PLS01');
+                        }
+                      }}
+                      className={`py-2 px-2.5 rounded-xl border text-[11px] font-extrabold transition ${
+                        quickAccRole === 'plasiyer'
+                          ? 'bg-sky-500/15 border-sky-500 text-sky-800 dark:text-sky-300'
+                          : 'bg-slate-50 dark:bg-zinc-800 border-slate-200 dark:border-zinc-700 text-slate-500'
+                      }`}
+                    >
+                      Saha Plasiyeri
+                      <span className="block text-[9px] font-medium opacity-80">
+                        Ayarlar Gizli
+                      </span>
+                    </button>
+                  </div>
+                </div>
+
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-zinc-300 mb-1">
                     Müşteri Firma Kodu
@@ -1666,13 +2120,15 @@ export const AdminPortalPage: React.FC = () => {
 
                 <div>
                   <label className="block font-bold text-slate-700 dark:text-zinc-300 mb-1">
-                    Plasiyer / Kullanıcı Kodu
+                    {quickAccRole === 'manager'
+                      ? 'Firma Yetkilisi Kullanıcı Kodu'
+                      : 'Plasiyer Kodu'}
                   </label>
                   <input
                     type="text"
                     value={quickAccCode}
                     onChange={(e) => setQuickAccCode(e.target.value.toUpperCase())}
-                    placeholder="Örn: PLS01"
+                    placeholder={quickAccRole === 'manager' ? 'Örn: YONETICI' : 'Örn: PLS01'}
                     className="w-full bg-slate-50 dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 rounded-xl p-2.5 font-mono font-bold uppercase text-slate-900 dark:text-white"
                     required
                   />
@@ -1776,81 +2232,104 @@ export const AdminPortalPage: React.FC = () => {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {filteredAccounts.map((acc) => (
-                    <div
-                      key={acc.id}
-                      className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/70 border border-slate-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-2"
-                    >
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="font-mono text-[11px] font-black px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                          {acc.companyCode}
-                        </span>
-                        <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-lg bg-sky-500/15 text-sky-700 dark:text-sky-300">
-                          {acc.repCode}
-                        </span>
-                        <span className="font-bold text-slate-900 dark:text-white">
-                          {formatFullName(acc.firstName, acc.lastName) || acc.repCode}
-                        </span>
-                        <span className="font-mono text-[11px] text-slate-400">
-                          • Şifre: {acc.password}
-                        </span>
+                  {filteredAccounts.map((acc) => {
+                    const isMgr = acc.accountRole === 'manager';
+                    return (
+                      <div
+                        key={acc.id}
+                        className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/70 border border-slate-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-2"
+                      >
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-mono text-[11px] font-black px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                            {acc.companyCode}
+                          </span>
+                          <span
+                            className={`text-[10px] font-extrabold px-2 py-0.5 rounded-lg ${
+                              isMgr
+                                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                                : 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
+                            }`}
+                          >
+                            {isMgr ? 'Firma Yetkilisi' : 'Plasiyer'}
+                          </span>
+                          <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-lg bg-slate-200/70 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200">
+                            {acc.repCode}
+                          </span>
+                          <span className="font-bold text-slate-900 dark:text-white">
+                            {formatFullName(acc.firstName, acc.lastName) || acc.repCode}
+                          </span>
+                          <span className="font-mono text-[11px] text-slate-400">
+                            • Şifre: {acc.password}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleToggleAccountRole(acc, isMgr ? 'plasiyer' : 'manager')
+                            }
+                            className="px-2.5 py-1.5 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/25 font-bold text-[11px] text-amber-700 dark:text-amber-300 transition"
+                          >
+                            {isMgr ? 'Plasiyer Yap' : 'Yetkili Yap'}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleCopyRepLink(acc)}
+                            className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 font-bold text-[11px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1"
+                          >
+                            {copiedInviteKey === `acc-${acc.id}` ? (
+                              <>
+                                <Check className="w-3.5 h-3.5" />
+                                <span>Kopyalandı</span>
+                              </>
+                            ) : (
+                              <>
+                                <Share2 className="w-3.5 h-3.5" />
+                                <span>Mobil Link</span>
+                              </>
+                            )}
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setQuickAccCompany(acc.companyCode);
+                              setQuickAccRole(acc.accountRole === 'manager' ? 'manager' : 'plasiyer');
+                              setQuickAccCode(acc.repCode);
+                              setQuickAccFirst(acc.firstName);
+                              setQuickAccLast(acc.lastName);
+                              setQuickAccPass(acc.password);
+                            }}
+                            className="p-1.5 rounded-xl text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400"
+                            title="Düzenle"
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={async () => {
+                              const cfg =
+                                plasiyerAuthService.findServerConfigByCompanyCode(acc.companyCode) ||
+                                undefined;
+                              const next = await plasiyerAuthService.deleteAccount(
+                                acc.companyCode,
+                                acc.repCode,
+                                cfg
+                              );
+                              setAccounts(next);
+                            }}
+                            className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600"
+                            title="Sil"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
                       </div>
-
-                      <div className="flex items-center gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => handleCopyRepLink(acc)}
-                          className="px-2.5 py-1.5 rounded-xl bg-white dark:bg-zinc-800 border border-slate-200 dark:border-zinc-700 font-bold text-[11px] text-emerald-600 dark:text-emerald-400 flex items-center gap-1"
-                        >
-                          {copiedInviteKey === `acc-${acc.id}` ? (
-                            <>
-                              <Check className="w-3.5 h-3.5" />
-                              <span>Kopyalandı</span>
-                            </>
-                          ) : (
-                            <>
-                              <Share2 className="w-3.5 h-3.5" />
-                              <span>Mobil Link</span>
-                            </>
-                          )}
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setQuickAccCompany(acc.companyCode);
-                            setQuickAccCode(acc.repCode);
-                            setQuickAccFirst(acc.firstName);
-                            setQuickAccLast(acc.lastName);
-                            setQuickAccPass(acc.password);
-                          }}
-                          className="p-1.5 rounded-xl text-slate-500 hover:text-emerald-600 dark:hover:text-emerald-400"
-                          title="Düzenle"
-                        >
-                          <Edit3 className="w-4 h-4" />
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={async () => {
-                            const cfg =
-                              plasiyerAuthService.findServerConfigByCompanyCode(acc.companyCode) ||
-                              undefined;
-                            const next = await plasiyerAuthService.deleteAccount(
-                              acc.companyCode,
-                              acc.repCode,
-                              cfg
-                            );
-                            setAccounts(next);
-                          }}
-                          className="p-1.5 rounded-xl text-slate-400 hover:text-rose-600"
-                          title="Sil"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

@@ -157,6 +157,7 @@ export const LoginPage: React.FC = () => {
       const authUser: AuthUser = {
         id: `rep-${acc.companyCode}-${acc.repCode}`,
         role: 'plasiyer',
+        accountRole: acc.accountRole === 'manager' ? 'manager' : 'plasiyer',
         code: acc.repCode,
         name: fullName,
         firstName: acc.firstName,
@@ -286,10 +287,10 @@ export const LoginPage: React.FC = () => {
               </div>
             </div>
 
-            {/* 2. Kullanıcı / Plasiyer Kodu */}
+            {/* 2. Kullanıcı Adı / Plasiyer Kodu */}
             <div>
               <label className="block text-xs font-bold text-slate-700 dark:text-slate-300 mb-1.5 uppercase tracking-wider">
-                Kullanıcı / Plasiyer Kodu
+                Kullanıcı Adı / Plasiyer Kodu
               </label>
               <div className="relative">
                 <User className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -297,7 +298,7 @@ export const LoginPage: React.FC = () => {
                   type="text"
                   value={repCode}
                   onChange={(e) => setRepCode(e.target.value)}
-                  placeholder="Örn: PLS01"
+                  placeholder="Örn: YONETICI veya PLS01"
                   autoComplete="username"
                   className="w-full bg-slate-50/95 dark:bg-slate-800/85 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-xs sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono shadow-2xs transition"
                   required

@@ -1,5 +1,7 @@
 export type UserRole = 'admin' | 'plasiyer' | 'customer';
 
+export type FirmAccountRole = 'manager' | 'plasiyer';
+
 export type AppTheme = 'dark' | 'light';
 
 export interface B2BCategory {
@@ -121,6 +123,7 @@ export interface PlasiyerAccount {
   firstName: string;
   lastName: string;
   password: string;
+  accountRole?: FirmAccountRole;
   isDefaultSeed?: boolean;
   updatedAt?: string;
 }
@@ -132,6 +135,7 @@ export interface SalesRep {
   lastName?: string;
   companyCode?: string;
   password?: string;
+  accountRole?: FirmAccountRole;
   title: string;
   token?: string;
 }
@@ -274,6 +278,7 @@ export interface CustomerHistoryResponse {
 export interface AuthUser {
   id: string;
   role: UserRole;
+  accountRole?: FirmAccountRole;
   code: string;
   name: string;
   firstName?: string;

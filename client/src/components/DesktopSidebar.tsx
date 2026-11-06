@@ -31,6 +31,7 @@ export const DesktopSidebar: React.FC = () => {
     pendingCollectionsCount,
     pendingReturnsCount,
     userRole, 
+    isCompanyManager,
     salesRep,
     selectedCustomer,
     selectCustomer,
@@ -98,12 +99,16 @@ export const DesktopSidebar: React.FC = () => {
       icon: Navigation,
       desc: 'Harita ve ziyaret rotası',
     },
-    {
-      id: 'settings' as const,
-      label: 'Plasiyer Yönetimi',
-      icon: Settings,
-      desc: 'Plasiyer ekleme & hesaplar',
-    },
+    ...(isCompanyManager
+      ? [
+          {
+            id: 'settings' as const,
+            label: 'Ayarlar & Plasiyerler',
+            icon: Settings,
+            desc: 'Plasiyer ekleme & hesaplar',
+          },
+        ]
+      : []),
   ];
 
   // B2B Müşteri Menü Öğeleri
@@ -172,8 +177,20 @@ export const DesktopSidebar: React.FC = () => {
               {serverConfig.companyCode} - {serverConfig.period}
             </span>
           </div>
-          <span className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/20 text-blue-300 font-bold shrink-0">
-            {userRole === 'customer' ? 'B2B Bayi' : 'Plasiyer'}
+          <span
+            className={`text-[10px] px-1.5 py-0.5 rounded font-bold shrink-0 ${
+              userRole === 'customer'
+                ? 'bg-emerald-500/20 text-emerald-300'
+                : isCompanyManager
+                ? 'bg-amber-500/20 text-amber-300'
+                : 'bg-blue-500/20 text-blue-300'
+            }`}
+          >
+            {userRole === 'customer'
+              ? 'B2B Bayi'
+              : isCompanyManager
+              ? 'Firma Yetkilisi'
+              : 'Plasiyer'}
           </span>
         </div>
       </div>

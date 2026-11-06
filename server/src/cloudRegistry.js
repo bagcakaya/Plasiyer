@@ -100,6 +100,7 @@ function normalizeProfile(p) {
 function normalizeAccount(a) {
   const companyCode = String(a.companyCode || '').trim().toUpperCase();
   const repCode = String(a.repCode || '').trim().toUpperCase();
+  const accountRole = a.accountRole === 'manager' ? 'manager' : 'plasiyer';
   return {
     id: `acc-${companyCode}-${repCode}`,
     companyCode,
@@ -107,6 +108,7 @@ function normalizeAccount(a) {
     firstName: String(a.firstName || '').trim(),
     lastName: String(a.lastName || '').trim(),
     password: String(a.password ?? ''),
+    accountRole,
     isDefaultSeed: false,
     updatedAt: a.updatedAt || new Date().toISOString(),
   };
@@ -227,7 +229,9 @@ export function verifyAdminAuthHeader(req) {
 }
 
 export async function verifyFirmOrAdminAuth(req, targetCompanyCode) {
-  if (verifyAdminAuthHeader(req)) return { authorized: true, isAdmin: true };
+  if (verifyAdminAuthHeader(req)) {
+    return { authorized: true, isAdmin: true, accountRole: 'admin' };
+  }
 
   const raw = req.headers['x-plasiyer-auth'];
   if (!raw || typeof raw !== 'string') return { authorized: false };
@@ -247,7 +251,17 @@ export async function verifyFirmOrAdminAuth(req, targetCompanyCode) {
     const acc = store.accounts.find(
       (a) => a.companyCode === cCode && a.repCode === rCode && a.password === pwd
     );
-    if (acc) return { authorized: true, isAdmin: false, companyCode: cCode };
+    if (acc) {
+      const accountRole = acc.accountRole === 'manager' ? 'manager' : 'plasiyer';
+      return {
+        authorized: true,
+        isAdmin: false,
+        companyCode: cCode,
+        repCode: acc.repCode,
+        accountRole,
+        isCompanyManager: accountRole === 'manager',
+      };
+    }
   } catch {
     // ignore parse error
   }
@@ -384,13 +398,27 @@ export const cloudRegistry = {
   async upsertAccount(rawAccount) {
     return runSerialized(async () => {
       const store = await readRawStore();
-      const norm = normalizeAccount({ ...rawAccount, updatedAt: new Date().toISOString() });
-      const key = makeAccountKey(norm.companyCode, norm.repCode);
-      delete store.deletedAccounts[key];
-
+      const targetCompany = String(rawAccount?.companyCode || '').trim().toUpperCase();
+      const targetRep = String(rawAccount?.repCode || '').trim().toUpperCase();
+      const key = makeAccountKey(targetCompany, targetRep);
       const idx = store.accounts.findIndex(
         (a) => makeAccountKey(a.companyCode, a.repCode) === key
       );
+      const existing = idx >= 0 ? store.accounts[idx] : null;
+      const resolvedRole =
+        rawAccount?.accountRole === 'manager' || rawAccount?.accountRole === 'plasiyer'
+          ? rawAccount.accountRole
+          : existing?.accountRole === 'manager'
+          ? 'manager'
+          : 'plasiyer';
+
+      const norm = normalizeAccount({
+        ...rawAccount,
+        accountRole: resolvedRole,
+        updatedAt: new Date().toISOString(),
+      });
+      delete store.deletedAccounts[key];
+
       if (idx >= 0) {
         store.accounts[idx] = norm;
       } else {

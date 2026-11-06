@@ -43,6 +43,7 @@ import {
 export const SettingsPage: React.FC = () => {
   const { 
     userRole,
+    isCompanyManager,
     currentUser,
     currentCustomerUser,
     theme,
@@ -482,11 +483,18 @@ export const SettingsPage: React.FC = () => {
     );
   }
 
-  // Müşteri Firma / Plasiyer Görünümü: Yalnızca Kendi Firmasına Plasiyer Ekleme & Hesap Yönetimi
+  // Plasiyer rolünde Ayarlar sayfası kapalıdır; yalnızca Firma Yetkilisi ve Yetkili Kurum erişebilir
+  if (userRole === 'plasiyer' && !isCompanyManager) {
+    return null;
+  }
+
+  // Firma Yetkilisi Görünümü: Kendi Firmasına Plasiyer Ekleme & Hesap Yönetimi
   if (userRole !== 'admin') {
-    const firmPlasiyerAccounts = plasiyerAccounts.filter(
-      (acc) => acc.companyCode.toUpperCase() === activeFirmCode
+    const allFirmAccounts = plasiyerAccounts.filter(
+      (acc) => !acc.isDefaultSeed && acc.companyCode.toUpperCase() === activeFirmCode
     );
+    const firmPlasiyerAccounts = allFirmAccounts.filter((acc) => acc.accountRole !== 'manager');
+    const firmManagerAccounts = allFirmAccounts.filter((acc) => acc.accountRole === 'manager');
 
     const handleSaveFirmPlasiyer = async (e: React.FormEvent) => {
       e.preventDefault();
@@ -508,7 +516,22 @@ export const SettingsPage: React.FC = () => {
       if (!cleanPassword) {
         setRepNotice({
           type: 'error',
-          text: 'Lütfen plasiyerin giriş ekranında kullanacağı Şifreyi belirleyiniz.',
+          text: 'Lütfen giriş ekranında kullanılacak Şifreyi belirleyiniz.',
+        });
+        return;
+      }
+
+      const isSelfManager =
+        cleanRepCode === (currentUser?.code || '').trim().toUpperCase() &&
+        firmManagerAccounts.some((m) => m.repCode.toUpperCase() === cleanRepCode);
+
+      if (
+        !isSelfManager &&
+        firmManagerAccounts.some((m) => m.repCode.toUpperCase() === cleanRepCode)
+      ) {
+        setRepNotice({
+          type: 'error',
+          text: `"${cleanRepCode}" kodu Firma Yetkilisi hesabıdır. Saha plasiyeri için farklı bir kod (Örn: PLS01) giriniz.`,
         });
         return;
       }
@@ -520,27 +543,36 @@ export const SettingsPage: React.FC = () => {
           firstName: cleanFirst,
           lastName: cleanLast,
           password: cleanPassword,
+          accountRole: isSelfManager ? 'manager' : 'plasiyer',
         },
         serverConfig
       );
 
-      setPlasiyerAccounts(plasiyerAuthService.getLocalAccounts());
+      const synced = await plasiyerAuthService.syncAccountsFromSql(serverConfig);
+      setPlasiyerAccounts(synced);
       setRepCode('');
       setRepFirstName('');
       setRepLastName('');
       setRepPassword('');
       setRepNotice({
         type: 'success',
-        text: `"${cleanRepCode}" plasiyer hesabı ${activeFirmCode} firmanıza kaydedildi. Giriş ekranında Firma Kodu (${activeFirmCode}), Plasiyer Kodu ve Şifre ile oturum açılabilir.`,
+        text: isSelfManager
+          ? `"${cleanRepCode}" Firma Yetkilisi hesap bilgileriniz güncellendi.`
+          : `"${cleanRepCode}" plasiyer hesabı ${activeFirmCode} firmanıza eklendi. Plasiyer; Firma Kodu (${activeFirmCode}), Plasiyer Kodu (${cleanRepCode}) ve Şifresi ile giriş yapabilir.`,
       });
     };
 
+    const formattedLicenseDate =
+      serverConfig.licenseExpireDate && /^\d{4}-\d{2}-\d{2}$/.test(serverConfig.licenseExpireDate)
+        ? serverConfig.licenseExpireDate.split('-').reverse().join('.')
+        : null;
+
     return (
       <div className="p-3 md:p-6 pb-36 md:pb-12 space-y-4 max-w-3xl mx-auto text-xs text-slate-900 dark:text-slate-100 w-full">
-        {/* Üst Aktif Müşteri Firma Bilgi Kartı */}
+        {/* Üst Aktif Müşteri Firma & Firma Yetkilisi Bilgi Kartı */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 border border-slate-200 dark:border-slate-800 shadow-xs flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            <div className="w-10 h-10 rounded-2xl bg-blue-600/10 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-2xl bg-amber-500/15 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400 flex items-center justify-center shrink-0">
               <Building2 className="w-5 h-5" />
             </div>
             <div className="min-w-0">
@@ -551,9 +583,13 @@ export const SettingsPage: React.FC = () => {
                 <span className="font-mono text-[10px] font-bold px-2 py-0.5 rounded-lg bg-blue-50 dark:bg-blue-950/70 text-blue-700 dark:text-blue-300 border border-blue-200/70 dark:border-blue-800/60">
                   {activeFirmCode}
                 </span>
+                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                  Firma Yetkilisi
+                </span>
               </div>
               <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">
-                Aktif Kullanıcı: <strong>{currentUser?.name || salesRep.name}</strong> ({currentUser?.code || salesRep.code})
+                Yönetici: <strong>{currentUser?.name || salesRep.name}</strong> ({currentUser?.code || salesRep.code})
+                {formattedLicenseDate ? ` • Lisans Bitiş: ${formattedLicenseDate}` : ''}
               </p>
             </div>
           </div>
@@ -581,7 +617,7 @@ export const SettingsPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Sadece Plasiyer Ekleme & Yönetimi Kartı */}
+        {/* Plasiyer Ekleme & Saha Ekibi Yönetimi Kartı */}
         <div className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-slate-200 dark:border-slate-800 shadow-xs space-y-4">
           <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
             <div className="flex items-center gap-2.5">
@@ -590,10 +626,10 @@ export const SettingsPage: React.FC = () => {
               </div>
               <div>
                 <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
-                  Plasiyer Ekleme
+                  Saha Plasiyeri Ekle &amp; Yönet
                 </h3>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Firmanıza saha satış plasiyeri ekleyin veya mevcut plasiyer şifrelerini güncelleyin
+                  Firmanıza plasiyer ekleyin veya şifrelerini güncelleyin (Plasiyerlerde Ayarlar ekranı görünmez)
                 </p>
               </div>
             </div>
@@ -637,7 +673,7 @@ export const SettingsPage: React.FC = () => {
                   type="text"
                   value={repCode}
                   onChange={(e) => setRepCode(e.target.value.toUpperCase())}
-                  placeholder="Örn: PLS02"
+                  placeholder="Örn: PLS01"
                   className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 font-mono font-bold uppercase text-xs focus:outline-none focus:border-blue-500 text-slate-900 dark:text-white"
                   required
                 />
@@ -728,13 +764,13 @@ export const SettingsPage: React.FC = () => {
           {/* Firmaya Kayıtlı Plasiyerler Listesi */}
           <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-2">
             <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
-              <span>Firmaya Kayıtlı Plasiyerler ({firmPlasiyerAccounts.length})</span>
+              <span>Saha Plasiyerleri ({firmPlasiyerAccounts.length})</span>
               <span>Düzenlemek için satıra tıklayın</span>
             </div>
 
             {firmPlasiyerAccounts.length === 0 ? (
               <div className="p-4 rounded-xl bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700 text-center text-slate-400">
-                Henüz tanımlı plasiyer bulunmuyor. Yukarıdaki formdan ilk plasiyerinizi ekleyebilirsiniz.
+                Henüz tanımlı saha plasiyeri bulunmuyor. Yukarıdaki formdan plasiyerlerinizi ekleyebilirsiniz.
               </div>
             ) : (
               <div className="space-y-1.5">
@@ -766,6 +802,9 @@ export const SettingsPage: React.FC = () => {
                           <span className="font-bold text-xs text-slate-900 dark:text-white truncate">
                             {fullName}
                           </span>
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
+                            Plasiyer
+                          </span>
                         </div>
                       </div>
 
@@ -789,23 +828,28 @@ export const SettingsPage: React.FC = () => {
                           )}
                         </button>
 
-                        {firmPlasiyerAccounts.length > 1 && (
-                          <button
-                            type="button"
-                            onClick={async () => {
-                              const remaining = await plasiyerAuthService.deleteAccount(
-                                acc.companyCode,
-                                acc.repCode,
-                                serverConfig
-                              );
-                              setPlasiyerAccounts(remaining);
-                            }}
-                            className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition"
-                            title="Plasiyer hesabını sil"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            if (
+                              !window.confirm(
+                                `"${acc.repCode}" (${fullName}) plasiyer hesabını silmek istediğinize emin misiniz?`
+                              )
+                            ) {
+                              return;
+                            }
+                            const remaining = await plasiyerAuthService.deleteAccount(
+                              acc.companyCode,
+                              acc.repCode,
+                              serverConfig
+                            );
+                            setPlasiyerAccounts(remaining);
+                          }}
+                          className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition"
+                          title="Plasiyer hesabını sil"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
                       </div>
                     </div>
                   );
@@ -813,6 +857,54 @@ export const SettingsPage: React.FC = () => {
               </div>
             )}
           </div>
+
+          {/* Firma Yetkilisi Hesabı Özeti (Şifre Güncelleme İçin Tıklanabilir) */}
+          {firmManagerAccounts.length > 0 && (
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800 space-y-1.5">
+              <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 font-semibold">
+                <span>Firma Yetkilisi Hesabı</span>
+                <span>Şifrenizi değiştirmek için seçin</span>
+              </div>
+              {firmManagerAccounts.map((mgr) => {
+                const isSelf =
+                  mgr.repCode.toUpperCase() === (currentUser?.code || '').trim().toUpperCase();
+                const fullName = formatFullName(mgr.firstName, mgr.lastName) || mgr.repCode;
+                return (
+                  <div
+                    key={mgr.id}
+                    onClick={() => {
+                      if (!isSelf) return;
+                      setRepCode(mgr.repCode);
+                      setRepFirstName(mgr.firstName);
+                      setRepLastName(mgr.lastName);
+                      setRepPassword(mgr.password);
+                      setRepNotice(null);
+                    }}
+                    className={`p-2.5 rounded-xl border border-amber-500/30 bg-amber-50/40 dark:bg-amber-950/20 flex items-center justify-between gap-2 ${
+                      isSelf ? 'cursor-pointer hover:border-amber-500/60' : ''
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                        {mgr.repCode}
+                      </span>
+                      <span className="font-bold text-xs text-slate-900 dark:text-white">
+                        {fullName}
+                      </span>
+                      <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-lg bg-amber-500/20 text-amber-800 dark:text-amber-300">
+                        Firma Yetkilisi
+                      </span>
+                    </div>
+                    {isSelf && (
+                      <span className="text-[11px] font-semibold text-amber-700 dark:text-amber-300">
+                        Şifre Güncelle
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {!isPwaInstalled && (
@@ -1550,6 +1642,15 @@ export const SettingsPage: React.FC = () => {
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
                           {acc.companyCode}
+                        </span>
+                        <span
+                          className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                            acc.accountRole === 'manager'
+                              ? 'bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300'
+                              : 'bg-sky-100 dark:bg-sky-950 text-sky-700 dark:text-sky-300'
+                          }`}
+                        >
+                          {acc.accountRole === 'manager' ? 'Firma Yetkilisi' : 'Plasiyer'}
                         </span>
                         <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
                           {acc.repCode}

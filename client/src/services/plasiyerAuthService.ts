@@ -1,4 +1,11 @@
-import type { AuthUser, CompanyProfile, PlasiyerAccount, SalesRep, ServerConfig } from '../types';
+import type {
+  AuthUser,
+  CompanyProfile,
+  FirmAccountRole,
+  PlasiyerAccount,
+  SalesRep,
+  ServerConfig,
+} from '../types';
 import { buildSqlHeaders, isDemoMode, resolveApiBaseUrlAsync } from './apiService';
 
 const ACCOUNTS_STORAGE_KEY = 'plasiyer_rep_accounts';
@@ -218,6 +225,7 @@ export const plasiyerAuthService = {
     firstName: string;
     lastName: string;
     password: string;
+    accountRole?: FirmAccountRole;
     updatedAt?: string;
   }): PlasiyerAccount {
     const companyCode = input.companyCode.trim().toUpperCase();
@@ -232,6 +240,17 @@ export const plasiyerAuthService = {
         makeAccountKey(a.companyCode, a.repCode) !== makeAccountKey(companyCode, repCode)
     );
     const targetKey = makeAccountKey(companyCode, repCode);
+    const existingIdx = current.findIndex(
+      (a) => makeAccountKey(a.companyCode, a.repCode) === targetKey
+    );
+    const existing = existingIdx >= 0 ? current[existingIdx] : undefined;
+    const resolvedRole: FirmAccountRole =
+      input.accountRole === 'manager' || input.accountRole === 'plasiyer'
+        ? input.accountRole
+        : existing?.accountRole === 'manager'
+        ? 'manager'
+        : 'plasiyer';
+
     const updatedAccount: PlasiyerAccount = {
       id: `acc-${companyCode}-${repCode}`,
       companyCode,
@@ -239,13 +258,10 @@ export const plasiyerAuthService = {
       firstName,
       lastName,
       password,
+      accountRole: resolvedRole,
       isDefaultSeed: false,
       updatedAt: input.updatedAt || new Date().toISOString(),
     };
-
-    const existingIdx = current.findIndex(
-      (a) => makeAccountKey(a.companyCode, a.repCode) === targetKey
-    );
 
     let next: PlasiyerAccount[];
     if (existingIdx >= 0) {
@@ -267,17 +283,19 @@ export const plasiyerAuthService = {
       firstName: string;
       lastName: string;
       password: string;
+      accountRole?: FirmAccountRole;
     },
     serverConfig?: ServerConfig
   ): Promise<PlasiyerAccount> {
+    const authHeaders = this.buildRegistryAuthHeaders(input.companyCode);
     const savedLocal = this.upsertAccountLocal(input);
-    const authHeaders = this.buildRegistryAuthHeaders(savedLocal.companyCode);
     const payload = {
       companyCode: savedLocal.companyCode,
       repCode: savedLocal.repCode,
       firstName: savedLocal.firstName,
       lastName: savedLocal.lastName,
       password: savedLocal.password,
+      accountRole: savedLocal.accountRole || 'plasiyer',
     };
 
     // 1. Merkezi bulut kaydına (ve buluttan erişilebiliyorsa SQL'e) yaz
@@ -414,6 +432,7 @@ export const plasiyerAuthService = {
           firstName: remote.firstName || '',
           lastName: remote.lastName || '',
           password: remote.password,
+          accountRole: remote.accountRole === 'manager' ? 'manager' : 'plasiyer',
           isDefaultSeed: false,
           updatedAt: remote.updatedAt || new Date().toISOString(),
         });
@@ -970,6 +989,7 @@ export const plasiyerAuthService = {
               firstName: cloudData.account.firstName || '',
               lastName: cloudData.account.lastName || '',
               password: pwd,
+              accountRole: cloudData.account.accountRole === 'manager' ? 'manager' : 'plasiyer',
               updatedAt: cloudData.account.updatedAt,
             });
 
@@ -1046,6 +1066,7 @@ export const plasiyerAuthService = {
               firstName: data.account.firstName || '',
               lastName: data.account.lastName || '',
               password: pwd,
+              accountRole: data.account.accountRole === 'manager' ? 'manager' : 'plasiyer',
             });
             return {
               success: true,
@@ -1130,6 +1151,7 @@ export const plasiyerAuthService = {
         firstName: account.firstName,
         lastName: account.lastName,
         password: account.password,
+        accountRole: account.accountRole || 'plasiyer',
       },
     };
     const encoded = encodeBase64UrlUtf8(JSON.stringify(payload));
@@ -1145,7 +1167,8 @@ export const plasiyerAuthService = {
       this.getLocalAccounts().filter(
         (a) => a.companyCode.toUpperCase() === codeUpper && !a.isDefaultSeed
       );
-    const primaryAcc = firmAccounts[0];
+    const primaryAcc =
+      firmAccounts.find((a) => a.accountRole === 'manager') || firmAccounts[0];
 
     const payload = {
       v: 2,
@@ -1168,6 +1191,7 @@ export const plasiyerAuthService = {
             firstName: primaryAcc.firstName,
             lastName: primaryAcc.lastName,
             password: primaryAcc.password,
+            accountRole: primaryAcc.accountRole || 'plasiyer',
           }
         : undefined,
       accs: firmAccounts.map((a) => ({
@@ -1176,6 +1200,7 @@ export const plasiyerAuthService = {
         firstName: a.firstName,
         lastName: a.lastName,
         password: a.password,
+        accountRole: a.accountRole || 'plasiyer',
       })),
     };
     const encoded = encodeBase64UrlUtf8(JSON.stringify(payload));
@@ -1234,6 +1259,7 @@ export const plasiyerAuthService = {
               firstName: String(item.firstName || ''),
               lastName: String(item.lastName || ''),
               password: String(item.password),
+              accountRole: item.accountRole === 'manager' ? 'manager' : 'plasiyer',
             });
           }
         }
@@ -1244,6 +1270,7 @@ export const plasiyerAuthService = {
           firstName: String(decoded.acc.firstName || ''),
           lastName: String(decoded.acc.lastName || ''),
           password: String(decoded.acc.password),
+          accountRole: decoded.acc.accountRole === 'manager' ? 'manager' : 'plasiyer',
         });
       }
 

@@ -958,7 +958,7 @@ export const erpQueries = {
     };
   },
 
-  // 8. PLASİYER KULLANICI HESAPLARI (FİRMA KODU, PLASİYER KODU, AD, SOYAD, ŞİFRE)
+  // 8. PLASİYER & FİRMA YETKİLİSİ KULLANICI HESAPLARI (FİRMA KODU, KULLANICI KODU, AD, SOYAD, ŞİFRE, YETKİ ROLÜ)
   async ensurePlasiyerAccountsTable() {
     const ddl = `
       IF OBJECT_ID('dbo.ERP12_MOBIL_PLASIYER', 'U') IS NULL
@@ -970,9 +970,15 @@ export const erpQueries = {
           AD nvarchar(100) NOT NULL,
           SOYAD nvarchar(100) NOT NULL,
           SIFRE nvarchar(100) NOT NULL,
+          YETKI_ROLU nvarchar(20) NOT NULL DEFAULT 'plasiyer',
           AKTIF bit NOT NULL DEFAULT 1,
           GUNCELLEME_TARIHI datetime NOT NULL DEFAULT GETDATE()
         );
+      END
+      ELSE IF COL_LENGTH('dbo.ERP12_MOBIL_PLASIYER', 'YETKI_ROLU') IS NULL
+      BEGIN
+        ALTER TABLE dbo.ERP12_MOBIL_PLASIYER
+        ADD YETKI_ROLU nvarchar(20) NOT NULL CONSTRAINT DF_ERP12_MOBIL_PLASIYER_ROL DEFAULT 'plasiyer';
       END
       SELECT 1 AS ok;
     `;
@@ -994,6 +1000,7 @@ export const erpQueries = {
           AD AS firstName,
           SOYAD AS lastName,
           SIFRE AS [password],
+          ISNULL(YETKI_ROLU, 'plasiyer') AS accountRole,
           CONVERT(varchar(19), GUNCELLEME_TARIHI, 120) AS updatedAt
         FROM dbo.ERP12_MOBIL_PLASIYER WITH(NOLOCK)
         WHERE AKTIF = 1 ${filterSql}
@@ -1007,6 +1014,7 @@ export const erpQueries = {
             firstName: String(r.firstName || ''),
             lastName: String(r.lastName || ''),
             password: String(r.password || ''),
+            accountRole: String(r.accountRole || '').toLowerCase() === 'manager' ? 'manager' : 'plasiyer',
             updatedAt: String(r.updatedAt || ''),
           }))
         : [];
@@ -1016,13 +1024,15 @@ export const erpQueries = {
     }
   },
 
-  async upsertPlasiyerAccount({ companyCode, repCode, firstName, lastName, password }) {
+  async upsertPlasiyerAccount({ companyCode, repCode, firstName, lastName, password, accountRole }) {
     const esc = (v) => String(v ?? '').replace(/'/g, "''").trim();
     const cCode = esc(companyCode).toUpperCase();
     const rCode = esc(repCode).toUpperCase();
     const fName = esc(firstName);
     const lName = esc(lastName);
     const pwd = String(password ?? '').replace(/'/g, "''");
+    const hasExplicitRole = accountRole === 'manager' || accountRole === 'plasiyer';
+    const roleVal = accountRole === 'manager' ? 'manager' : 'plasiyer';
 
     await this.ensurePlasiyerAccountsTable();
     await executeJsonQuery(`
@@ -1035,14 +1045,15 @@ export const erpQueries = {
         SET AD = N'${fName}',
             SOYAD = N'${lName}',
             SIFRE = N'${pwd}',
+            ${hasExplicitRole ? `YETKI_ROLU = N'${roleVal}',` : ''}
             AKTIF = 1,
             GUNCELLEME_TARIHI = GETDATE()
         WHERE UPPER(FIRMA_KODU) = N'${cCode}' AND UPPER(PLASIYER_KODU) = N'${rCode}';
       END
       ELSE
       BEGIN
-        INSERT INTO dbo.ERP12_MOBIL_PLASIYER (FIRMA_KODU, PLASIYER_KODU, AD, SOYAD, SIFRE, AKTIF, GUNCELLEME_TARIHI)
-        VALUES (N'${cCode}', N'${rCode}', N'${fName}', N'${lName}', N'${pwd}', 1, GETDATE());
+        INSERT INTO dbo.ERP12_MOBIL_PLASIYER (FIRMA_KODU, PLASIYER_KODU, AD, SOYAD, SIFRE, YETKI_ROLU, AKTIF, GUNCELLEME_TARIHI)
+        VALUES (N'${cCode}', N'${rCode}', N'${fName}', N'${lName}', N'${pwd}', N'${roleVal}', 1, GETDATE());
       END
       SELECT 1 AS ok;
     `);
@@ -1054,6 +1065,7 @@ export const erpQueries = {
       firstName: fName,
       lastName: lName,
       password: String(password ?? ''),
+      accountRole: roleVal,
     };
   },
 
@@ -1085,7 +1097,8 @@ export const erpQueries = {
           PLASIYER_KODU AS repCode,
           AD AS firstName,
           SOYAD AS lastName,
-          SIFRE AS [password]
+          SIFRE AS [password],
+          ISNULL(YETKI_ROLU, 'plasiyer') AS accountRole
         FROM dbo.ERP12_MOBIL_PLASIYER WITH(NOLOCK)
         WHERE AKTIF = 1
           AND UPPER(FIRMA_KODU) = N'${cCode}'
@@ -1101,7 +1114,7 @@ export const erpQueries = {
         return {
           found: true,
           authenticated: false,
-          error: 'Plasiyer şifresi hatalı! Lütfen şifrenizi kontrol ediniz.',
+          error: 'Giriş şifresi hatalı! Lütfen şifrenizi kontrol ediniz.',
         };
       }
 
@@ -1115,6 +1128,7 @@ export const erpQueries = {
           firstName: String(row.firstName || ''),
           lastName: String(row.lastName || ''),
           password: String(row.password || ''),
+          accountRole: String(row.accountRole || '').toLowerCase() === 'manager' ? 'manager' : 'plasiyer',
         },
       };
     } catch (err) {
