@@ -323,7 +323,13 @@ export const erpQueries = {
         IF @lokId IS NULL SELECT TOP 1 @lokId = ID FROM LOKASYON ORDER BY ID ASC;
 
         DECLARE @orderId bigint;
-        SELECT @orderId = ISNULL(MAX(ID), 3893110) + 1 FROM SIPARIS;
+        SELECT @orderId = ISNULL((
+          SELECT MAX(v) FROM (VALUES
+            (ISNULL((SELECT MAX(ID) FROM SEQUNCES), 0)),
+            (ISNULL((SELECT MAX(ID) FROM SIPARIS), 3893110)),
+            (ISNULL((SELECT MAX(ID) FROM SIPARIS_DETAY), 3893110))
+          ) AS T(v)
+        ), 3893110) + 1;
 
         INSERT INTO SIPARIS (
           ID, SIPARIS_TURU, LOKASYON, CARI, BELGENO, 
@@ -336,9 +342,11 @@ export const erpQueries = {
           ${order.subtotal || 0}, ${order.totalDiscount || 0}, ${order.totalVat || 0}, ${order.grandTotal || 0}, 
           '[Mobil Plasiyer - ${safeTempId}] ${safeNotes}${safeCampaignNotes}', 1, 1, 0
         );
+        IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @orderId)
+          INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@orderId, 'SIPARIS', 0);
 
         DECLARE @detId bigint;
-        SET @detId = @orderId + 1;
+        SET @detId = @orderId;
         ${order.items.map((item, idx) => {
           const sCode = (item.productCode || '').replace(/'/g, "''");
           const isGift = Boolean(item.isGift);
@@ -366,11 +374,11 @@ export const erpQueries = {
                 ${item.quantity || 1}, ${price}, ${netTutar}, ${dahilTutar}, 
                 ${item.vatRate || 1}, '${iskonto}'
               );
+              IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @detId)
+                INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@detId, 'SIPARIS_DETAY', 0);
             END;
           `;
         }).join('\n')}
-
-        UPDATE SEQUNCES SET ID = @detId WHERE TABLO IN ('SIPARIS', 'SIPARIS_DETAY') AND KOD_PC = 0;
 
         COMMIT TRANSACTION;
         SELECT '${docNo}' AS docNo;
@@ -422,7 +430,13 @@ export const erpQueries = {
         IF @cariId IS NULL SELECT TOP 1 @cariId = ID FROM CARI WHERE AKTIF = 1 ORDER BY ID ASC;
 
         DECLARE @finansId bigint;
-        SELECT @finansId = ISNULL(MAX(ID), 3931620) + 1 FROM FINANS;
+        SELECT @finansId = ISNULL((
+          SELECT MAX(v) FROM (VALUES
+            (ISNULL((SELECT MAX(ID) FROM SEQUNCES), 0)),
+            (ISNULL((SELECT MAX(ID) FROM FINANS), 3931620)),
+            (ISNULL((SELECT MAX(ID) FROM FINANS_DETAY), 3931620))
+          ) AS T(v)
+        ), 3931620) + 1;
 
         DECLARE @kasaId bigint;
         SELECT TOP 1 @kasaId = ID FROM KASA_AD WHERE ID = 75923;
@@ -443,6 +457,8 @@ export const erpQueries = {
           @finansId, @projeId, @lokId, @kasaId, '${safeReceiptNo}', 
           GETDATE(), GETDATE(), @finansId, 1
         );
+        IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @finansId)
+          INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@finansId, 'FINANS', 0);
 
         DECLARE @detId bigint;
         SET @detId = @finansId + 1;
@@ -455,8 +471,8 @@ export const erpQueries = {
           @kasaId, @cariId, ${collection.amount || 0}, 0, 
           '${fullNote}', '${safeReceiptNo}', GETDATE()
         );
-
-        UPDATE SEQUNCES SET ID = @detId WHERE TABLO IN ('FINANS', 'FINANS_DETAY') AND KOD_PC = 0;
+        IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @detId)
+          INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@detId, 'FINANS_DETAY', 0);
 
         COMMIT TRANSACTION;
         SELECT '${docNo}' AS docNo;
