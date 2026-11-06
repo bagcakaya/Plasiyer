@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, ShoppingBag, Plus, Minus, Check, TrendingDown, Barcode, Camera 
 } from 'lucide-react';
@@ -38,10 +39,19 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     }
   }, [product?.id, isOpen]);
 
+  useEffect(() => {
+    if (!isOpen || typeof document === 'undefined') return;
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prevOverflow;
+    };
+  }, [isOpen]);
+
   if (!isOpen || !product) return null;
 
   const priceInfo = calculateCustomerPrice(product, activeCustomer);
-  const imageUrl = getProductImageUrl(product.name, product.category, localImage);
+  const imageUrl = getProductImageUrl(product.name, product.category, localImage, 'hero');
   const inCartQty = cart.find(i => i.productId === product.id)?.quantity || 0;
 
   const handleQuantityInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -121,22 +131,23 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
   const lineTotal = priceInfo.customerPrice * effectiveQty;
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/75 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in">
-      <div className="bg-white dark:bg-slate-900 w-full max-w-md rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col max-h-[96dvh] sm:max-h-[92vh]">
-        {/* Görsel Alanı & Kapat Butonu */}
-        <div className="relative h-44 sm:h-64 bg-slate-100 dark:bg-slate-800 overflow-hidden group shrink-0">
+  const modalContent = (
+    <div className="fixed inset-0 z-[100] bg-slate-950 sm:bg-black/75 sm:backdrop-blur-sm flex items-stretch sm:items-center justify-center p-0 sm:p-4 animate-in fade-in">
+      <div className="bg-white dark:bg-slate-900 w-full sm:max-w-md h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[92vh] rounded-none sm:rounded-3xl shadow-2xl border-0 sm:border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col">
+        {/* Görsel Alanı & Kapat Butonu (iPhone Çentik / Dynamic Island Uyumlu Esnek Tek Ekran Başlığı) */}
+        <div className="relative min-h-[8.25rem] h-[26dvh] max-h-[15.5rem] sm:h-56 sm:max-h-none bg-slate-100 dark:bg-slate-800 overflow-hidden group shrink-0">
           <img 
             src={imageUrl} 
             alt={product.name}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-black/30" />
+          <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-black/35" />
 
           {/* Fotoğraf Ekle / Değiştir Butonu */}
           <button
+            type="button"
             onClick={() => setIsPhotoModalOpen(true)}
-            className="absolute top-3 right-14 py-1.5 px-3 rounded-full bg-black/60 hover:bg-black/85 text-white backdrop-blur-md transition flex items-center gap-1.5 text-xs font-semibold shadow-md active:scale-95"
+            className="absolute top-[calc(env(safe-area-inset-top,0px)+0.625rem)] sm:top-3 right-14 py-1.5 px-3 rounded-full bg-black/60 hover:bg-black/85 text-white backdrop-blur-md transition flex items-center gap-1.5 text-xs font-semibold shadow-md active:scale-95"
             title="Ürün Fotoğrafı Çek / Yükle (ERP12 Entegre)"
           >
             <Camera className="w-3.5 h-3.5 text-blue-400" />
@@ -145,22 +156,23 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
           {/* Kapat Butonu */}
           <button
+            type="button"
             onClick={onClose}
-            className="absolute top-3 right-3 p-2 rounded-full bg-black/50 hover:bg-black/80 text-white backdrop-blur-xs transition"
+            className="absolute top-[calc(env(safe-area-inset-top,0px)+0.5rem)] sm:top-3 right-3 p-2 rounded-full bg-black/55 hover:bg-black/80 text-white backdrop-blur-xs transition active:scale-95"
           >
             <X className="w-5 h-5" />
           </button>
 
           {/* Size Özel Rozeti */}
           {priceInfo.hasSpecialPrice && (
-            <div className="absolute top-3 left-3 bg-emerald-500 text-white text-xs font-black px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1">
+            <div className="absolute top-[calc(env(safe-area-inset-top,0px)+0.625rem)] sm:top-3 left-3 bg-emerald-500 text-white text-[11px] font-black px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1">
               <TrendingDown className="w-3.5 h-3.5" />
-              <span>%{priceInfo.discountPercent} Size Özel İndirim</span>
+              <span>%{priceInfo.discountPercent} Size Özel</span>
             </div>
           )}
 
           {/* Stok Durumu Rozeti */}
-          <div className="absolute bottom-3 left-3">
+          <div className="absolute bottom-2.5 left-3">
             <span className={`text-xs font-bold px-2.5 py-1 rounded-full backdrop-blur-md shadow-md ${
               product.stockQuantity > 0 
                 ? 'bg-emerald-500/90 text-white' 
@@ -173,40 +185,40 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           </div>
 
           {/* Kategori */}
-          <div className="absolute bottom-3 right-3 bg-black/60 text-white/90 text-[11px] font-semibold px-2.5 py-1 rounded-full backdrop-blur-md">
+          <div className="absolute bottom-2.5 right-3 bg-black/65 text-white/95 text-[11px] font-semibold px-2.5 py-1 rounded-full backdrop-blur-md">
             {product.category}
           </div>
         </div>
 
-        {/* Ürün Detayları */}
-        <div className="p-5 overflow-y-auto space-y-4 flex-1">
+        {/* Ürün Detayları (Kaydırmasız Tek Ekran Yerleşimi) */}
+        <div className="px-4 py-3 sm:p-5 overflow-y-auto no-scrollbar flex-1 min-h-0 flex flex-col justify-between gap-2.5 sm:gap-3.5">
           <div>
             {product.barcode && (
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-mono text-slate-400 flex items-center gap-1">
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className="text-[11px] font-mono text-slate-400 flex items-center gap-1">
                   <Barcode className="w-3.5 h-3.5" />
                   {product.barcode}
                 </span>
               </div>
             )}
 
-            <h2 className="text-lg font-black text-slate-900 dark:text-white leading-snug">
+            <h2 className="text-base sm:text-lg font-black text-slate-900 dark:text-white leading-snug line-clamp-2">
               {product.name}
             </h2>
           </div>
 
           {/* Fiyat Kartı */}
-          <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
+          <div className="px-3.5 py-2.5 sm:p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-800 flex items-center justify-between">
             <div>
-              <span className="text-xs text-slate-400 font-medium block">
+              <span className="text-[11px] text-slate-400 font-medium block">
                 {priceInfo.hasSpecialPrice ? 'Size Özel Net Fiyat' : 'Birim Fiyat'}
               </span>
               <div className="flex items-baseline gap-2 mt-0.5">
-                <span className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                <span className="text-xl sm:text-2xl font-black text-emerald-600 dark:text-emerald-400">
                   {formatCurrency(priceInfo.customerPrice)}
                 </span>
                 {priceInfo.hasSpecialPrice && (
-                  <span className="text-sm text-slate-400 line-through">
+                  <span className="text-xs sm:text-sm text-slate-400 line-through">
                     {formatCurrency(priceInfo.standardPrice)}
                   </span>
                 )}
@@ -223,13 +235,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           </div>
 
           {/* Sipariş Miktarı Bölümü */}
-          <div className="space-y-3 p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wide">
+          <div className="space-y-2.5 p-3 sm:p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/40 border border-slate-200/80 dark:border-slate-800">
+            <div className="flex items-center justify-between gap-2">
+              <label className="text-xs font-black text-slate-800 dark:text-slate-200 uppercase tracking-wide shrink-0">
                 Sipariş Miktarı ({product.unit}):
               </label>
-              <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
-                Elle yazabilir veya butonları kullanabilirsiniz
+              <span className="text-[10px] sm:text-[11px] font-medium text-slate-500 dark:text-slate-400 text-right leading-tight">
+                Elle yazabilir veya seçebilirsiniz
               </span>
             </div>
 
@@ -238,7 +250,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <button
                 type="button"
                 onClick={() => handleDecrement(1)}
-                className="w-12 h-12 bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 active:scale-90 text-slate-800 dark:text-white rounded-2xl flex items-center justify-center font-bold border border-slate-200 dark:border-slate-600 shadow-xs transition"
+                className="w-11 h-11 sm:w-12 sm:h-12 bg-white dark:bg-slate-700 hover:bg-slate-100 dark:hover:bg-slate-600 active:scale-90 text-slate-800 dark:text-white rounded-2xl flex items-center justify-center font-bold border border-slate-200 dark:border-slate-600 shadow-xs transition shrink-0"
                 title="1 Azalt"
               >
                 <Minus className="w-5 h-5 stroke-[2.5]" />
@@ -248,19 +260,15 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 <input
                   type="text"
                   inputMode="decimal"
+                  data-no-autoscroll="true"
                   value={quantityInput}
                   onChange={handleQuantityInputChange}
                   onBlur={handleQuantityBlur}
-                  onFocus={(e) => {
-                    e.target.select();
-                    setTimeout(() => {
-                      e.target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }, 250);
-                  }}
+                  onFocus={(e) => e.target.select()}
                   placeholder="1"
-                  className="w-full h-12 px-4 text-center font-black text-2xl bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 border-2 border-blue-500/50 focus:border-blue-600 dark:border-blue-500/30 dark:focus:border-blue-400 rounded-2xl shadow-inner focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition tracking-wide"
+                  className="w-full h-11 sm:h-12 px-4 text-center font-black text-xl sm:text-2xl bg-white dark:bg-slate-900 text-blue-600 dark:text-blue-400 border-2 border-blue-500/50 focus:border-blue-600 dark:border-blue-500/30 dark:focus:border-blue-400 rounded-2xl shadow-inner focus:outline-none focus:ring-4 focus:ring-blue-500/20 transition tracking-wide"
                 />
-                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 dark:text-slate-500 pointer-events-none uppercase">
+                <span className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[11px] font-bold text-slate-400 dark:text-slate-500 pointer-events-none uppercase">
                   {product.unit}
                 </span>
               </div>
@@ -268,7 +276,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
               <button
                 type="button"
                 onClick={() => handleIncrement(1)}
-                className="w-12 h-12 bg-blue-600 hover:bg-blue-700 active:scale-90 text-white rounded-2xl flex items-center justify-center font-bold shadow-md shadow-blue-600/30 transition"
+                className="w-11 h-11 sm:w-12 sm:h-12 bg-blue-600 hover:bg-blue-700 active:scale-90 text-white rounded-2xl flex items-center justify-center font-bold shadow-md shadow-blue-600/30 transition shrink-0"
                 title="1 Arttır"
               >
                 <Plus className="w-5 h-5 stroke-[2.5]" />
@@ -281,13 +289,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
                 <span>Hızlı Ekle (+):</span>
                 <span>Koli / Paket Presetleri:</span>
               </div>
-              <div className="grid grid-cols-4 gap-1.5 mb-2">
+              <div className="grid grid-cols-4 gap-1.5 mb-1.5">
                 {[5, 10, 25, 50].map((inc) => (
                   <button
                     key={`inc-${inc}`}
                     type="button"
                     onClick={() => handleAddQuick(inc)}
-                    className="py-2 rounded-xl text-xs font-extrabold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 active:scale-95 transition flex items-center justify-center shadow-2xs"
+                    className="py-1.5 sm:py-2 rounded-xl text-xs font-extrabold bg-blue-50 dark:bg-blue-950/40 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 active:scale-95 transition flex items-center justify-center shadow-2xs"
                   >
                     +{inc}
                   </button>
@@ -316,25 +324,26 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
           {/* Sepette Zaten Varsa Göster */}
           {inCartQty > 0 && (
-            <div className="p-2.5 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-xs text-blue-800 dark:text-blue-300 flex items-center justify-between font-semibold">
+            <div className="px-3 py-2 rounded-xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60 text-xs text-blue-800 dark:text-blue-300 flex items-center justify-between font-semibold shrink-0">
               <span>Bu ürün zaten sepetinizde bulunuyor:</span>
               <span className="font-extrabold">{inCartQty} {product.unit}</span>
             </div>
           )}
         </div>
 
-        {/* Alt Satın Alma / Ekleme Barı */}
-        <div className="px-6 py-4 bg-slate-50 dark:bg-slate-800/80 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3">
-          <div>
+        {/* Alt Satın Alma / Ekleme Barı (iPhone Home Indicator Güvenli Alan Uyumlu, Her Zaman Görünür) */}
+        <div className="px-4 pt-3 pb-[calc(env(safe-area-inset-bottom,0px)+0.875rem)] sm:px-6 sm:py-4 bg-slate-50 dark:bg-slate-900 border-t border-slate-200 dark:border-slate-800 flex items-center justify-between gap-3 shrink-0">
+          <div className="min-w-0">
             <span className="text-[11px] text-slate-400 font-medium block">Toplam Tutar:</span>
-            <span className="text-lg font-black text-slate-900 dark:text-white">
+            <span className="text-lg sm:text-xl font-black text-slate-900 dark:text-white truncate block">
               {formatCurrency(lineTotal)}
             </span>
           </div>
 
           <button
+            type="button"
             onClick={handleAddToCart}
-            className={`px-6 py-3 rounded-2xl font-bold text-xs shadow-lg transition active:scale-95 flex items-center gap-2 ${
+            className={`px-5 py-3.5 rounded-2xl font-extrabold text-xs sm:text-sm shadow-lg transition active:scale-95 flex items-center gap-2 shrink-0 ${
               addedAnimation 
                 ? 'bg-emerald-600 text-white shadow-emerald-600/30' 
                 : 'bg-blue-600 hover:bg-blue-700 text-white shadow-blue-600/30'
@@ -366,4 +375,6 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       />
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };

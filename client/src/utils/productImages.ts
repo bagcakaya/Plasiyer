@@ -13,15 +13,41 @@ function createCategorySvgBadge(
   category: string,
   c1: string,
   c2: string,
-  iconSvg: string
+  iconSvg: string,
+  variant: 'card' | 'hero' = 'card'
 ): string {
   const safeTitle = (title || 'Ürün').slice(0, 24).replace(/[<>&"']/g, '');
   const safeCategory = (category || 'Genel').slice(0, 22).replace(/[<>&"']/g, '');
-  const cacheKey = `${safeTitle}|${safeCategory}|${c1}|${c2}`;
+  const cacheKey = `${safeTitle}|${safeCategory}|${c1}|${c2}|${variant}`;
   const cached = svgBadgeCache.get(cacheKey);
   if (cached) return cached;
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300">
+  const svg =
+    variant === 'hero'
+      ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 220" width="480" height="220">
+    <defs>
+      <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+        <stop offset="0%" stop-color="${c1}"/>
+        <stop offset="100%" stop-color="${c2}"/>
+      </linearGradient>
+      <radialGradient id="glow" cx="50%" cy="42%" r="60%">
+        <stop offset="0%" stop-color="rgba(255,255,255,0.22)"/>
+        <stop offset="100%" stop-color="rgba(0,0,0,0.18)"/>
+      </radialGradient>
+      <pattern id="grid" width="24" height="24" patternUnits="userSpaceOnUse">
+        <path d="M 24 0 L 0 0 0 24" fill="none" stroke="rgba(255,255,255,0.06)" stroke-width="1"/>
+      </pattern>
+    </defs>
+    <rect width="480" height="220" fill="url(#bgGrad)"/>
+    <rect width="480" height="220" fill="url(#glow)"/>
+    <rect width="480" height="220" fill="url(#grid)"/>
+    <circle cx="240" cy="88" r="38" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.35)" stroke-width="2.2"/>
+    <g transform="translate(220, 68) scale(1.65)" stroke="#FFFFFF" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      ${iconSvg}
+    </g>
+    <text x="240" y="154" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif" font-weight="800" font-size="18" fill="#FFFFFF" text-anchor="middle" letter-spacing="0.4">${safeTitle}</text>
+  </svg>`
+      : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 300" width="400" height="300">
     <defs>
       <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
         <stop offset="0%" stop-color="${c1}"/>
@@ -109,7 +135,12 @@ function normalizeTurkish(str: string): string {
  * 1. Eğer ürünün kendi fotoğrafı varsa (IndexedDB data URL, sunucu /uploads/ veya harici URL), onu döner.
  * 2. Yoksa, ürün adına ve kategorisine özel %100 uyumlu, asla bozulmayan Türkçe vektör rozeti üretir.
  */
-export function getProductImageUrl(productName: string, categoryName = '', existingImage?: string): string {
+export function getProductImageUrl(
+  productName: string,
+  categoryName = '',
+  existingImage?: string,
+  variant: 'card' | 'hero' = 'card'
+): string {
   // 1. Mevcut veya yüklenen gerçek fotoğraf kontrolü
   if (existingImage && (existingImage.startsWith('data:') || existingImage.startsWith('/') || existingImage.startsWith('http'))) {
     return existingImage;
@@ -120,22 +151,22 @@ export function getProductImageUrl(productName: string, categoryName = '', exist
 
   // 1. Pişmaniye, Saray Helvası, Çekme Helva (Geleneksel Tatlı)
   if (n.includes('pismaniye') || n.includes('saray helv') || n.includes('cekme helva')) {
-    return createCategorySvgBadge('Pişmaniye & Saray Helvası', 'Geleneksel Tatlılar', '#b45309', '#78350f', ICONS.sweet);
+    return createCategorySvgBadge('Pişmaniye & Saray Helvası', 'Geleneksel Tatlılar', '#b45309', '#78350f', ICONS.sweet, variant);
   }
 
   // 2. Tahin & Tahin Ezmesi
   if (n.includes('tahin') && !n.includes('helva')) {
-    return createCategorySvgBadge('Doğal Tahin', 'Susam Ürünleri', '#92400e', '#78350f', ICONS.jar);
+    return createCategorySvgBadge('Doğal Tahin', 'Susam Ürünleri', '#92400e', '#78350f', ICONS.jar, variant);
   }
 
   // 3. Helva & Tahin Helvası (Kakaolu, Sade, Fıstıklı)
   if (n.includes('helva') || c.includes('helva')) {
-    return createCategorySvgBadge('Tahin Helvası', 'Geleneksel Helvalar', '#d97706', '#92400e', ICONS.sweet);
+    return createCategorySvgBadge('Tahin Helvası', 'Geleneksel Helvalar', '#d97706', '#92400e', ICONS.sweet, variant);
   }
 
   // 4. Pekmez (Üzüm, Dut, Keçiboynuzu, Harnup)
   if (n.includes('pekmez') || n.includes('keciboynuzu') || n.includes('harnup')) {
-    return createCategorySvgBadge('Geleneksel Pekmez', 'Doğal Pekmez Çeşitleri', '#451a03', '#78350f', ICONS.jar);
+    return createCategorySvgBadge('Geleneksel Pekmez', 'Doğal Pekmez Çeşitleri', '#451a03', '#78350f', ICONS.jar, variant);
   }
 
   // 5. Baharat & Toz Biber & Pul Biber
@@ -152,7 +183,7 @@ export function getProductImageUrl(productName: string, categoryName = '', exist
     n.includes('susam') ||
     c.includes('baharat')
   ) {
-    return createCategorySvgBadge('Yöresel Baharat', 'Baharat & Çeşniler', '#991b1b', '#b91c1c', ICONS.spice);
+    return createCategorySvgBadge('Yöresel Baharat', 'Baharat & Çeşniler', '#991b1b', '#b91c1c', ICONS.spice, variant);
   }
 
   // 6. Ekmek, Tost Ekmeği, Sandviç, Lavaş, Unlu Mamuller
@@ -166,28 +197,28 @@ export function getProductImageUrl(productName: string, categoryName = '', exist
     c.includes('unlu mamul') ||
     c.includes('donuk')
   ) {
-    return createCategorySvgBadge('Tost & Ekmek', 'Fırın & Unlu Mamul', '#d97706', '#b45309', ICONS.bakery);
+    return createCategorySvgBadge('Tost & Ekmek', 'Fırın & Unlu Mamul', '#d97706', '#b45309', ICONS.bakery, variant);
   }
 
   // 7. Bal (Süzme, Petek, Çam, Çiçek)
   const isBal = n.includes('bal ') || n.startsWith('bal ') || n.endsWith(' bal') || n.includes('suzme bal') || c.includes('bal');
   if (isBal) {
-    return createCategorySvgBadge('Doğal Süzme Bal', 'Arı & Bal Ürünleri', '#b45309', '#d97706', ICONS.jar);
+    return createCategorySvgBadge('Doğal Süzme Bal', 'Arı & Bal Ürünleri', '#b45309', '#d97706', ICONS.jar, variant);
   }
 
   // 8. Reçel & Marmelat
   if (n.includes('recel') || n.includes('marmelat') || c.includes('recel')) {
-    return createCategorySvgBadge('Meyve Reçeli', 'Reçel & Marmelatlar', '#9f1239', '#881337', ICONS.jar);
+    return createCategorySvgBadge('Meyve Reçeli', 'Reçel & Marmelatlar', '#9f1239', '#881337', ICONS.jar, variant);
   }
 
   // 9. Lokum & Şekerleme
   if (n.includes('lokum') || n.includes('cezerye') || n.includes('sekerleme')) {
-    return createCategorySvgBadge('Türk Lokumu', 'Geleneksel Şekerleme', '#c2410c', '#9a3412', ICONS.sweet);
+    return createCategorySvgBadge('Türk Lokumu', 'Geleneksel Şekerleme', '#c2410c', '#9a3412', ICONS.sweet, variant);
   }
 
   // 10. Çikolata, Gofret, Bisküvi
   if (n.includes('cikolata') || n.includes('gofret') || n.includes('biskuvi') || n.includes('krema')) {
-    return createCategorySvgBadge('Çikolata & Bisküvi', 'Atıştırmalık & Gofret', '#713f12', '#451a03', ICONS.package);
+    return createCategorySvgBadge('Çikolata & Bisküvi', 'Atıştırmalık & Gofret', '#713f12', '#451a03', ICONS.package, variant);
   }
 
   // 11. Peynir, Kaşar, Tereyağı & Süt Ürünleri
@@ -199,17 +230,17 @@ export function getProductImageUrl(productName: string, categoryName = '', exist
     n.includes('sut ') ||
     c.includes('sut')
   ) {
-    return createCategorySvgBadge('Şarküteri & Süt', 'Süt & Süt Ürünleri', '#0369a1', '#075985', ICONS.dairy);
+    return createCategorySvgBadge('Şarküteri & Süt', 'Süt & Süt Ürünleri', '#0369a1', '#075985', ICONS.dairy, variant);
   }
 
   // 12. Çay & Kahve
   if (n.includes('cay') || n.includes('rize') || n.includes('kahve') || c.includes('cay')) {
-    return createCategorySvgBadge('Demlik Çay & Kahve', 'Sıcak İçecekler', '#881337', '#4c0519', ICONS.drink);
+    return createCategorySvgBadge('Demlik Çay & Kahve', 'Sıcak İçecekler', '#881337', '#4c0519', ICONS.drink, variant);
   }
 
   // 13. Sıvı Yağlar (Ayçiçek & Zeytinyağı)
   if (n.includes('yag') || c.includes('yag')) {
-    return createCategorySvgBadge('Bitkisel Sıvı Yağ', 'Yemeklik Sıvı Yağlar', '#854d0e', '#a16207', ICONS.oil);
+    return createCategorySvgBadge('Bitkisel Sıvı Yağ', 'Yemeklik Sıvı Yağlar', '#854d0e', '#a16207', ICONS.oil, variant);
   }
 
   // 14. Bakliyat, Pirinç, Makarna, Un
@@ -222,10 +253,10 @@ export function getProductImageUrl(productName: string, categoryName = '', exist
     n.includes('un ') ||
     c.includes('bakliyat')
   ) {
-    return createCategorySvgBadge('Bakliyat & Tahıl', 'Temel Gıda & Kuru Bakliyat', '#166534', '#14532d', ICONS.grain);
+    return createCategorySvgBadge('Bakliyat & Tahıl', 'Temel Gıda & Kuru Bakliyat', '#166534', '#14532d', ICONS.grain, variant);
   }
 
   // Varsayılan Genel Paket Gıda Rozeti
   const displayTitle = productName.length > 20 ? productName.substring(0, 20) + '...' : productName;
-  return createCategorySvgBadge(displayTitle, categoryName || 'Toptan Gıda', '#334155', '#1e293b', ICONS.package);
+  return createCategorySvgBadge(displayTitle, categoryName || 'Toptan Gıda', '#334155', '#1e293b', ICONS.package, variant);
 }

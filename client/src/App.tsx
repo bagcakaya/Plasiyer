@@ -106,7 +106,6 @@ const MainContent: React.FC = () => {
       {activeTab === 'orders' && <OrdersQueuePage />}
       {activeTab === 'van_stock' && <VanStockPage />}
       {activeTab === 'settings' && <SettingsPage />}
-      <GlobalModals />
     </main>
   );
 };
@@ -150,10 +149,11 @@ const AppContent: React.FC = () => {
         }`}
       >
         <Header />
-        <div className={`flex-1 ${isReelsCustomersView ? 'min-h-0 overflow-hidden flex flex-col' : 'overflow-y-auto'}`}>
+        <div className={`flex-1 ${isReelsCustomersView ? 'min-h-0 overflow-hidden flex flex-col' : ''}`}>
           <MainContent />
         </div>
         <BottomNav />
+        <GlobalModals />
       </div>
     </div>
   );

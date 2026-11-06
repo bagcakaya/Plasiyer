@@ -1,4 +1,5 @@
 import React, { useState, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { 
   X, Camera, Image as ImageIcon, Trash2, Check, RefreshCw, UploadCloud, AlertCircle 
 } from 'lucide-react';
@@ -132,8 +133,8 @@ export const ProductPhotoModal: React.FC<ProductPhotoModalProps> = ({
     }
   };
 
-  return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
+  const modalContent = (
+    <div className="fixed inset-0 z-[110] overflow-y-auto bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
       <div className="bg-white dark:bg-slate-900 w-full max-w-lg rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col">
         
         {/* Başlık ve Kapat Butonu */}
@@ -271,4 +272,6 @@ export const ProductPhotoModal: React.FC<ProductPhotoModalProps> = ({
       </div>
     </div>
   );
+
+  return typeof document !== 'undefined' ? createPortal(modalContent, document.body) : modalContent;
 };
