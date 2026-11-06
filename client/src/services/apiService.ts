@@ -539,7 +539,7 @@ export const apiService = {
     }
 
     try {
-      let url = `${(await resolveApiBaseUrlAsync(config))}/customers/${encodeURIComponent(idOrCode)}/statement?company=${encodeURIComponent(config.companyCode || '01')}`;
+      let url = `${(await resolveApiBaseUrlAsync(config, true))}/customers/${encodeURIComponent(idOrCode)}/statement?company=${encodeURIComponent(config.companyCode || '01')}`;
       if (startDate) url += `&startDate=${encodeURIComponent(startDate)}`;
       if (endDate) url += `&endDate=${encodeURIComponent(endDate)}`;
 
@@ -779,7 +779,7 @@ export const apiService = {
     }
 
     try {
-      const url = `${(await resolveApiBaseUrlAsync(config))}/customers/${encodeURIComponent(idOrCode)}/history?company=${encodeURIComponent(config.companyCode || '01')}`;
+      const url = `${(await resolveApiBaseUrlAsync(config, true))}/customers/${encodeURIComponent(idOrCode)}/history?company=${encodeURIComponent(config.companyCode || '01')}`;
       const response = await fetch(url, {
         headers: {
           ...buildSqlHeaders(config),

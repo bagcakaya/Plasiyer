@@ -5,7 +5,13 @@ import cors from 'cors';
 import compression from 'compression';
 import dotenv from 'dotenv';
 import { erpQueries } from './erpQueries.js';
-import { testConnection, testDirectSqlConnection, sqlContext } from './db.js';
+import {
+  testConnection,
+  testDirectSqlConnection,
+  executeJsonQuery,
+  executeNonQuery,
+  sqlContext,
+} from './db.js';
 import { imageService } from './imageService.js';
 import {
   cloudRegistry,
@@ -13,6 +19,7 @@ import {
   verifyFirmOrAdminAuth,
 } from './cloudRegistry.js';
 import { sqlCloudMirror } from './sqlCloudMirror.js';
+import { sqlCloudRelay, verifyRelayRequest } from './sqlCloudRelay.js';
 
 dotenv.config();
 
@@ -88,7 +95,44 @@ app.get('/api/health', (req, res) => {
     message: 'ERP12 Saha Satış Entegrasyon Servisi Aktif',
     time: new Date().toISOString(),
     connectedClients: sseClients.size,
+    tunnelActive: Boolean(sqlCloudRelay.getActiveTunnelUrl()),
   });
+});
+
+// Şifreli Bulut -> Türkiye Canlı SQL Tüneli (Yalnızca HMAC İmzalı Vercel Sunucu İsteklerini Kabul Eder)
+app.post('/api/internal/sql-relay', async (req, res) => {
+  if (process.env.VERCEL) {
+    return res.status(404).json({ success: false, error: 'Not a relay node' });
+  }
+  const timestamp = req.headers['x-relay-timestamp'];
+  const signature = req.headers['x-relay-signature'];
+  const { action, sqlConfig, query } = req.body || {};
+
+  if (!verifyRelayRequest({ timestamp, signature, action, sqlConfig, query: query || '' })) {
+    return res.status(403).json({ success: false, error: 'Geçersiz tünel imzası' });
+  }
+
+  try {
+    if (action === 'testConnection') {
+      const result = await testDirectSqlConnection(sqlConfig || {});
+      return res.json({ success: true, result });
+    }
+    if (action === 'jsonQuery') {
+      const rows = await sqlContext.run(sqlConfig || {}, () => executeJsonQuery(query));
+      return res.json({ success: true, rows });
+    }
+    if (action === 'nonQuery') {
+      const rowsAffected = await sqlContext.run(sqlConfig || {}, () => executeNonQuery(query));
+      return res.json({ success: true, rowsAffected });
+    }
+    return res.status(400).json({ success: false, error: 'Bilinmeyen işlem' });
+  } catch (err) {
+    return res.json({
+      success: false,
+      sqlError: true,
+      message: err.message || 'SQL sorgu hatası',
+    });
+  }
 });
 
 // Doğrudan SQL Server Bağlantı Testi (Ayarlar -> SQL Bağlantısını Canlı Test Et)
@@ -203,6 +247,7 @@ app.get('/api/customers', async (req, res) => {
 
 // 1.1 CARİ HESAP EKSTRESİ GETİR (CANLI ERP12 HAREKETLERİ)
 app.get('/api/customers/:idOrCode/statement', async (req, res) => {
+  const activeCfg = sqlContext.getStore();
   try {
     const { idOrCode } = req.params;
     const { startDate, endDate } = req.query;
@@ -214,6 +259,50 @@ app.get('/api/customers/:idOrCode/statement', async (req, res) => {
     }
     res.json(statement);
   } catch (err) {
+    if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      const mirrored = await sqlCloudMirror.getCustomers(activeCfg);
+      const paramUpper = String(req.params.idOrCode || '').trim().toUpperCase();
+      const found = mirrored?.find(
+        (c) =>
+          String(c.id).toUpperCase() === paramUpper ||
+          String(c.code).toUpperCase() === paramUpper
+      );
+      if (found) {
+        const bal = Number(found.balance || 0);
+        return res.json({
+          customer: {
+            id: String(found.id),
+            code: String(found.code),
+            name: String(found.name),
+            address: found.address || '',
+            phone: found.phone || '',
+            taxOffice: found.taxOffice || '',
+            taxNumber: found.taxNumber || '',
+            balance: bal,
+          },
+          movements: bal !== 0
+            ? [
+                {
+                  id: `mirror-bal-${found.id}`,
+                  date: new Date().toISOString().slice(0, 10),
+                  time: '',
+                  docNo: 'DEVİR-BAKİYE',
+                  transactionType: 'Güncel Cari Bakiye (Bulut Aynası)',
+                  description: 'ERP12 senkronize güncel bakiye özeti',
+                  debit: bal > 0 ? bal : 0,
+                  credit: bal < 0 ? Math.abs(bal) : 0,
+                  balance: bal,
+                },
+              ]
+            : [],
+          summary: {
+            totalDebit: bal > 0 ? bal : 0,
+            totalCredit: bal < 0 ? Math.abs(bal) : 0,
+            closingBalance: bal,
+          },
+        });
+      }
+    }
     console.error('Cari ekstre çekme hatası:', err.message);
     res.status(500).json({ error: 'Cari ekstre alınamadı', detail: err.message });
   }
@@ -222,6 +311,7 @@ app.get('/api/customers/:idOrCode/statement', async (req, res) => {
 // 1.2 CARİ GEÇMİŞ YILLAR DAHİL TÜM ÜRÜN VE İŞLEM DETAYLARI
 app.get('/api/customers/:idOrCode/history', async (req, res) => {
   const start = Date.now();
+  const activeCfg = sqlContext.getStore();
   try {
     const { idOrCode } = req.params;
     const history = await erpQueries.getCustomerHistory(idOrCode);
@@ -231,6 +321,45 @@ app.get('/api/customers/:idOrCode/history', async (req, res) => {
     console.log(`⚡ [API] GET /api/customers/${idOrCode}/history - ${history.items.length} ürün satırı, ${history.financials.length} finans hareketi (${Date.now() - start}ms)`);
     res.json(history);
   } catch (err) {
+    if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      const mirrored = await sqlCloudMirror.getCustomers(activeCfg);
+      const paramUpper = String(req.params.idOrCode || '').trim().toUpperCase();
+      const found = mirrored?.find(
+        (c) =>
+          String(c.id).toUpperCase() === paramUpper ||
+          String(c.code).toUpperCase() === paramUpper
+      );
+      if (found) {
+        const bal = Number(found.balance || 0);
+        const currentYear = new Date().getFullYear();
+        return res.json({
+          customer: {
+            id: String(found.id),
+            code: String(found.code),
+            name: String(found.name),
+            balance: bal,
+          },
+          years: [currentYear],
+          items: [],
+          financials:
+            bal !== 0
+              ? [
+                  {
+                    id: `mirror-fin-${found.id}`,
+                    year: currentYear,
+                    date: new Date().toISOString().slice(0, 10),
+                    time: '',
+                    docNo: 'GÜNCEL-BAKİYE',
+                    transactionType: 'Cari Bakiye Özeti',
+                    description: 'ERP12 senkronize güncel cari bakiye',
+                    debit: bal > 0 ? bal : 0,
+                    credit: bal < 0 ? Math.abs(bal) : 0,
+                  },
+                ]
+              : [],
+        });
+      }
+    }
     console.error('Cari geçmiş detayları hatası:', err.message);
     res.status(500).json({ error: 'Cari işlem geçmişi alınamadı', detail: err.message });
   }
@@ -904,10 +1033,13 @@ if (!process.env.VERCEL) {
       console.warn('⚠️ Veritabanı testi uyarısı:', err.message);
     }
 
-    // Açılışta ve periyodik olarak uzak müşteri SQL veritabanlarını bulut köprüsüyle eşitle
+    // 1. Canlı Türkiye SQL Tünelini başlat (Bulut / Mobil cihazların tüm canlı Ekstre, Rapor ve SQL sorgularını Türkiye IP'si üzerinden geçirir)
+    sqlCloudRelay.startLocalCloudflareTunnel(PORT);
+
+    // 2. Açılışta ve periyodik olarak uzak müşteri SQL veritabanlarını bulut yedek aynasıyla eşitle
     syncRegisteredRemoteSqlMirrors(true);
-    setInterval(() => syncRegisteredRemoteSqlMirrors(false), 20000);
-    setInterval(() => syncRegisteredRemoteSqlMirrors(true), 180000);
+    setInterval(() => syncRegisteredRemoteSqlMirrors(false), 90000);
+    setInterval(() => syncRegisteredRemoteSqlMirrors(true), 1800000);
   });
 }
 

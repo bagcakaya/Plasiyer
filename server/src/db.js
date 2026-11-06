@@ -3,6 +3,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 import { execFile } from 'child_process';
 import util from 'util';
 import dotenv from 'dotenv';
+import { sqlCloudRelay } from './sqlCloudRelay.js';
 dotenv.config();
 
 const execFilePromise = util.promisify(execFile);
@@ -249,6 +250,24 @@ export async function testDirectSqlConnection(rawConfig) {
     password,
   };
 
+  // Bulut (Vercel) ortamında ve uzak Türkiye SQL sunucusu ise önce Canlı Türkiye Tüneli üzerinden test et (GeoIP engelini sıfır gecikmeyle aşar)
+  if (process.env.VERCEL && !isLocalServer(cleanHost)) {
+    try {
+      const relayedTest = await sqlCloudRelay.remoteTestConnection({
+        sqlHost: cleanHost,
+        sqlPort: String(parsedPort),
+        sqlDatabase: database,
+        sqlUser: user,
+        sqlPassword: password,
+      });
+      if (relayedTest && typeof relayedTest.success === 'boolean') {
+        return relayedTest;
+      }
+    } catch {
+      // Tünel yanıt vermezse doğrudan TCP bağlantısına düş
+    }
+  }
+
   let tempPool = null;
   try {
     tempPool = new sql.ConnectionPool({
@@ -403,8 +422,15 @@ function parseRecordsetJson(result) {
 export async function executeJsonQuery(query) {
   const activeCfg = getActiveSqlConfig();
 
-  // 1. Özel / Uzak SQL Server yapılandırması aktifse doğrudan ona bağlan
+  // 1. Özel / Uzak SQL Server yapılandırması aktifse:
+  // Bulut (Vercel) üzerindeyken GeoIP engelini aşmak için önce Canlı Türkiye Tüneli üzerinden sorgula
   if (activeCfg) {
+    if (process.env.VERCEL && !isLocalServer(activeCfg.server)) {
+      const relayedRows = await sqlCloudRelay.remoteExecuteJsonQuery(activeCfg, query);
+      if (relayedRows !== null) {
+        return relayedRows;
+      }
+    }
     const pool = await getDynamicPool(activeCfg);
     const result = await pool.request().query(query);
     return parseRecordsetJson(result);
@@ -435,6 +461,12 @@ export async function executeNonQuery(query) {
   const activeCfg = getActiveSqlConfig();
 
   if (activeCfg) {
+    if (process.env.VERCEL && !isLocalServer(activeCfg.server)) {
+      const relayedCount = await sqlCloudRelay.remoteExecuteNonQuery(activeCfg, query);
+      if (relayedCount !== null) {
+        return relayedCount;
+      }
+    }
     const pool = await getDynamicPool(activeCfg);
     const result = await pool.request().query(query);
     return result.rowsAffected.reduce((a, b) => a + b, 0);
