@@ -177,6 +177,26 @@ export const sqlCloudMirror = {
     return data.items;
   },
 
+  async saveCompanyInfo(cfg, info) {
+    const key = makeMirrorKey(cfg);
+    if (!key || !info || typeof info !== 'object') return;
+    await putMirrorJson(key, 'company-info.json', {
+      authHash: makeAuthHash(cfg),
+      syncedAt: new Date().toISOString(),
+      info,
+    });
+  },
+
+  async getCompanyInfo(cfg) {
+    const key = makeMirrorKey(cfg);
+    if (!key) return null;
+    const data = await getMirrorJson(key, 'company-info.json');
+    if (!data || data.authHash !== makeAuthHash(cfg) || !data.info) {
+      return null;
+    }
+    return data.info;
+  },
+
   async enqueueOutboxItem(cfg, item) {
     const key = makeMirrorKey(cfg);
     if (!key) return false;

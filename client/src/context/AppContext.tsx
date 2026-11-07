@@ -30,7 +30,8 @@ import type {
   VanAuditRecord,
   VanAuditItem,
   PlasiyerQuotaTarget,
-  PlasiyerPerformanceSummary
+  PlasiyerPerformanceSummary,
+  CompanyIssuerInfo
 } from '../types';
 import { campaignService } from '../services/campaignService';
 import { vanStockService } from '../services/vanStockService';
@@ -67,6 +68,7 @@ interface AppContextType {
   salesRep: SalesRep;
   setSalesRep: (rep: SalesRep) => void;
   serverConfig: ServerConfig;
+  companyIssuer: CompanyIssuerInfo;
   updateServerConfig: (config: Partial<ServerConfig>) => void;
   selectedCustomer: Customer | null;
   selectCustomer: (customer: Customer | null) => void;
@@ -224,6 +226,26 @@ const DEFAULT_SERVER_CONFIG: ServerConfig = {
   autoSync: typeof window !== 'undefined' && !isRemoteHost(),
 };
 
+const makeIssuerCacheKey = (cfg?: Partial<ServerConfig>): string => {
+  const code = (cfg?.companyCode || '01').trim().toUpperCase();
+  const dbName = (cfg?.sqlDatabase || 'DEMO').trim().toUpperCase();
+  return `plasiyer_issuer_v1::${code}::${dbName}`;
+};
+
+const readCachedIssuer = (cfg?: Partial<ServerConfig>): CompanyIssuerInfo | null => {
+  try {
+    const raw = localStorage.getItem(makeIssuerCacheKey(cfg));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && (parsed.legalName || parsed.brandName)) {
+      return parsed as CompanyIssuerInfo;
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+};
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
 
@@ -354,6 +376,110 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
     return DEFAULT_SERVER_CONFIG;
   });
+
+  const [liveIssuerInfo, setLiveIssuerInfo] = useState<CompanyIssuerInfo | null>(() =>
+    readCachedIssuer(serverConfig)
+  );
+
+  const persistIssuerInfo = (cfg: Partial<ServerConfig>, info?: CompanyIssuerInfo | null) => {
+    if (!info || (!info.legalName && !info.brandName)) return;
+    try {
+      localStorage.setItem(makeIssuerCacheKey(cfg), JSON.stringify(info));
+    } catch {
+      // ignore storage quota errors
+    }
+    setLiveIssuerInfo(info);
+  };
+
+  // Aktif SQL veritabanındaki düzenleyen firma bilgisini (FIRMASABITLERI) otomatik çek ve izole tut
+  useEffect(() => {
+    const cached = readCachedIssuer(serverConfig);
+    setLiveIssuerInfo(cached);
+
+    if (userRole === 'admin' || isDemoMode(serverConfig)) {
+      return;
+    }
+
+    let cancelled = false;
+    apiService
+      .fetchCompanyInfo(serverConfig)
+      .then((info) => {
+        if (cancelled || !info || (!info.legalName && !info.brandName)) return;
+        persistIssuerInfo(serverConfig, info);
+
+        const resolvedTitle = (info.brandName || info.legalName || '').trim();
+        if (resolvedTitle) {
+          setServerConfig((prev) => {
+            const prevTitle = (prev.companyTitle || '').trim();
+            const isOsmanli =
+              (prev.companyCode || '').toUpperCase().includes('OSMANLI') ||
+              (prev.sqlDatabase || '').toUpperCase().includes('OSMANLI');
+            const shouldUpgradeTitle =
+              !prevTitle ||
+              prevTitle.toUpperCase() === (prev.companyCode || '').toUpperCase() ||
+              prevTitle.toUpperCase() === (prev.sqlDatabase || '').toUpperCase() ||
+              (!isOsmanli &&
+                (prevTitle.toLocaleUpperCase('tr-TR').includes('OSMANLI GIDA') ||
+                  prevTitle.toLocaleUpperCase('tr-TR').includes('AHMET GIDA')));
+
+            if (!shouldUpgradeTitle && prev.issuerInfo?.legalName === info.legalName) {
+              return prev;
+            }
+            const next: ServerConfig = {
+              ...prev,
+              companyTitle: shouldUpgradeTitle ? resolvedTitle : prev.companyTitle,
+              issuerInfo: info,
+            };
+            localStorage.setItem('plasiyer_server_config', JSON.stringify(next));
+            return next;
+          });
+        }
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    serverConfig.companyCode,
+    serverConfig.sqlDatabase,
+    serverConfig.sqlHost,
+    serverConfig.apiUrl,
+    userRole,
+  ]);
+
+  const companyIssuer = useMemo<CompanyIssuerInfo>(() => {
+    if (liveIssuerInfo && (liveIssuerInfo.legalName || liveIssuerInfo.brandName)) {
+      return liveIssuerInfo;
+    }
+    const rawCode = (currentUser?.companyCode || serverConfig.companyCode || '').trim();
+    const rawDb = (serverConfig.sqlDatabase || '').trim();
+    if (
+      serverConfig.issuerInfo &&
+      (serverConfig.issuerInfo.legalName || serverConfig.issuerInfo.brandName) &&
+      (!rawDb || !serverConfig.issuerInfo.dbName || serverConfig.issuerInfo.dbName.toUpperCase() === rawDb.toUpperCase())
+    ) {
+      return serverConfig.issuerInfo;
+    }
+    const isOsmanli =
+      rawCode.toUpperCase().includes('OSMANLI') || rawDb.toUpperCase().includes('OSMANLI');
+    const rawTitle = (serverConfig.companyTitle || '').trim();
+    const isStalePlaceholder =
+      !isOsmanli &&
+      (rawTitle.toLocaleUpperCase('tr-TR').includes('OSMANLI GIDA') ||
+        rawTitle.toLocaleUpperCase('tr-TR').includes('AHMET GIDA'));
+    const fallbackName =
+      (!isStalePlaceholder && rawTitle) ||
+      rawDb ||
+      (rawCode && rawCode !== '01' ? rawCode : '') ||
+      'MERKEZ FİRMA';
+
+    return {
+      legalName: fallbackName,
+      brandName: fallbackName,
+      dbName: rawDb || undefined,
+    };
+  }, [liveIssuerInfo, serverConfig, currentUser?.companyCode]);
 
   // Aktif Cari: Müşteri modundaysa otomatik olarak kendisidir, plasiyer modundaysa seçtiği caridir
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(() => {
@@ -863,6 +989,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setTimeout(() => {
         syncService.pullDataFromERP(updated, salesRep.code).then((res) => {
           const now = new Date();
+          if (res.companyInfo) {
+            persistIssuerInfo(updated, res.companyInfo);
+          }
           if (res.success) {
             setLastSyncTime(now);
             localStorage.setItem('plasiyer_last_sync_time', now.toISOString());
@@ -1448,6 +1577,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     try {
       const activeCfg = overrideConfig || serverConfig;
       const res = await syncService.fullSync(activeCfg, salesRep.code);
+      if (res.companyInfo) {
+        persistIssuerInfo(activeCfg, res.companyInfo);
+      }
       const now = new Date();
       if (res.success) {
         setLastSyncTime(now);
@@ -1502,6 +1634,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         salesRep,
         setSalesRep,
         serverConfig,
+        companyIssuer,
         updateServerConfig,
         selectedCustomer,
         selectCustomer,

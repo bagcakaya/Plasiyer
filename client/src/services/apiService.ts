@@ -1,4 +1,4 @@
-import type { Customer, Product, Order, CollectionRecord, ServerConfig, CustomerStatement, CustomerHistoryResponse, CustomerHistoryItem, CustomerHistoryFinancial, ReturnRecord } from '../types';
+import type { Customer, Product, Order, CollectionRecord, ServerConfig, CustomerStatement, CustomerHistoryResponse, CustomerHistoryItem, CustomerHistoryFinancial, ReturnRecord, CompanyIssuerInfo } from '../types';
 import { db, initialCustomers, initialProducts } from '../db';
 
 export const isDemoMode = (config?: ServerConfig): boolean => {
@@ -152,7 +152,7 @@ export const apiService = {
   },
 
   // Doğrudan SQL Server Bağlantısını Canlı Test Et (Görsel-1)
-  async testSqlConnection(config: ServerConfig): Promise<{ success: boolean; message: string }> {
+  async testSqlConnection(config: ServerConfig): Promise<{ success: boolean; message: string; companyInfo?: CompanyIssuerInfo }> {
     if (!config.sqlHost && isDemoMode(config)) {
       await new Promise(r => setTimeout(r, 400));
       return {
@@ -187,6 +187,7 @@ export const apiService = {
       if (data && typeof data.success === 'boolean') {
         return {
           success: data.success,
+          companyInfo: data.companyInfo || undefined,
           message: data.message || (data.success ? 'SQL Server bağlantısı başarılı.' : 'SQL Server bağlantısı başarısız.'),
         };
       }
@@ -205,6 +206,50 @@ export const apiService = {
           ? `SQL Server bağlantısı zaman aşımına uğradı (${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'}). Statik IP ve SQL port yönlendirmesini (${config.sqlPort || '1433'}) kontrol ediniz.`
           : `SQL Server bağlantı servisine ulaşılamadı (${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'}). İnternet bağlantınızı kontrol edip tekrar deneyiniz.`,
       };
+    }
+  },
+
+  // ERP12'den aktif veritabanının düzenleyici firma sabitlerini (FIRMASABITLERI) çek
+  async fetchCompanyInfo(config: ServerConfig): Promise<CompanyIssuerInfo | null> {
+    if (isDemoMode(config)) {
+      return null;
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 12000);
+
+    try {
+      const baseUrl = await resolveApiBaseUrlAsync(config, true);
+      const querySuffix = `/company-info?company=${encodeURIComponent(config.companyCode || '01')}`;
+      const reqHeaders = {
+        ...buildSqlHeaders(config),
+      };
+
+      let response = await fetch(`${baseUrl}${querySuffix}`, {
+        headers: reqHeaders,
+        signal: controller.signal,
+      }).catch(() => null);
+
+      // Yerel köprü eski sürümde çalışıyorsa (404) doğrudan güncel bulut '/api' uç noktasına düş
+      if ((!response || !response.ok) && baseUrl !== '/api') {
+        response = await fetch(`/api${querySuffix}`, {
+          headers: reqHeaders,
+          signal: controller.signal,
+        }).catch(() => null);
+      }
+
+      clearTimeout(timeoutId);
+      if (!response || !response.ok) {
+        return null;
+      }
+      const data = await response.json().catch(() => null);
+      if (data && (data.legalName || data.brandName)) {
+        return data as CompanyIssuerInfo;
+      }
+      return null;
+    } catch {
+      clearTimeout(timeoutId);
+      return null;
     }
   },
 
@@ -680,13 +725,25 @@ export const apiService = {
         .split('')
         .reduce((acc, ch) => acc + ch.charCodeAt(0), 0);
 
+      const docPrefix = String(config?.companyTitle || config?.companyCode || 'FTR')
+        .replace(/ğ/gi, 'G')
+        .replace(/ü/gi, 'U')
+        .replace(/ş/gi, 'S')
+        .replace(/ı/gi, 'I')
+        .replace(/i/gi, 'I')
+        .replace(/ö/gi, 'O')
+        .replace(/ç/gi, 'C')
+        .toUpperCase()
+        .replace(/[^A-Z]/g, '')
+        .slice(0, 3) || 'FTR';
+
       const demoDates = [
-        { date: '2026-10-24', time: '14:20', docNo: 'OSM2026000008412', docType: 'Satış faturası', isReturn: false },
-        { date: '2026-09-12', time: '11:05', docNo: 'OSM2026000007190', docType: 'Satış faturası', isReturn: false },
+        { date: '2026-10-24', time: '14:20', docNo: `${docPrefix}2026000008412`, docType: 'Satış faturası', isReturn: false },
+        { date: '2026-09-12', time: '11:05', docNo: `${docPrefix}2026000007190`, docType: 'Satış faturası', isReturn: false },
         { date: '2026-06-18', time: '16:40', docNo: 'FS-2026-003410', docType: 'Satış fişi', isReturn: false },
-        { date: '2025-11-19', time: '10:15', docNo: 'OSM2025000011204', docType: 'Satış faturası', isReturn: false },
+        { date: '2025-11-19', time: '10:15', docNo: `${docPrefix}2025000011204`, docType: 'Satış faturası', isReturn: false },
         { date: '2025-07-08', time: '15:30', docNo: 'FS-2025-006128', docType: 'Satıştan iade fişi', isReturn: true },
-        { date: '2024-12-04', time: '09:50', docNo: 'OSM2024000009841', docType: 'Satış faturası', isReturn: false },
+        { date: '2024-12-04', time: '09:50', docNo: `${docPrefix}2024000009841`, docType: 'Satış faturası', isReturn: false },
       ];
 
       const demoItems: CustomerHistoryItem[] = [];

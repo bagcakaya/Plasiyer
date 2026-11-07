@@ -20,6 +20,7 @@ export const DailyReportModal: React.FC = () => {
     closeDailyReportModal, 
     salesRep, 
     serverConfig, 
+    companyIssuer,
     openPrintSlip 
   } = useApp();
 
@@ -173,12 +174,13 @@ export const DailyReportModal: React.FC = () => {
 
   // WhatsApp ile Paylaşım Metni
   const handleWhatsAppShare = () => {
+    const issuerTitle = (companyIssuer.brandName || companyIssuer.legalName || serverConfig.companyCode).trim();
     const text = 
-      `*📊 OSMANLI GIDA - GÜN SONU PLASİYER RAPORU (Z RAPORU)*\n` +
+      `*📊 ${issuerTitle} - GÜN SONU PLASİYER RAPORU (Z RAPORU)*\n` +
       `----------------------------------------\n` +
       `*Tarih:* ${formatDateDisplay(selectedDate)}\n` +
       `*Plasiyer:* ${salesRep.name} (${salesRep.code})\n` +
-      `*Dönem / Firma:* ${serverConfig.companyCode} / ${serverConfig.period}\n` +
+      `*Firma / Dönem:* ${issuerTitle} / ${serverConfig.period}\n` +
       `----------------------------------------\n` +
       `📦 *SİPARİŞ PERFORMANSI:*\n` +
       `• Toplam Sipariş: ${reportData.ordersSummary.count} Adet\n` +
@@ -238,7 +240,7 @@ export const DailyReportModal: React.FC = () => {
                 </span>
               </div>
               <span className="text-[11px] text-slate-400 block">
-                {salesRep.name} ({salesRep.code}) • {formatDateDisplay(selectedDate)}
+                {companyIssuer.brandName || companyIssuer.legalName} • {salesRep.name} ({salesRep.code}) • {formatDateDisplay(selectedDate)}
               </span>
             </div>
           </div>

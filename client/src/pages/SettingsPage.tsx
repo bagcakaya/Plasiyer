@@ -49,6 +49,7 @@ export const SettingsPage: React.FC = () => {
     theme,
     toggleTheme,
     serverConfig, 
+    companyIssuer,
     updateServerConfig, 
     salesRep, 
     setSalesRep, 
@@ -68,10 +69,12 @@ export const SettingsPage: React.FC = () => {
   const [autoSync, setAutoSync] = useState(serverConfig.autoSync);
 
   // Görsel-1 Doğrudan SQL Server Bağlantı Parametreleri
-  const [companyTitle, setCompanyTitle] = useState(serverConfig.companyTitle || 'Ahmet Gıda San. ve Tic. Ltd. Şti.');
+  const [companyTitle, setCompanyTitle] = useState(
+    serverConfig.companyTitle || companyIssuer.brandName || companyIssuer.legalName || ''
+  );
   const [sqlHost, setSqlHost] = useState(serverConfig.sqlHost || 'localhost');
   const [sqlPort, setSqlPort] = useState(serverConfig.sqlPort || '1433');
-  const [sqlDatabase, setSqlDatabase] = useState(serverConfig.sqlDatabase || 'OSMANLIGIDA');
+  const [sqlDatabase, setSqlDatabase] = useState(serverConfig.sqlDatabase || '');
   const [sqlUser, setSqlUser] = useState(serverConfig.sqlUser || '');
   const [sqlPassword, setSqlPassword] = useState(serverConfig.sqlPassword || '');
   const [licenseExpireDate, setLicenseExpireDate] = useState(serverConfig.licenseExpireDate || '2027-12-31');
@@ -941,7 +944,7 @@ export const SettingsPage: React.FC = () => {
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse shrink-0" />
             <div className="min-w-0">
               <p className="font-bold truncate text-sm">
-                {serverConfig.companyTitle || 'OSMANLI GIDA'} (Canlı SQL)
+                {companyIssuer.brandName || companyIssuer.legalName || serverConfig.companyTitle || serverConfig.companyCode} (Canlı SQL)
               </p>
               <p className="text-[11px] text-blue-100/90 truncate">
                 Toplam <strong>{productCount}</strong> ürün hafızada

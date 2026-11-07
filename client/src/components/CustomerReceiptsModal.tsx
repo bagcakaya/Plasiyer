@@ -23,7 +23,7 @@ export const CustomerReceiptsModal: React.FC<CustomerReceiptsModalProps> = ({
   onClose,
   onStartOrder,
 }) => {
-  const { openPrintSlip } = useApp();
+  const { openPrintSlip, companyIssuer, salesRep } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
 
@@ -123,7 +123,7 @@ export const CustomerReceiptsModal: React.FC<CustomerReceiptsModalProps> = ({
         }),
         notes: `Ödeme Şekli: ${rec.paymentType}`,
         status: 'synced',
-        salesRepCode: 'PLS01',
+        salesRepCode: customer.salesRepCode && customer.salesRepCode !== '0' ? customer.salesRepCode : salesRep.code,
       },
     });
   };
@@ -146,6 +146,9 @@ export const CustomerReceiptsModal: React.FC<CustomerReceiptsModalProps> = ({
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[260px] sm:max-w-sm">
                 {customer.code} &bull; {customer.name}
+              </p>
+              <p className="text-[10px] font-semibold text-amber-600 dark:text-amber-400 truncate max-w-[260px] sm:max-w-sm">
+                Düzenleyen: {companyIssuer.brandName || companyIssuer.legalName}
               </p>
             </div>
           </div>

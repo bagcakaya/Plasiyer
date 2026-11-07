@@ -531,6 +531,12 @@ export const AdminPortalPage: React.FC = () => {
       licenseExpireDate: formLicenseExpire.trim(),
     };
     const res = await apiService.testSqlConnection(tempCfg);
+    if (res.success && res.companyInfo && !formTitle.trim()) {
+      const detectedTitle = (res.companyInfo.brandName || res.companyInfo.legalName || '').trim();
+      if (detectedTitle) {
+        setFormTitle(detectedTitle);
+      }
+    }
     setFormSqlTest({
       testing: false,
       success: res.success,

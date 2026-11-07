@@ -1,11 +1,12 @@
 import { db } from '../db';
 import { apiService, isDemoMode } from './apiService';
-import type { ServerConfig } from '../types';
+import type { ServerConfig, CompanyIssuerInfo } from '../types';
 
 export interface SyncResult {
   success: boolean;
   customersCount?: number;
   productsCount?: number;
+  companyInfo?: CompanyIssuerInfo | null;
   syncedOrdersCount?: number;
   failedOrdersCount?: number;
   syncedCollectionsCount?: number;
@@ -32,9 +33,10 @@ export const syncService = {
       }
 
       // Canlı API'den verileri çek (Gzip ve SQL bağlantı havuzuyla son derece hızlı)
-      const [customers, products] = await Promise.all([
+      const [customers, products, companyInfo] = await Promise.all([
         apiService.fetchCustomers(config, salesRepCode),
         apiService.fetchProducts(config),
+        apiService.fetchCompanyInfo(config).catch(() => null),
       ]);
 
       // IndexedDB'yi güncelle (Diferansiyel ve Atomik: Arayüz titremesi veya sıfırlanma olmadan doğrudan güncelleme)
@@ -85,6 +87,7 @@ export const syncService = {
         success: true,
         customersCount: customers.length,
         productsCount: products.length,
+        companyInfo,
       };
     } catch (err: any) {
       console.error('Veri indirme hatası:', err);
@@ -303,6 +306,7 @@ export const syncService = {
       failedReturnsCount: pushReturnsRes.failedReturnsCount,
       customersCount: pullRes.customersCount,
       productsCount: pullRes.productsCount,
+      companyInfo: pullRes.companyInfo,
       error: pullRes.error || pushOrdersRes.error || pushCollectionsRes.error || pushReturnsRes.error,
     };
   }

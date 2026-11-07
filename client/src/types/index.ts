@@ -140,6 +140,24 @@ export interface SalesRep {
   token?: string;
 }
 
+export interface CompanyIssuerInfo {
+  legalName: string; // FIRMASABITLERI.AD (Ticari Unvan)
+  brandName?: string; // FIRMASABITLERI.TABELE_ADI (Tabela / Marka Adı)
+  address?: string;
+  district?: string;
+  city?: string;
+  phone?: string;
+  fax?: string;
+  taxOffice?: string;
+  taxNumber?: string;
+  mersisNo?: string;
+  tradeRegisterNo?: string;
+  email?: string;
+  web?: string;
+  dbName?: string;
+  updatedAt?: string;
+}
+
 export interface ServerConfig {
   apiUrl: string; // örn: "http://192.168.1.50:4000/api" veya Statik IP
   companyCode: string; // ERP12 Şirket No / Lisans Kodu (örn: "01" veya "AHMETGIDA")
@@ -148,6 +166,7 @@ export interface ServerConfig {
 
   // Görsel-1 Doğrudan SQL Server Bağlantı Parametreleri:
   companyTitle?: string; // FİRMA TİCARİ UNVANI
+  issuerInfo?: CompanyIssuerInfo; // ERP12 FIRMASABITLERI'nden çekilen düzenleyici firma bilgileri
   sqlHost?: string; // SQL SERVER IP ADRESİ / HOST ADI (örn: localhost veya 85.105.xx.xx)
   sqlPort?: string; // SQL PORTU (örn: 1433)
   sqlDatabase?: string; // SQL SERVER VERİTABANI ADI (DB Name)

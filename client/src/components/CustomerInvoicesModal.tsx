@@ -7,6 +7,7 @@ import {
   Plus
 } from 'lucide-react';
 import type { Customer } from '../types';
+import { useApp } from '../context/AppContext';
 
 interface CustomerInvoicesModalProps {
   customer: Customer | null;
@@ -21,6 +22,7 @@ export const CustomerInvoicesModal: React.FC<CustomerInvoicesModalProps> = ({
   onClose,
   onStartOrder,
 }) => {
+  const { companyIssuer } = useApp();
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'unpaid' | 'overdue' | 'paid'>('all');
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
@@ -122,6 +124,9 @@ export const CustomerInvoicesModal: React.FC<CustomerInvoicesModalProps> = ({
               </div>
               <p className="text-xs text-slate-500 dark:text-slate-400 truncate max-w-[260px] sm:max-w-sm">
                 {customer.code} &bull; {customer.name}
+              </p>
+              <p className="text-[10px] font-semibold text-indigo-600 dark:text-indigo-400 truncate max-w-[260px] sm:max-w-sm">
+                Düzenleyen: {companyIssuer.brandName || companyIssuer.legalName}
               </p>
             </div>
           </div>

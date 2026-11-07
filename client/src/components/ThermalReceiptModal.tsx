@@ -9,6 +9,7 @@ import type {
   VanAuditRecord
 } from '../types';
 import { amountToTurkishWords } from '../utils/numberToWords';
+import { useApp } from '../context/AppContext';
 import { 
   Printer, 
   Share2, 
@@ -47,10 +48,32 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
   vanAuditData,
   customerPreviousBalance = 0,
 }) => {
+  const { companyIssuer } = useApp();
   const [paperWidth, setPaperWidth] = useState<'58mm' | '80mm'>('58mm');
   const [copiedAlert, setCopiedAlert] = useState<boolean>(false);
 
   if (!isOpen) return null;
+
+  const issuerMainTitle = (companyIssuer.brandName || companyIssuer.legalName || 'MERKEZ FİRMA').trim();
+  const rawLegalName = (companyIssuer.legalName || '').trim();
+  let issuerSubTitle = '';
+  if (rawLegalName && rawLegalName.toLocaleUpperCase('tr-TR') !== issuerMainTitle.toLocaleUpperCase('tr-TR')) {
+    const dashPrefix = `${issuerMainTitle} - `;
+    if (rawLegalName.toLocaleUpperCase('tr-TR').startsWith(dashPrefix.toLocaleUpperCase('tr-TR'))) {
+      issuerSubTitle = rawLegalName.slice(dashPrefix.length).trim();
+    } else {
+      issuerSubTitle = rawLegalName;
+    }
+  }
+  const issuerLocation = [companyIssuer.district, companyIssuer.city].filter(Boolean).join(' / ');
+  const issuerAddressLine = [companyIssuer.address, issuerLocation].filter(Boolean).join(' • ');
+  const issuerPhoneLine = companyIssuer.phone ? `Tel: ${companyIssuer.phone}` : '';
+  const issuerTaxLine = [
+    companyIssuer.taxOffice ? `V.D.: ${companyIssuer.taxOffice}` : '',
+    companyIssuer.taxNumber ? `V.N.: ${companyIssuer.taxNumber}` : '',
+  ]
+    .filter(Boolean)
+    .join(' • ');
 
   const nowFormatted = new Date().toLocaleString('tr-TR', {
     day: '2-digit',
@@ -89,8 +112,8 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 
       const isHotSale = orderData.saleType === 'hot';
       const saleTypeHeader = isHotSale 
-        ? `*OSMANLI GIDA - 🔥 SICAK SATIŞ BİLGİ FİŞİ*\n*Satış Türü:* ARAÇTAN ANINDA TESLİM (${orderData.vanPlate || 'Mobil Depo'})\n` 
-        : `*OSMANLI GIDA - SİPARİŞ BİLGİ FİŞİ*\n`;
+        ? `*${issuerMainTitle} - 🔥 SICAK SATIŞ BİLGİ FİŞİ*\n*Satış Türü:* ARAÇTAN ANINDA TESLİM (${orderData.vanPlate || 'Mobil Depo'})\n` 
+        : `*${issuerMainTitle} - SİPARİŞ BİLGİ FİŞİ*\n`;
 
       text = saleTypeHeader +
         `--------------------------------\n` +
@@ -115,7 +138,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         havale: 'Banka Havalesi / EFT',
         cek: 'Müşteri Çeki',
       };
-      text = `*OSMANLI GIDA - TAHSİLAT MAKBUZU*\n` +
+      text = `*${issuerMainTitle} - TAHSİLAT MAKBUZU*\n` +
         `--------------------------------\n` +
         `*Makbuz No:* ${collectionData.receiptNo}\n` +
         `*Tarih:* ${nowFormatted}\n` +
@@ -127,7 +150,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         `--------------------------------\n` +
         `_Tahsilatınız cari hesabınıza işlenmiştir. Teşekkür ederiz._`;
     } else if (slipType === 'return' && returnData) {
-      text = `*OSMANLI GIDA - SAHA İADE VE DEĞİŞİM FİŞİ*\n` +
+      text = `*${issuerMainTitle} - SAHA İADE VE DEĞİŞİM FİŞİ*\n` +
         `--------------------------------\n` +
         `*Fiş No:* ${returnData.receiptNo}\n` +
         `*Tarih:* ${nowFormatted}\n` +
@@ -141,7 +164,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         `--------------------------------\n` +
         `_İade bedeli cari hesabınızdan düşülmüştür._`;
     } else if (slipType === 'van_loading' && vanLoadingData) {
-      text = `*🚚 OSMANLI GIDA - ARAÇ MAL YÜKLEME FİŞİ*\n` +
+      text = `*🚚 ${issuerMainTitle} - ARAÇ MAL YÜKLEME FİŞİ*\n` +
         `--------------------------------\n` +
         `*Fiş No:* ${vanLoadingData.docNo}\n` +
         `*Tarih:* ${vanLoadingData.date}\n` +
@@ -157,7 +180,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         `--------------------------------\n` +
         `_Mallar araç sorumlusuna eksiksiz sevk edilmiştir._`;
     } else if (slipType === 'van_audit' && vanAuditData) {
-      text = `*📋 OSMANLI GIDA - ARAÇ SAYIM VE MUTABAKAT TUTANAĞI*\n` +
+      text = `*📋 ${issuerMainTitle} - ARAÇ SAYIM VE MUTABAKAT TUTANAĞI*\n` +
         `----------------------------------------\n` +
         `*Tutanak No:* ${vanAuditData.docNo}\n` +
         `*Tarih:* ${vanAuditData.date}\n` +
@@ -172,7 +195,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         `----------------------------------------\n` +
         `_Gün sonu fiziki araç sayım mutabakat belgesidir._`;
     } else if (slipType === 'end_of_day' && endOfDayData) {
-      text = `*📊 OSMANLI GIDA - GÜN SONU PLASİYER RAPORU (Z RAPORU)*\n` +
+      text = `*📊 ${issuerMainTitle} - GÜN SONU PLASİYER RAPORU (Z RAPORU)*\n` +
         `----------------------------------------\n` +
         `*Tarih:* ${endOfDayData.date}\n` +
         `*Plasiyer:* ${endOfDayData.salesRepName} (${endOfDayData.salesRepCode})\n` +
@@ -305,14 +328,36 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
             className="bg-white text-black p-5 shadow-lg rounded-sm text-xs leading-relaxed border-t-4 border-slate-300 select-none print:shadow-none print:border-none"
           >
             {/* Firma Başlığı */}
-            <div className="text-center pb-3 border-b border-dashed border-black">
+            <div className="text-center pb-3 border-b border-dashed border-black space-y-0.5">
               <div className="flex justify-center mb-1">
                 <Building2 className="w-6 h-6 text-black" />
               </div>
-              <h2 className="font-extrabold text-sm uppercase tracking-wider">OSMANLI GIDA</h2>
-              <p className="text-[10px] text-gray-700">PAZARLAMA SAN. TİC. LTD. ŞTİ.</p>
-              <p className="text-[9px] text-gray-600">Saha Dağıtım & Mobil B2B Sistemi</p>
-              <p className="text-[9px] text-gray-600">Tel: 0442 123 45 67 • Erzurum</p>
+              <h2 className="font-extrabold text-sm uppercase tracking-wider leading-snug break-words">
+                {issuerMainTitle}
+              </h2>
+              {issuerSubTitle && (
+                <p className="text-[10px] font-semibold text-gray-800 leading-snug break-words">
+                  {issuerSubTitle}
+                </p>
+              )}
+              {issuerAddressLine && (
+                <p className="text-[9px] text-gray-700 leading-tight break-words">
+                  {issuerAddressLine}
+                </p>
+              )}
+              {issuerPhoneLine && (
+                <p className="text-[9px] text-gray-700 leading-tight">
+                  {issuerPhoneLine}
+                </p>
+              )}
+              {issuerTaxLine && (
+                <p className="text-[9px] text-gray-600 leading-tight">
+                  {issuerTaxLine}
+                </p>
+              )}
+              {!issuerAddressLine && !issuerPhoneLine && !issuerTaxLine && (
+                <p className="text-[9px] text-gray-600">Saha Dağıtım & Mobil B2B Sistemi</p>
+              )}
             </div>
 
             {/* Belge Türü Başlığı */}

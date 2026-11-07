@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import type { Customer, CustomerStatement, ServerConfig } from '../types';
 import { apiService } from '../services/apiService';
+import { useApp } from '../context/AppContext';
 
 interface CustomerStatementModalProps {
   customer: Customer | null;
@@ -21,6 +22,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
   onClose,
   onOpenCollection,
 }) => {
+  const { companyIssuer } = useApp();
   const [statement, setStatement] = useState<CustomerStatement | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -109,7 +111,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
         : '0.00 ₺ (Bakiye Sıfır)';
 
     let text = `📄 *CARİ HESAP EKSTRE ÖZETİ*\n`;
-    text += `🏢 *Firma:* OSMANLI GIDA SAN. TİC. LTD. ŞTİ.\n`;
+    text += `🏢 *Firma:* ${companyIssuer.legalName || companyIssuer.brandName}\n`;
     text += `👤 *Müşteri:* ${customer.name}\n`;
     text += `🔢 *Cari Kodu:* ${customer.code}\n`;
     text += `📅 *Tarih Aralığı:* ${startDate || 'Başlangıç'} - ${endDate || 'Bugün'}\n`;
@@ -222,6 +224,24 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
             >
               <X className="w-5 h-5" />
             </button>
+          </div>
+        </div>
+
+        {/* Düzenleyen Firma Resmi Başlığı (Ekran + PDF/Yazıcı) */}
+        <div className="px-6 py-2.5 bg-indigo-50/70 dark:bg-indigo-950/30 border-b border-slate-200 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+          <div className="font-bold text-slate-800 dark:text-slate-100">
+            Düzenleyen Firma: <span className="text-indigo-700 dark:text-indigo-300">{companyIssuer.legalName || companyIssuer.brandName}</span>
+          </div>
+          <div className="text-slate-500 dark:text-slate-400 flex flex-wrap items-center gap-2">
+            {(companyIssuer.taxOffice || companyIssuer.taxNumber) && (
+              <span>
+                V.D.: {companyIssuer.taxOffice || '-'} / V.N.: {companyIssuer.taxNumber || '-'}
+              </span>
+            )}
+            {companyIssuer.phone && <span>• Tel: {companyIssuer.phone}</span>}
+            {(companyIssuer.district || companyIssuer.city) && (
+              <span>• {[companyIssuer.district, companyIssuer.city].filter(Boolean).join('/')}</span>
+            )}
           </div>
         </div>
 

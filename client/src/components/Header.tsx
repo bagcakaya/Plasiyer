@@ -27,6 +27,7 @@ export const Header: React.FC = () => {
     openCollectionModal,
     openReturnModal,
     serverConfig,
+    companyIssuer,
     updateServerConfig,
     triggerSync,
   } = useApp();
@@ -42,7 +43,7 @@ export const Header: React.FC = () => {
           <div className="flex items-center gap-1.5 min-w-0 truncate">
             <Building2 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
             <span className="font-bold text-white truncate">
-              {serverConfig.companyTitle || serverConfig.companyCode}
+              {companyIssuer.brandName || serverConfig.companyTitle || serverConfig.companyCode}
             </span>
             <span className="text-slate-500 shrink-0">&bull;</span>
             <span className="font-mono text-sky-300 font-semibold shrink-0">

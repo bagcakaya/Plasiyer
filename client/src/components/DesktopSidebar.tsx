@@ -37,6 +37,7 @@ export const DesktopSidebar: React.FC = () => {
     selectCustomer,
     openCustomerSelectModal,
     serverConfig,
+    companyIssuer,
     isOnline,
     theme,
     toggleTheme,
@@ -171,10 +172,10 @@ export const DesktopSidebar: React.FC = () => {
 
         {/* Firma ve Kullanıcı Bilgisi */}
         <div className="flex items-center justify-between text-[11px] text-slate-400 bg-slate-850/80 px-2.5 py-1.5 rounded-xl border border-slate-800/80">
-          <div className="flex items-center gap-1.5 truncate">
+          <div className="flex items-center gap-1.5 truncate" title={companyIssuer.legalName}>
             <Building2 className="w-3.5 h-3.5 text-blue-400 shrink-0" />
             <span className="font-semibold text-slate-300 truncate">
-              {serverConfig.companyCode} - {serverConfig.period}
+              {companyIssuer.brandName || serverConfig.companyTitle || serverConfig.companyCode} ({serverConfig.period})
             </span>
           </div>
           <span

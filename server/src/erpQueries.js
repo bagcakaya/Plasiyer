@@ -3,8 +3,9 @@ import { imageService } from './imageService.js';
 
 // Yüksek Performanslı Bellek İçi Önbellek (Çoklu Firma / DB Anahtarı İle İzole)
 const memCache = {
-  customers: new Map(), // `${dbKey}::${rep}` -> { data, expiresAt }
-  products: new Map(),  // `${dbKey}` -> { data, expiresAt }
+  customers: new Map(),   // `${dbKey}::${rep}` -> { data, expiresAt }
+  products: new Map(),    // `${dbKey}` -> { data, expiresAt }
+  companyInfo: new Map(), // `${dbKey}` -> { data, expiresAt }
 };
 
 export const erpQueries = {
@@ -14,6 +15,112 @@ export const erpQueries = {
 
   invalidateProductCache() {
     memCache.products.clear();
+  },
+
+  // 0. AKTİF VERİTABANINDAKİ DÜZENLEYEN FİRMA BİLGİLERİ (FIRMASABITLERI / RAP_FIRMASABITLERI)
+  async getCompanyInfo() {
+    const dbKey = getActiveDbKey();
+    const now = Date.now();
+    const cached = memCache.companyInfo.get(dbKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+
+    const clean = (val) => String(val ?? '').trim();
+    let row = null;
+
+    try {
+      const rows = await executeJsonQuery(`
+        SELECT TOP 1
+          ISNULL(F.AD, '') AS legalName,
+          ISNULL(F.TABELE_ADI, '') AS brandName,
+          ISNULL(R.AD, '') AS reportName,
+          ISNULL(F.ADRES, '') AS address,
+          ISNULL(R.ILCE, '') AS district,
+          ISNULL(R.SEHIR, '') AS city,
+          ISNULL(F.TELEFON, '') AS phone,
+          ISNULL(F.FAX, '') AS fax,
+          ISNULL(F.VERGI_DAIRESI, '') AS taxOffice,
+          ISNULL(F.VERGI_NUMARASI, '') AS taxNumber,
+          ISNULL(F.MERSIS_NO, '') AS mersisNo,
+          ISNULL(F.TICARI_SICILNO, '') AS tradeRegisterNo,
+          ISNULL(F.EMAIL, '') AS email,
+          ISNULL(F.WEB, '') AS web,
+          DB_NAME() AS dbName
+        FROM FIRMASABITLERI F WITH(NOLOCK)
+        OUTER APPLY (
+          SELECT TOP 1 AD, ILCE, SEHIR
+          FROM RAP_FIRMASABITLERI WITH(NOLOCK)
+        ) R
+        ORDER BY F.ID ASC
+      `);
+      if (Array.isArray(rows) && rows.length > 0) {
+        row = rows[0];
+      }
+    } catch {
+      try {
+        const fallbackRows = await executeJsonQuery(`
+          SELECT TOP 1
+            ISNULL(F.AD, '') AS legalName,
+            ISNULL(F.TABELE_ADI, '') AS brandName,
+            '' AS reportName,
+            ISNULL(F.ADRES, '') AS address,
+            '' AS district,
+            '' AS city,
+            ISNULL(F.TELEFON, '') AS phone,
+            ISNULL(F.FAX, '') AS fax,
+            ISNULL(F.VERGI_DAIRESI, '') AS taxOffice,
+            ISNULL(F.VERGI_NUMARASI, '') AS taxNumber,
+            ISNULL(F.MERSIS_NO, '') AS mersisNo,
+            ISNULL(F.TICARI_SICILNO, '') AS tradeRegisterNo,
+            ISNULL(F.EMAIL, '') AS email,
+            ISNULL(F.WEB, '') AS web,
+            DB_NAME() AS dbName
+          FROM FIRMASABITLERI F WITH(NOLOCK)
+          ORDER BY F.ID ASC
+        `);
+        if (Array.isArray(fallbackRows) && fallbackRows.length > 0) {
+          row = fallbackRows[0];
+        }
+      } catch {
+        const dbRows = await executeJsonQuery(`SELECT DB_NAME() AS dbName`);
+        row = Array.isArray(dbRows) && dbRows[0] ? dbRows[0] : { dbName: '' };
+      }
+    }
+
+    if (!row) {
+      const dbRows = await executeJsonQuery(`SELECT DB_NAME() AS dbName`);
+      row = Array.isArray(dbRows) && dbRows[0] ? dbRows[0] : { dbName: '' };
+    }
+
+    const dbName = clean(row.dbName);
+    const brandName = clean(row.brandName) || clean(row.reportName) || clean(row.legalName) || dbName;
+    const legalName = clean(row.legalName) || brandName || dbName;
+
+    const info = {
+      legalName,
+      brandName,
+      address: clean(row.address),
+      district: clean(row.district),
+      city: clean(row.city),
+      phone: clean(row.phone),
+      fax: clean(row.fax),
+      taxOffice: clean(row.taxOffice),
+      taxNumber: clean(row.taxNumber),
+      mersisNo: clean(row.mersisNo),
+      tradeRegisterNo: clean(row.tradeRegisterNo),
+      email: clean(row.email),
+      web: clean(row.web),
+      dbName,
+      updatedAt: new Date().toISOString(),
+    };
+
+    memCache.companyInfo.set(dbKey, {
+      data: info,
+      expiresAt: now + 5 * 60 * 1000,
+    });
+
+    return info;
   },
 
   // 1. CARİ HESAPLAR VE BAKİYELER (TÜM ERP12 VERİTABANLARI İLE UYUMLU)

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { Order } from '../types';
 import { useApp } from '../context/AppContext';
 import { 
@@ -24,17 +24,37 @@ export const InvoiceOrderModal: React.FC<InvoiceOrderModalProps> = ({
   order,
   onSuccess,
 }) => {
-  const { invoiceOrder } = useApp();
+  const { invoiceOrder, companyIssuer, serverConfig } = useApp();
 
-  const [invoiceType, setInvoiceType] = useState<'toptan' | 'perakende' | 'irsaliye'>('toptan');
-  const [invoiceNo, setInvoiceNo] = useState<string>(() => {
+  const buildDefaultInvoiceNo = () => {
     const yr = new Date().getFullYear();
     const rnd = Math.floor(100000 + Math.random() * 900000);
-    return `OSM${yr}-${rnd}`;
-  });
+    const prefix =
+      String(companyIssuer.brandName || companyIssuer.legalName || serverConfig.companyCode || 'FTR')
+        .replace(/ğ/gi, 'G')
+        .replace(/ü/gi, 'U')
+        .replace(/ş/gi, 'S')
+        .replace(/ı/gi, 'I')
+        .replace(/i/gi, 'I')
+        .replace(/ö/gi, 'O')
+        .replace(/ç/gi, 'C')
+        .toUpperCase()
+        .replace(/[^A-Z]/g, '')
+        .slice(0, 3) || 'FTR';
+    return `${prefix}${yr}-${rnd}`;
+  };
+
+  const [invoiceType, setInvoiceType] = useState<'toptan' | 'perakende' | 'irsaliye'>('toptan');
+  const [invoiceNo, setInvoiceNo] = useState<string>(() => buildDefaultInvoiceNo());
   const [notes, setNotes] = useState<string>('Depodan sevk ve faturalandırma onaylandı.');
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isOpen) {
+      setInvoiceNo(buildDefaultInvoiceNo());
+    }
+  }, [isOpen, companyIssuer.brandName, companyIssuer.legalName, serverConfig.companyCode]);
 
   if (!isOpen || !order) return null;
 
@@ -102,6 +122,12 @@ export const InvoiceOrderModal: React.FC<InvoiceOrderModalProps> = ({
 
           {/* Sipariş Özeti */}
           <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-100 dark:border-slate-800 space-y-1.5 text-xs">
+            <div className="flex justify-between text-[11px] pb-1.5 border-b border-slate-200/80 dark:border-slate-700/80">
+              <span className="text-slate-500 dark:text-slate-400">Düzenleyen Firma:</span>
+              <span className="font-bold text-indigo-600 dark:text-indigo-400 text-right max-w-[220px] truncate">
+                {companyIssuer.brandName || companyIssuer.legalName}
+              </span>
+            </div>
             <div className="flex justify-between font-bold">
               <span>{order.customerName}</span>
               <span className="font-mono text-slate-500">{order.customerCode}</span>

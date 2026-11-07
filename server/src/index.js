@@ -141,21 +141,37 @@ app.post('/api/sql/test', async (req, res) => {
     const cfg = (req.body && req.body.sqlHost) ? req.body : (sqlContext.getStore() || req.body || {});
     const result = await testDirectSqlConnection(cfg);
 
+    if (result?.success) {
+      try {
+        const companyInfo = await sqlContext.run(cfg, () => erpQueries.getCompanyInfo());
+        if (companyInfo) {
+          result.companyInfo = companyInfo;
+          if (sqlCloudMirror.isRemoteMirrorable(cfg)) {
+            sqlCloudMirror.saveCompanyInfo(cfg, companyInfo).catch(() => {});
+          }
+        }
+      } catch {
+        // ignore optional companyInfo fetch error during test
+      }
+    }
+
     if (result?.success && sqlCloudMirror.isRemoteMirrorable(cfg)) {
       sqlCloudMirror.saveStatus(cfg, result).catch(() => {});
       if (!process.env.VERCEL) {
         // Türkiye köprüsü üzerinden başarılı test sonrası bulut aynasını da arka planda güncelle
         sqlContext.run(cfg, async () => {
           try {
-            const [custs, prods, groups] = await Promise.all([
+            const [custs, prods, groups, compInfo] = await Promise.all([
               erpQueries.getCustomers(),
               erpQueries.getProducts(),
               erpQueries.getStockGroups().catch(() => []),
+              erpQueries.getCompanyInfo().catch(() => null),
             ]);
             await Promise.all([
               sqlCloudMirror.saveCustomers(cfg, custs),
               sqlCloudMirror.saveProducts(cfg, prods),
               sqlCloudMirror.saveStockGroups(cfg, groups),
+              compInfo ? sqlCloudMirror.saveCompanyInfo(cfg, compInfo) : Promise.resolve(),
             ]);
           } catch {
             // ignore background mirror error
@@ -169,12 +185,14 @@ app.post('/api/sql/test', async (req, res) => {
     if (!result?.success && sqlCloudMirror.isRemoteMirrorable(cfg)) {
       const mirrored = await sqlCloudMirror.verifyAndGetStatus(cfg);
       if (mirrored) {
+        const mirroredCompanyInfo = await sqlCloudMirror.getCompanyInfo(cfg).catch(() => null);
         return res.json({
           success: true,
           bridged: true,
           dbName: mirrored.dbName,
           tableCount: mirrored.tableCount,
           hasErpTables: mirrored.hasErpTables,
+          companyInfo: mirroredCompanyInfo || undefined,
           message: `${mirrored.originalMessage} (Bulut Köprüsü Aktif)`,
         });
       }
@@ -186,6 +204,26 @@ app.post('/api/sql/test', async (req, res) => {
       success: false,
       message: err.message || 'SQL bağlantı testi sırasında sunucu hatası oluştu.',
     });
+  }
+});
+
+// 0.1 DÜZENLEYEN FİRMA SABİTLERİ GETİR (ERP12 FIRMASABITLERI / RAP_FIRMASABITLERI)
+app.get('/api/company-info', async (req, res) => {
+  const activeCfg = sqlContext.getStore();
+  try {
+    const info = await erpQueries.getCompanyInfo();
+    if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      sqlCloudMirror.saveCompanyInfo(activeCfg, info).catch(() => {});
+    }
+    res.json(info);
+  } catch (err) {
+    if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      const mirroredInfo = await sqlCloudMirror.getCompanyInfo(activeCfg);
+      if (mirroredInfo) {
+        return res.json(mirroredInfo);
+      }
+    }
+    res.status(500).json({ error: 'Firma bilgileri alınamadı', detail: err.message });
   }
 });
 
