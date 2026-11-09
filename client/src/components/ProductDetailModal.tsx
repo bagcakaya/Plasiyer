@@ -41,10 +41,16 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
 
   useEffect(() => {
     if (!isOpen || typeof document === 'undefined') return;
-    const prevOverflow = document.body.style.overflow;
+    const htmlEl = document.documentElement;
+    const prevBodyOverflow = document.body.style.overflow;
+    const prevHtmlOverflow = htmlEl.style.overflow;
+    htmlEl.classList.add('modal-scroll-lock');
+    htmlEl.style.overflow = 'hidden';
     document.body.style.overflow = 'hidden';
     return () => {
-      document.body.style.overflow = prevOverflow;
+      htmlEl.classList.remove('modal-scroll-lock');
+      htmlEl.style.overflow = prevHtmlOverflow;
+      document.body.style.overflow = prevBodyOverflow;
     };
   }, [isOpen]);
 
@@ -132,8 +138,8 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const lineTotal = priceInfo.customerPrice * effectiveQty;
 
   const modalContent = (
-    <div className="fixed inset-0 z-[100] bg-slate-950 sm:bg-black/75 sm:backdrop-blur-sm flex items-stretch sm:items-center justify-center p-0 sm:p-4 animate-in fade-in">
-      <div className="bg-white dark:bg-slate-900 w-full sm:max-w-md h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[92vh] rounded-none sm:rounded-3xl shadow-2xl border-0 sm:border border-slate-200 dark:border-slate-800 overflow-hidden flex flex-col">
+    <div className="fixed inset-0 z-[100] bg-slate-950 sm:bg-black/75 sm:backdrop-blur-sm flex items-stretch sm:items-center justify-center p-0 sm:p-4 overscroll-none animate-in fade-in">
+      <div className="bg-white dark:bg-slate-900 w-full sm:max-w-md h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[92vh] rounded-none sm:rounded-3xl shadow-2xl border-0 sm:border border-slate-200 dark:border-slate-800 overflow-hidden overscroll-none flex flex-col">
         {/* Görsel Alanı & Kapat Butonu (iPhone Çentik / Dynamic Island Uyumlu Esnek Tek Ekran Başlığı) */}
         <div className="relative min-h-[8.25rem] h-[26dvh] max-h-[15.5rem] sm:h-56 sm:max-h-none bg-slate-100 dark:bg-slate-800 overflow-hidden group shrink-0">
           <img 
@@ -191,7 +197,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
         </div>
 
         {/* Ürün Detayları (Kaydırmasız Tek Ekran Yerleşimi) */}
-        <div className="px-4 py-3 sm:p-5 overflow-y-auto no-scrollbar flex-1 min-h-0 flex flex-col justify-between gap-2.5 sm:gap-3.5">
+        <div className="px-4 py-3 sm:p-5 overflow-hidden flex-1 min-h-0 flex flex-col justify-between gap-2.5 sm:gap-3.5">
           <div>
             {product.barcode && (
               <div className="flex items-center gap-2 mb-0.5">

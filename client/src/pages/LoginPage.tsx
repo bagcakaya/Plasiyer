@@ -173,7 +173,7 @@ export const LoginPage: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-4 sm:p-6 relative overflow-x-hidden select-none">
+    <div className="min-h-[100dvh] bg-slate-950 text-slate-100 flex flex-col justify-between px-4 pt-[calc(env(safe-area-inset-top,0px)+1rem)] pb-[calc(env(safe-area-inset-bottom,0px)+1rem)] sm:p-6 relative overflow-x-hidden select-none">
       {/* Kurumsal Arka Plan Görseli */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
         <img
@@ -281,7 +281,7 @@ export const LoginPage: React.FC = () => {
                   onChange={(e) => setCompanyCode(e.target.value.toUpperCase())}
                   placeholder="Örn: POLATLAR"
                   autoComplete="organization"
-                  className="w-full bg-slate-50/95 dark:bg-slate-800/85 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-xs sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 uppercase font-mono shadow-2xs transition"
+                  className="w-full bg-slate-50/95 dark:bg-slate-800/85 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-base sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 uppercase font-mono shadow-2xs transition"
                   required
                 />
               </div>
@@ -300,7 +300,7 @@ export const LoginPage: React.FC = () => {
                   onChange={(e) => setRepCode(e.target.value)}
                   placeholder="Örn: YONETICI veya PLS01"
                   autoComplete="username"
-                  className="w-full bg-slate-50/95 dark:bg-slate-800/85 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-xs sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono shadow-2xs transition"
+                  className="w-full bg-slate-50/95 dark:bg-slate-800/85 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-3.5 py-3 text-base sm:text-sm font-black text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 font-mono shadow-2xs transition"
                   required
                 />
               </div>
@@ -319,7 +319,7 @@ export const LoginPage: React.FC = () => {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   autoComplete="current-password"
-                  className="w-full bg-slate-50/95 dark:bg-slate-800/85 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-10 py-3 text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-2xs transition"
+                  className="w-full bg-slate-50/95 dark:bg-slate-800/85 border border-slate-200 dark:border-slate-700 rounded-2xl pl-10 pr-10 py-3 text-base sm:text-sm font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-sky-500 shadow-2xs transition"
                   required
                 />
                 <button
