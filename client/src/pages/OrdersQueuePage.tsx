@@ -24,6 +24,30 @@ import {
 } from 'lucide-react';
 import { InvoiceOrderModal } from '../components/InvoiceOrderModal';
 
+const toLocalDateStr = (d: Date = new Date()): string => {
+  const yr = d.getFullYear();
+  const mo = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${yr}-${mo}-${day}`;
+};
+
+const extractItemLocalDate = (isoOrDateStr?: string): string => {
+  if (!isoOrDateStr) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(isoOrDateStr)) return isoOrDateStr;
+  const parsed = new Date(isoOrDateStr);
+  if (!isNaN(parsed.getTime())) {
+    return toLocalDateStr(parsed);
+  }
+  return isoOrDateStr.slice(0, 10);
+};
+
+const formatShortDateTR = (yyyyMmDd: string): string => {
+  if (!yyyyMmDd) return '';
+  const parts = yyyyMmDd.split('-');
+  if (parts.length !== 3) return yyyyMmDd;
+  return `${parts[2]}.${parts[1]}.${parts[0]}`;
+};
+
 export const OrdersQueuePage: React.FC = () => {
   const { 
     isSyncing, 
@@ -38,9 +62,41 @@ export const OrdersQueuePage: React.FC = () => {
 
   const [activeTabSub, setActiveTabSub] = useState<'orders' | 'collections' | 'returns'>('orders');
   const [activeFilter, setActiveFilter] = useState<'all' | 'pending' | 'synced'>('all');
+  const [datePreset, setDatePreset] = useState<'today' | 'yesterday' | 'week' | 'month' | 'all' | 'custom'>('today');
+  const [startDate, setStartDate] = useState<string>(() => toLocalDateStr());
+  const [endDate, setEndDate] = useState<string>(() => toLocalDateStr());
   const [inspectOrder, setInspectOrder] = useState<Order | null>(null);
   const [inspectReturn, setInspectReturn] = useState<ReturnRecord | null>(null);
   const [invoicingOrder, setInvoicingOrder] = useState<Order | null>(null);
+
+  const applyDatePreset = (preset: 'today' | 'yesterday' | 'week' | 'month' | 'all') => {
+    const now = new Date();
+    const today = toLocalDateStr(now);
+    setDatePreset(preset);
+
+    if (preset === 'today') {
+      setStartDate(today);
+      setEndDate(today);
+    } else if (preset === 'yesterday') {
+      const y = new Date(now);
+      y.setDate(y.getDate() - 1);
+      const yStr = toLocalDateStr(y);
+      setStartDate(yStr);
+      setEndDate(yStr);
+    } else if (preset === 'week') {
+      const w = new Date(now);
+      w.setDate(w.getDate() - 6);
+      setStartDate(toLocalDateStr(w));
+      setEndDate(today);
+    } else if (preset === 'month') {
+      const m = new Date(now.getFullYear(), now.getMonth(), 1);
+      setStartDate(toLocalDateStr(m));
+      setEndDate(today);
+    } else if (preset === 'all') {
+      setStartDate('');
+      setEndDate('');
+    }
+  };
 
   // IndexedDB'deki siparişleri çek
   const rawOrders = useLiveQuery(
@@ -69,14 +125,34 @@ export const OrdersQueuePage: React.FC = () => {
   }
 
   // Müşteri modundaysa sadece kendi siparişlerini filtrele
-  const orders = userRole === 'customer' && currentCustomerUser
+  const allOrders = userRole === 'customer' && currentCustomerUser
     ? rawOrders.filter(o => o.customerId === currentCustomerUser.id || o.customerCode === currentCustomerUser.code)
     : rawOrders;
 
-  const collections = rawCollections || [];
-  const returns = userRole === 'customer' && currentCustomerUser
+  const allCollections = rawCollections || [];
+  const allReturns = userRole === 'customer' && currentCustomerUser
     ? (rawReturns || []).filter(r => r.customerId === currentCustomerUser.id || r.customerCode === currentCustomerUser.code)
     : (rawReturns || []);
+
+  const matchesDateRange = (isoOrDateStr?: string): boolean => {
+    if (datePreset === 'all' || (!startDate && !endDate)) return true;
+    const itemDate = extractItemLocalDate(isoOrDateStr);
+    if (!itemDate) return true;
+    if (startDate && itemDate < startDate) return false;
+    if (endDate && itemDate > endDate) return false;
+    return true;
+  };
+
+  const orders = allOrders.filter((o) => matchesDateRange(o.createdAt || o.orderDate));
+  const collections = allCollections.filter((c) => matchesDateRange(c.createdAt));
+  const returns = allReturns.filter((r) => matchesDateRange(r.createdAt));
+
+  const activeDateRangeLabel =
+    datePreset === 'all' || (!startDate && !endDate)
+      ? 'Tüm Tarihler'
+      : startDate === endDate
+      ? formatShortDateTR(startDate)
+      : `${formatShortDateTR(startDate)} - ${formatShortDateTR(endDate)}`;
 
   const filteredOrders = orders.filter((o) => {
     if (activeFilter === 'pending') return o.status === 'pending' || o.status === 'failed';
@@ -190,6 +266,88 @@ export const OrdersQueuePage: React.FC = () => {
           </button>
         </div>
       )}
+
+      {/* Tarih Aralığı & Gün Seçimi Filtresi (Varsayılan: Bugün) */}
+      <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-xs space-y-2.5 transition">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-1.5 text-xs font-extrabold text-slate-800 dark:text-slate-100">
+            <Calendar className="w-4 h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+            <span>Sipariş Tarihi Filtresi</span>
+          </div>
+          <span className="text-[11px] font-bold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/70 border border-blue-200/70 dark:border-blue-800/60 px-2.5 py-0.5 rounded-full">
+            {datePreset === 'today' ? `Bugün (${activeDateRangeLabel})` : activeDateRangeLabel}
+          </span>
+        </div>
+
+        {/* Hızlı Tarih Seçim Butonları */}
+        <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-0.5">
+          {(
+            [
+              { id: 'today', label: 'Bugün' },
+              { id: 'yesterday', label: 'Dün' },
+              { id: 'week', label: 'Son 7 Gün' },
+              { id: 'month', label: 'Bu Ay' },
+              { id: 'all', label: `Tümü (${allOrders.length})` },
+            ] as const
+          ).map((p) => {
+            const isActive = datePreset === p.id;
+            return (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => applyDatePreset(p.id)}
+                className={`px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 transition active:scale-95 border ${
+                  isActive
+                    ? 'bg-blue-600 text-white border-blue-600 shadow-xs'
+                    : 'bg-slate-100 dark:bg-slate-800/90 text-slate-600 dark:text-slate-300 border-slate-200/80 dark:border-slate-700/80 hover:bg-slate-200/80 dark:hover:bg-slate-700'
+                }`}
+              >
+                {p.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Başlangıç ve Bitiş Tarihi Seçicileri */}
+        <div className="grid grid-cols-2 gap-2 pt-0.5">
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+              Başlangıç Tarihi
+            </label>
+            <input
+              type="date"
+              value={startDate}
+              onChange={(e) => {
+                const val = e.target.value;
+                setDatePreset('custom');
+                setStartDate(val);
+                if (val && endDate && val > endDate) {
+                  setEndDate(val);
+                }
+              }}
+              className="w-full px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 block mb-1">
+              Bitiş Tarihi
+            </label>
+            <input
+              type="date"
+              value={endDate}
+              onChange={(e) => {
+                const val = e.target.value;
+                setDatePreset('custom');
+                setEndDate(val);
+                if (val && startDate && val < startDate) {
+                  setStartDate(val);
+                }
+              }}
+              className="w-full px-2.5 py-1.5 rounded-xl bg-slate-50 dark:bg-slate-800/90 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+      </div>
 
       {/* Durum & Bilgi Kartı */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-4 shadow-xs flex items-center justify-between transition">
@@ -338,13 +496,29 @@ export const OrdersQueuePage: React.FC = () => {
       {activeTabSub === 'orders' && (
         <div className="space-y-2.5 md:space-y-0 md:grid md:grid-cols-2 xl:grid-cols-3 md:gap-3.5">
           {filteredOrders.length === 0 ? (
-            <div className="bg-white dark:bg-slate-900 rounded-2xl p-8 text-center border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400">
-              <FileText className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
-              <p className="text-sm font-semibold">Bu filtrede sipariş bulunmuyor.</p>
+            <div className="md:col-span-2 xl:col-span-3 bg-white dark:bg-slate-900 rounded-2xl p-8 text-center border border-slate-200 dark:border-slate-800 text-slate-500 dark:text-slate-400 space-y-2.5">
+              <FileText className="w-10 h-10 mx-auto text-slate-300 dark:text-slate-600 mb-1" />
+              <p className="text-sm font-bold text-slate-700 dark:text-slate-200">
+                {datePreset === 'today'
+                  ? `Bugün (${activeDateRangeLabel}) için kayıtlı sipariş bulunmuyor.`
+                  : `Seçilen tarih aralığında (${activeDateRangeLabel}) sipariş bulunmuyor.`}
+              </p>
+              {datePreset !== 'all' && allOrders.length > 0 && (
+                <div className="pt-1">
+                  <button
+                    type="button"
+                    onClick={() => applyDatePreset('all')}
+                    className="bg-blue-50 dark:bg-blue-950/70 hover:bg-blue-100 dark:hover:bg-blue-900/70 text-blue-700 dark:text-blue-300 border border-blue-200 dark:border-blue-800 text-xs font-bold px-4 py-2 rounded-xl inline-flex items-center gap-1.5 transition active:scale-95"
+                  >
+                    <Calendar className="w-3.5 h-3.5" />
+                    <span>Geçmiş Tüm Siparişleri Göster ({allOrders.length})</span>
+                  </button>
+                </div>
+              )}
               {userRole === 'customer' && (
                 <button
                   onClick={() => setActiveTab('catalog')}
-                  className="mt-3 bg-emerald-600 text-white text-xs font-bold px-4 py-2 rounded-xl inline-flex items-center gap-1.5"
+                  className="mt-2 bg-emerald-600 text-white text-xs font-bold px-4 py-2 rounded-xl inline-flex items-center gap-1.5"
                 >
                   <ShoppingBag className="w-3.5 h-3.5" />
                   <span>Vitrinden Sipariş Ver</span>

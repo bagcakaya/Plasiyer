@@ -288,7 +288,7 @@ export const CustomersPage: React.FC = () => {
 
                           {/* Cari İsmi (Seç butonunun solunda taşmadan hizalanır) */}
                           <h2
-                            className="text-xs sm:text-sm md:text-base font-black text-slate-900 dark:text-white leading-snug line-clamp-2 break-words mt-1"
+                            className="text-[17px] sm:text-lg md:text-xl font-black text-slate-900 dark:text-white leading-snug line-clamp-2 break-words mt-1 tracking-tight"
                             title={cust.name}
                           >
                             {cust.name}

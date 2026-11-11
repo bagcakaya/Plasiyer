@@ -249,7 +249,7 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
               </span>
             </div>
           )}
-          <h4 className="font-bold text-xs sm:text-sm text-slate-900 dark:text-white leading-snug">
+          <h4 className="font-black text-[16px] sm:text-lg text-slate-900 dark:text-white leading-snug tracking-tight">
             {item.productName}
           </h4>
           <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
@@ -661,19 +661,23 @@ export const CartPage: React.FC = () => {
           </button>
         </div>
       ) : (
-        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-xs transition space-y-2.5">
+        <div className="bg-gradient-to-br from-indigo-50 via-blue-50/95 to-sky-50 dark:from-indigo-950/90 dark:via-blue-950/85 dark:to-slate-900 border-2 border-indigo-300/90 dark:border-indigo-500/50 rounded-2xl p-3.5 shadow-md shadow-indigo-500/10 transition space-y-2.5">
           <div className="flex justify-between items-start gap-2">
             <div className="min-w-0 flex-1">
-              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-indigo-600 dark:text-indigo-300">
                 {userRole === 'customer' ? 'Sipariş Veren Bayi' : 'Cari Bilgisi'}
               </span>
-              <h3 className="font-bold text-sm text-slate-900 dark:text-white mt-0.5 truncate">{activeCustomer.name}</h3>
-              <div className="text-xs text-slate-500 dark:text-slate-400 font-mono">{activeCustomer.code}</div>
+              <h3 className="font-black text-[17px] sm:text-lg md:text-xl text-indigo-950 dark:text-white mt-0.5 leading-snug break-words tracking-tight">
+                {activeCustomer.name}
+              </h3>
+              <div className="text-xs font-bold text-indigo-700/80 dark:text-indigo-300/90 font-mono mt-0.5">
+                {activeCustomer.code}
+              </div>
             </div>
             <div className="text-right shrink-0">
-              <span className="text-[10px] text-slate-400 dark:text-slate-500 block">Güncel Bakiye</span>
+              <span className="text-[10px] font-bold text-indigo-600/80 dark:text-indigo-300/80 block">Güncel Bakiye</span>
               <span
-                className={`text-xs font-extrabold ${
+                className={`text-sm sm:text-base font-black ${
                   activeCustomer.balance > 0 ? 'text-rose-600 dark:text-rose-400' : 'text-emerald-600 dark:text-emerald-400'
                 }`}
               >
@@ -687,7 +691,7 @@ export const CartPage: React.FC = () => {
               <button
                 type="button"
                 onClick={openCustomerSelectModal}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-blue-50 dark:bg-blue-950/60 hover:bg-blue-100 dark:hover:bg-blue-900/60 text-blue-700 dark:text-blue-300 border border-blue-200/70 dark:border-blue-800/60 text-[11px] font-bold transition active:scale-95"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white/90 dark:bg-indigo-900/70 hover:bg-white dark:hover:bg-indigo-800/80 text-indigo-700 dark:text-indigo-200 border border-indigo-200 dark:border-indigo-700/80 text-[11px] font-bold transition active:scale-95 shadow-2xs"
               >
                 <RefreshCw className="w-3 h-3" />
                 <span>Cari Değiştir</span>
@@ -695,7 +699,7 @@ export const CartPage: React.FC = () => {
               <button
                 type="button"
                 onClick={() => selectCustomer(null)}
-                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/50 hover:bg-rose-100 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 border border-rose-200/70 dark:border-rose-800/60 text-[11px] font-bold transition active:scale-95"
+                className="flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-rose-50 dark:bg-rose-950/60 hover:bg-rose-100 dark:hover:bg-rose-900/70 text-rose-700 dark:text-rose-300 border border-rose-200/80 dark:border-rose-800/70 text-[11px] font-bold transition active:scale-95"
                 title="Seçili cariyi kaldır"
               >
                 <UserX className="w-3 h-3" />
@@ -706,24 +710,24 @@ export const CartPage: React.FC = () => {
 
           {/* AŞAMA 8: Plasiyer Satış Modu Seçici (Soğuk vs Sıcak) */}
           {userRole === 'plasiyer' && (
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+            <div className="pt-2 border-t border-indigo-200/70 dark:border-indigo-800/60 flex items-center justify-between gap-2">
               <div className="flex items-center gap-1.5">
-                <Truck className="w-4 h-4 text-slate-400" />
-                <span className="text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                <Truck className="w-4 h-4 text-indigo-500 dark:text-indigo-400" />
+                <span className="text-[11px] font-bold text-indigo-950 dark:text-indigo-200">
                   Satış Tipi:
                 </span>
-                <span className="text-[10px] font-mono text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
+                <span className="text-[10px] font-mono font-bold text-indigo-700 dark:text-indigo-300 bg-white/80 dark:bg-indigo-950/80 border border-indigo-200/70 dark:border-indigo-800/70 px-1.5 py-0.5 rounded">
                   {vanPlate}
                 </span>
               </div>
-              <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl text-xs font-bold">
+              <div className="flex items-center bg-white/80 dark:bg-slate-900/80 border border-indigo-200/70 dark:border-indigo-800/70 p-0.5 rounded-xl text-xs font-bold">
                 <button
                   type="button"
                   onClick={() => setSaleMode('cold')}
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition ${
                     saleMode === 'cold'
                       ? 'bg-blue-600 text-white shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                   }`}
                 >
                   <Snowflake className="w-3.5 h-3.5" />
@@ -735,7 +739,7 @@ export const CartPage: React.FC = () => {
                   className={`flex items-center gap-1 px-2.5 py-1 rounded-lg transition ${
                     saleMode === 'hot'
                       ? 'bg-gradient-to-r from-amber-500 to-rose-500 text-white shadow-xs'
-                      : 'text-slate-500 hover:text-slate-800 dark:hover:text-slate-200'
+                      : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
                   }`}
                 >
                   <Flame className="w-3.5 h-3.5" />
