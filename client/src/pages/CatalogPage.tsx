@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { useApp } from '../context/AppContext';
@@ -22,13 +22,18 @@ import {
   Truck,
   Flame,
   Camera,
-  RefreshCw
+  RefreshCw,
+  ChevronLeft,
+  ChevronRight
 } from 'lucide-react';
 import { BarcodeScannerModal } from '../components/BarcodeScannerModal';
 import { ProductDetailModal } from '../components/ProductDetailModal';
 import { ProductPhotoModal } from '../components/ProductPhotoModal';
 import { CategoryStoriesBar } from '../components/CategoryStoriesBar';
 import { getProductImageUrl } from '../utils/productImages';
+
+const PAGE_SIZE_OPTIONS = [20, 30, 50, 100] as const;
+const PAGE_SIZE_STORAGE_KEY = 'plasiyer_catalog_page_size';
 
 export const CatalogPage: React.FC = () => {
   const { 
@@ -69,9 +74,17 @@ export const CatalogPage: React.FC = () => {
   };
   const [detailProduct, setDetailProduct] = useState<Product | null>(null);
   const [photoProduct, setPhotoProduct] = useState<Product | null>(null);
-  const CATALOG_PAGE_SIZE = 60;
-  const [visibleCount, setVisibleCount] = useState<number>(CATALOG_PAGE_SIZE);
-  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const [pageSize, setPageSize] = useState<number>(() => {
+    const saved = Number(localStorage.getItem(PAGE_SIZE_STORAGE_KEY));
+    return PAGE_SIZE_OPTIONS.includes(saved as (typeof PAGE_SIZE_OPTIONS)[number]) ? saved : 20;
+  });
+  const [currentPage, setCurrentPage] = useState<number>(1);
+
+  const handlePageSizeChange = (nextSize: number) => {
+    setPageSize(nextSize);
+    setCurrentPage(1);
+    localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(nextSize));
+  };
 
   // IndexedDB'den ürünleri çek
   const products = useLiveQuery(() => db.products.toArray(), []);
@@ -110,35 +123,45 @@ export const CatalogPage: React.FC = () => {
     });
   }, [products, searchTerm, selectedCategory]);
 
-  // Arama, kategori veya görünüm modu değiştiğinde ilk sayfadan başlat
+  // Arama veya kategori değiştiğinde 1. sayfaya dön
   useEffect(() => {
-    setVisibleCount(CATALOG_PAGE_SIZE);
-  }, [searchTerm, selectedCategory, viewMode]);
+    setCurrentPage(1);
+  }, [searchTerm, selectedCategory]);
+
+  const totalProducts = filteredProducts.length;
+  const totalPages = Math.max(1, Math.ceil(totalProducts / pageSize));
+  const safeCurrentPage = Math.min(Math.max(1, currentPage), totalPages);
+  const startIndex = (safeCurrentPage - 1) * pageSize;
+  const endIndex = Math.min(startIndex + pageSize, totalProducts);
 
   const visibleProducts = useMemo(
-    () => filteredProducts.slice(0, visibleCount),
-    [filteredProducts, visibleCount]
+    () => filteredProducts.slice(startIndex, endIndex),
+    [filteredProducts, startIndex, endIndex]
   );
-  const hasMoreProducts = visibleCount < filteredProducts.length;
 
-  // Sayfa aşağı kaydırıldıkça ürünleri otomatik olarak kademeli yükle (2.000+ ürün için sıfır donma)
-  useEffect(() => {
-    if (!hasMoreProducts) return;
-    const node = loadMoreRef.current;
-    if (!node || typeof IntersectionObserver === 'undefined') return;
+  const handlePageChange = (nextPage: number) => {
+    const clamped = Math.min(Math.max(1, nextPage), totalPages);
+    setCurrentPage(clamped);
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setVisibleCount((prev) => Math.min(prev + CATALOG_PAGE_SIZE, filteredProducts.length));
-        }
-      },
-      { rootMargin: '500px' }
-    );
-
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [hasMoreProducts, filteredProducts.length]);
+  const pageNumbers = useMemo(() => {
+    const pages: (number | 'ellipsis')[] = [];
+    if (totalPages <= 7) {
+      for (let i = 1; i <= totalPages; i++) pages.push(i);
+      return pages;
+    }
+    pages.push(1);
+    if (safeCurrentPage > 3) pages.push('ellipsis');
+    const start = Math.max(2, safeCurrentPage - 1);
+    const end = Math.min(totalPages - 1, safeCurrentPage + 1);
+    for (let i = start; i <= end; i++) pages.push(i);
+    if (safeCurrentPage < totalPages - 2) pages.push('ellipsis');
+    pages.push(totalPages);
+    return pages;
+  }, [totalPages, safeCurrentPage]);
 
   const formatCurrency = (val: number) => {
     return new Intl.NumberFormat('tr-TR', {
@@ -351,6 +374,48 @@ export const CatalogPage: React.FC = () => {
         onClose={() => setIsScannerOpen(false)}
         onScan={handleBarcodeScanned}
       />
+
+      {/* Üst Sayfa Başına Ürün Seçici & Sayfa Bilgisi Barı */}
+      {totalProducts > 0 && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl px-3.5 py-2.5 shadow-2xs flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-300">
+            <span className="font-extrabold text-slate-900 dark:text-white">
+              {totalProducts.toLocaleString('tr-TR')} Ürün
+            </span>
+            <span className="text-slate-400">•</span>
+            <span className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+              {startIndex + 1}–{endIndex} arası (Sayfa {safeCurrentPage}/{totalPages})
+            </span>
+          </div>
+
+          <div className="flex items-center gap-1.5 ml-auto">
+            <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+              Sayfada:
+            </span>
+            <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
+              {PAGE_SIZE_OPTIONS.map((size) => {
+                const isSelected = pageSize === size;
+                return (
+                  <button
+                    key={size}
+                    type="button"
+                    onClick={() => handlePageSizeChange(size)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-extrabold transition ${
+                      isSelected
+                        ? userRole === 'customer'
+                          ? 'bg-emerald-600 text-white shadow-xs'
+                          : 'bg-blue-600 text-white shadow-xs'
+                        : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    {size}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Ürün Listesi */}
       {filteredProducts.length === 0 ? (
@@ -791,18 +856,95 @@ export const CatalogPage: React.FC = () => {
         </div>
       )}
 
-      {/* Kademeli Ürün Yükleme Gözlemcisi (2.000+ Ürün için Anında Açılış) */}
-      {hasMoreProducts && (
-        <div ref={loadMoreRef} className="pt-2 pb-4 flex justify-center">
-          <button
-            type="button"
-            onClick={() =>
-              setVisibleCount((prev) => Math.min(prev + CATALOG_PAGE_SIZE, filteredProducts.length))
-            }
-            className="px-4 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-800 shadow-xs transition active:scale-95"
-          >
-            Daha Fazla Ürün Göster ({filteredProducts.length - visibleCount} ürün kaldı)
-          </button>
+      {/* Alt Sayfalama & Sayfa Başına Ürün Seçim Barı */}
+      {totalProducts > 0 && (
+        <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl p-3.5 shadow-xs space-y-3">
+          {totalPages > 1 && (
+            <div className="flex items-center justify-center gap-1 sm:gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => handlePageChange(safeCurrentPage - 1)}
+                disabled={safeCurrentPage <= 1}
+                className="h-9 px-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1 transition active:scale-95"
+              >
+                <ChevronLeft className="w-4 h-4" />
+                <span className="hidden sm:inline">Önceki</span>
+              </button>
+
+              {pageNumbers.map((item, idx) =>
+                item === 'ellipsis' ? (
+                  <span
+                    key={`ellipsis-${idx}`}
+                    className="px-1.5 text-xs font-bold text-slate-400 select-none"
+                  >
+                    ...
+                  </span>
+                ) : (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => handlePageChange(item)}
+                    className={`min-w-9 h-9 px-2.5 rounded-xl text-xs font-extrabold transition active:scale-95 border ${
+                      item === safeCurrentPage
+                        ? userRole === 'customer'
+                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                          : 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border-slate-200 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-700'
+                    }`}
+                  >
+                    {item}
+                  </button>
+                )
+              )}
+
+              <button
+                type="button"
+                onClick={() => handlePageChange(safeCurrentPage + 1)}
+                disabled={safeCurrentPage >= totalPages}
+                className="h-9 px-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 text-xs font-bold text-slate-700 dark:text-slate-200 disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-100 dark:hover:bg-slate-700 flex items-center gap-1 transition active:scale-95"
+              >
+                <span className="hidden sm:inline">Sonraki</span>
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-100 dark:border-slate-800 flex-wrap text-xs">
+            <span className="text-slate-500 dark:text-slate-400 font-medium">
+              Gösterilen:{' '}
+              <strong className="text-slate-900 dark:text-white">
+                {startIndex + 1}–{endIndex}
+              </strong>{' '}
+              / {totalProducts.toLocaleString('tr-TR')} ürün
+            </span>
+
+            <div className="flex items-center gap-1.5">
+              <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400">
+                Sayfa Başına:
+              </span>
+              <div className="flex items-center bg-slate-100 dark:bg-slate-800 p-0.5 rounded-xl border border-slate-200/80 dark:border-slate-700/80">
+                {PAGE_SIZE_OPTIONS.map((size) => {
+                  const isSelected = pageSize === size;
+                  return (
+                    <button
+                      key={size}
+                      type="button"
+                      onClick={() => handlePageSizeChange(size)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-extrabold transition ${
+                        isSelected
+                          ? userRole === 'customer'
+                            ? 'bg-emerald-600 text-white shadow-xs'
+                            : 'bg-blue-600 text-white shadow-xs'
+                          : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
+                      }`}
+                    >
+                      {size}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
