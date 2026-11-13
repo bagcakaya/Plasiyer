@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db';
 import type { 
   Order, 
   CollectionRecord, 
@@ -51,8 +53,64 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
   const { companyIssuer } = useApp();
   const [paperWidth, setPaperWidth] = useState<'58mm' | '80mm'>('58mm');
   const [copiedAlert, setCopiedAlert] = useState<boolean>(false);
+  const allCustomers = useLiveQuery(() => db.customers.toArray(), []) || [];
 
   if (!isOpen) return null;
+
+  // İlgili cariye uygulanan iskonto oranı ve iskonto tutarı hesaplaması
+  const matchedOrderCustomer =
+    slipType === 'order' && orderData
+      ? allCustomers.find(
+          (c) => c.id === orderData.customerId || c.code === orderData.customerCode
+        )
+      : undefined;
+
+  const itemDiscountRate =
+    slipType === 'order' && orderData
+      ? orderData.items.find((it) => !it.isGift && (it.discountPercent || 0) > 0)
+          ?.discountPercent || 0
+      : 0;
+
+  const orderSubtotal = slipType === 'order' && orderData ? orderData.subtotal || 0 : 0;
+
+  const orderDiscountRate = (() => {
+    if (slipType !== 'order' || !orderData) return 0;
+    if (itemDiscountRate > 0) return itemDiscountRate;
+    if ((orderData.totalDiscount || 0) > 0 && orderSubtotal > 0) {
+      return Math.round(((orderData.totalDiscount || 0) / orderSubtotal) * 100 * 100) / 100;
+    }
+    if (matchedOrderCustomer?.specialDiscount && matchedOrderCustomer.specialDiscount > 0) {
+      return matchedOrderCustomer.specialDiscount;
+    }
+    return 0;
+  })();
+
+  const orderDiscountAmount = (() => {
+    if (slipType !== 'order' || !orderData) return 0;
+    if ((orderData.totalDiscount || 0) > 0) return orderData.totalDiscount;
+    if (orderDiscountRate > 0 && orderSubtotal > 0) {
+      return Math.round(orderSubtotal * (orderDiscountRate / 100) * 100) / 100;
+    }
+    return 0;
+  })();
+
+  const orderEffectiveVat = (() => {
+    if (slipType !== 'order' || !orderData) return 0;
+    if ((orderData.totalDiscount || 0) === 0 && orderDiscountAmount > 0 && orderSubtotal > 0) {
+      const factor = Math.max(0, (orderSubtotal - orderDiscountAmount) / orderSubtotal);
+      return Math.round((orderData.totalVat || 0) * factor * 100) / 100;
+    }
+    return orderData.totalVat || 0;
+  })();
+
+  const orderEffectiveGrandTotal = (() => {
+    if (slipType !== 'order' || !orderData) return 0;
+    if ((orderData.totalDiscount || 0) === 0 && orderDiscountAmount > 0) {
+      const campDisc = orderData.campaignDiscount || 0;
+      return Math.max(0, Math.round((orderSubtotal - orderDiscountAmount - campDisc + orderEffectiveVat) * 100) / 100);
+    }
+    return orderData.grandTotal || 0;
+  })();
 
   const issuerMainTitle = (companyIssuer.brandName || companyIssuer.legalName || 'MERKEZ FİRMA').trim();
   const rawLegalName = (companyIssuer.legalName || '').trim();
@@ -121,13 +179,18 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         `*Tarih:* ${nowFormatted}\n` +
         `*Müşteri:* ${orderData.customerName}\n` +
         `*Cari Kod:* ${orderData.customerCode}\n` +
+        `*İskonto Oranı:* %${orderDiscountRate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}\n` +
         `--------------------------------\n` +
         itemsText +
         campaignSection +
         `--------------------------------\n` +
+        `*Ara Toplam:* ${orderSubtotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
+        `*İskonto Oranı:* %${orderDiscountRate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}\n` +
+        `*İskonto Tutarı:* ${orderDiscountAmount > 0 ? '-' : ''}${orderDiscountAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
         (orderData.campaignDiscount && orderData.campaignDiscount > 0 ? `*Kampanya İskontosu:* -${orderData.campaignDiscount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` : '') +
+        `*KDV Tutarı:* ${orderEffectiveVat.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
         savingsSection +
-        `*Toplam Tutar:* ${orderData.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
+        `*Toplam Tutar:* ${orderEffectiveGrandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
         (orderData.notes ? `*Not:* ${orderData.notes}\n` : '') +
         `--------------------------------\n` +
         (isHotSale ? `_Bu belge sıcak satış teslimat fişidir, ürünler araçtan fiziken teslim edilmiştir._` : `_Bu belge bilgi amaçlıdır, mali değeri yoktur._`);
@@ -403,6 +466,10 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
                   <div className="flex justify-between">
                     <span className="text-gray-600">CARİ KOD:</span>
                     <span>{orderData.customerCode}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">İSKONTO ORANI:</span>
+                    <span className="font-bold">%{orderDiscountRate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</span>
                   </div>
                   <div className="flex justify-between">
                     <span className="text-gray-600">PLASİYER:</span>
@@ -715,14 +782,16 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
                 <>
                   <div className="flex justify-between text-gray-600">
                     <span>Ara Toplam:</span>
-                    <span>{orderData.subtotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
+                    <span>{orderSubtotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                   </div>
-                  {orderData.totalDiscount > 0 && (
-                    <div className="flex justify-between text-gray-600">
-                      <span>Satır İskontosu:</span>
-                      <span>-{orderData.totalDiscount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
-                    </div>
-                  )}
+                  <div className="flex justify-between text-gray-700 font-semibold">
+                    <span>İskonto Oranı:</span>
+                    <span>%{orderDiscountRate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</span>
+                  </div>
+                  <div className="flex justify-between text-gray-700 font-semibold">
+                    <span>İskonto Tutarı:</span>
+                    <span>{orderDiscountAmount > 0 ? '-' : ''}{orderDiscountAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
+                  </div>
                   {orderData.campaignDiscount && orderData.campaignDiscount > 0 && (
                     <div className="flex justify-between text-emerald-800 font-bold">
                       <span>Kampanya İndirimi:</span>
@@ -731,11 +800,11 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
                   )}
                   <div className="flex justify-between text-gray-600">
                     <span>KDV Tutarı:</span>
-                    <span>{orderData.totalVat.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
+                    <span>{orderEffectiveVat.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                   </div>
                   <div className="flex justify-between text-sm font-black pt-1 border-t border-black">
                     <span>GENEL TOPLAM:</span>
-                    <span>{orderData.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
+                    <span>{orderEffectiveGrandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                   </div>
 
                   {orderData.totalCampaignSavings && orderData.totalCampaignSavings > 0 && (

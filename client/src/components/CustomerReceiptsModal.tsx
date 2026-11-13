@@ -29,8 +29,10 @@ export const CustomerReceiptsModal: React.FC<CustomerReceiptsModalProps> = ({
 
   if (!isOpen || !customer) return null;
 
+  const customerDiscountRate = customer.specialDiscount || 0;
+
   // Carinin örnek / gerçek kayıtlı satış fişleri
-  const mockReceipts = [
+  const baseReceipts = [
     {
       id: 'REC-001',
       receiptNo: 'FS-2026-004812',
@@ -72,6 +74,20 @@ export const CustomerReceiptsModal: React.FC<CustomerReceiptsModalProps> = ({
     },
   ];
 
+  const mockReceipts = baseReceipts.map((rec) => {
+    const discountAmount = Math.round(rec.totalAmount * (customerDiscountRate / 100) * 100) / 100;
+    const netSubtotal = Math.max(0, rec.totalAmount - discountAmount);
+    const vatAmount = Math.round(netSubtotal * 0.10 * 100) / 100;
+    const grandTotal = Math.round((netSubtotal + vatAmount) * 100) / 100;
+    return {
+      ...rec,
+      discountRate: customerDiscountRate,
+      discountAmount,
+      vatAmount,
+      grandTotal,
+    };
+  });
+
   const filteredReceipts = mockReceipts.filter(
     (r) =>
       r.receiptNo.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -98,12 +114,14 @@ export const CustomerReceiptsModal: React.FC<CustomerReceiptsModalProps> = ({
         customerName: customer.name,
         orderDate: new Date().toISOString(),
         subtotal: rec.totalAmount,
-        totalDiscount: 0,
+        totalDiscount: rec.discountAmount,
         totalVat: rec.vatAmount,
         grandTotal: rec.grandTotal,
         createdAt: rec.date,
         items: rec.items.map((i, idx) => {
-          const totalAmount = i.unitPrice * i.quantity;
+          const grossAmount = i.unitPrice * i.quantity;
+          const netPrice = i.unitPrice * (1 - rec.discountRate / 100);
+          const totalAmount = netPrice * i.quantity;
           const vatAmount = totalAmount * 0.1;
           const grandTotal = totalAmount + vatAmount;
           return {
@@ -113,10 +131,10 @@ export const CustomerReceiptsModal: React.FC<CustomerReceiptsModalProps> = ({
             unit: 'Adet',
             quantity: i.quantity,
             unitPrice: i.unitPrice,
-            discountPercent: 0,
+            discountPercent: rec.discountRate,
             vatRate: 10,
-            netPrice: i.unitPrice,
-            totalAmount,
+            netPrice,
+            totalAmount: grossAmount - (grossAmount * (rec.discountRate / 100)),
             vatAmount,
             grandTotal,
           };
@@ -248,9 +266,27 @@ export const CustomerReceiptsModal: React.FC<CustomerReceiptsModalProps> = ({
                           </div>
                         ))}
                       </div>
-                      <div className="pt-2 flex justify-between border-t border-slate-200 dark:border-slate-700 text-xs font-bold">
-                        <span className="text-slate-500">KDV Dahil Toplam</span>
-                        <span className="text-amber-600 dark:text-amber-400 font-black">{formatCurrency(rec.grandTotal)}</span>
+                      <div className="pt-2 space-y-1 border-t border-slate-200 dark:border-slate-700 text-xs">
+                        <div className="flex justify-between text-slate-500">
+                          <span>Ara Toplam</span>
+                          <span>{formatCurrency(rec.totalAmount)}</span>
+                        </div>
+                        <div className="flex justify-between text-purple-600 dark:text-purple-400 font-semibold">
+                          <span>İskonto Oranı</span>
+                          <span>%{rec.discountRate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</span>
+                        </div>
+                        <div className="flex justify-between text-purple-600 dark:text-purple-400 font-semibold">
+                          <span>İskonto Tutarı</span>
+                          <span>{rec.discountAmount > 0 ? '-' : ''}{formatCurrency(rec.discountAmount)}</span>
+                        </div>
+                        <div className="flex justify-between text-slate-500">
+                          <span>KDV Tutarı</span>
+                          <span>{formatCurrency(rec.vatAmount)}</span>
+                        </div>
+                        <div className="pt-1 flex justify-between border-t border-slate-200 dark:border-slate-700 font-bold">
+                          <span className="text-slate-700 dark:text-slate-300">KDV Dahil Toplam</span>
+                          <span className="text-amber-600 dark:text-amber-400 font-black">{formatCurrency(rec.grandTotal)}</span>
+                        </div>
                       </div>
                     </div>
                   )}
