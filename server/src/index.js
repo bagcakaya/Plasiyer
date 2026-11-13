@@ -14,6 +14,7 @@ import {
   decodeSqlConfigToken,
 } from './db.js';
 import { imageService } from './imageService.js';
+import { thermalPrintService } from './thermalPrintService.js';
 import {
   cloudRegistry,
   verifyAdminAuthHeader,
@@ -102,6 +103,34 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Termal Fiş Yazıcıya (1 Numaralı Yazıcı) Doğrudan Gönderim
+app.post('/api/print/thermal', async (req, res) => {
+  try {
+    const payload = req.body || {};
+    if (payload.dryRun) {
+      return res.json({ success: true, dryRun: true, printerName: payload.printerName || '1' });
+    }
+    if (process.env.VERCEL) {
+      const relayed = await sqlCloudRelay.remotePrintThermal(payload);
+      if (relayed && relayed.success) {
+        return res.json(relayed);
+      }
+      return res.status(503).json({
+        success: false,
+        message: '1 numaralı termal yazıcı servisine ulaşılamadı.',
+      });
+    }
+    const result = await thermalPrintService.printReceipt(payload);
+    return res.json(result);
+  } catch (err) {
+    console.error('Termal yazdırma hatası:', err.message);
+    return res.status(500).json({
+      success: false,
+      message: err.message || '1 numaralı yazıcıya gönderilemedi.',
+    });
+  }
+});
+
 // Şifreli Bulut -> Türkiye Canlı SQL Tüneli (Yalnızca HMAC İmzalı Vercel Sunucu İsteklerini Kabul Eder)
 app.post('/api/internal/sql-relay', async (req, res) => {
   if (process.env.VERCEL) {
@@ -127,6 +156,11 @@ app.post('/api/internal/sql-relay', async (req, res) => {
     if (action === 'nonQuery') {
       const rowsAffected = await sqlContext.run(sqlConfig || {}, () => executeNonQuery(query));
       return res.json({ success: true, rowsAffected });
+    }
+    if (action === 'printThermal') {
+      const payload = JSON.parse(query || '{}');
+      const result = await thermalPrintService.printReceipt(payload);
+      return res.json({ success: true, result });
     }
     return res.status(400).json({ success: false, error: 'Bilinmeyen işlem' });
   } catch (err) {

@@ -12,6 +12,7 @@ import type {
 } from '../types';
 import { amountToTurkishWords } from '../utils/numberToWords';
 import { useApp } from '../context/AppContext';
+import { apiService } from '../services/apiService';
 import { 
   Printer, 
   Share2, 
@@ -22,7 +23,9 @@ import {
   RotateCcw,
   TrendingUp,
   Truck,
-  ClipboardCheck
+  ClipboardCheck,
+  CheckCircle2,
+  Loader2
 } from 'lucide-react';
 
 interface ThermalReceiptModalProps {
@@ -50,9 +53,11 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
   vanAuditData,
   customerPreviousBalance = 0,
 }) => {
-  const { companyIssuer } = useApp();
-  const [paperWidth, setPaperWidth] = useState<'58mm' | '80mm'>('58mm');
+  const { companyIssuer, serverConfig } = useApp();
+  const [paperWidth, setPaperWidth] = useState<'58mm' | '80mm'>('80mm');
   const [copiedAlert, setCopiedAlert] = useState<boolean>(false);
+  const [isPrinting, setIsPrinting] = useState<boolean>(false);
+  const [printStatusMsg, setPrintStatusMsg] = useState<{ type: 'success' | 'info'; text: string } | null>(null);
   const allCustomers = useLiveQuery(() => db.customers.toArray(), []) || [];
 
   if (!isOpen) return null;
@@ -141,8 +146,479 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
     minute: '2-digit',
   });
 
-  const handlePrint = () => {
-    window.print();
+  const paymentLabels: Record<string, string> = {
+    nakit: 'NAKİT TAHSİLAT',
+    kredi_karti: 'KREDİ KARTI / POS',
+    havale: 'BANKA HAVALE / EFT',
+    cek: 'MÜŞTERİ ÇEKİ',
+  };
+
+  const documentBoxTitle =
+    slipType === 'order' ? (orderData?.saleType === 'hot' ? 'SICAK SATIŞ TESLİM FİŞİ' : 'SİPARİŞ BİLGİ FİŞİ') :
+    slipType === 'collection' ? 'TAHSİLAT MAKBUZU' :
+    slipType === 'return' ? 'SAHA İADE / DEĞİŞİM FİŞİ' :
+    slipType === 'van_loading' ? 'ARAÇ MAL YÜKLEME TRANSFER FİŞİ' :
+    slipType === 'van_audit' ? 'ARAÇ GÜN SONU SAYIM TUTANAĞI' :
+    'GÜN SONU Z RAPORU';
+
+  const footerPrimaryText =
+    slipType === 'order' ? (orderData?.saleType === 'hot' ? 'SICAK SATIŞ TESLİM FİŞİDİR' : 'BİLGİ FİŞİDİR - MALİ DEĞERİ YOKTUR') :
+    slipType === 'collection' ? 'TAHSİLAT BİLGİ MAKBUZUDUR' :
+    slipType === 'return' ? 'SAHA İADE VE DEĞİŞİM BELGESİDİR' :
+    slipType === 'van_loading' ? 'ARAÇ DEPO TRANSFER FİŞİDİR' :
+    slipType === 'van_audit' ? 'GÜN SONU ARAÇ SAYIM MUTABAKATIDIR' :
+    'PLASİYER GÜN SONU KASASI Z RAPORUDUR';
+
+  const signaturesConfig = {
+    leftTitle:
+      slipType === 'end_of_day' ? 'Raporu Düzenleyen' :
+      slipType === 'van_loading' ? 'Depo Yetkilisi' :
+      slipType === 'van_audit' ? 'Sayımı Yapan Plasiyer' :
+      'Teslim Eden',
+    leftSubtitle:
+      slipType === 'end_of_day' ? 'Plasiyer' :
+      slipType === 'van_loading' ? 'Merkez Depo' :
+      slipType === 'van_audit' ? 'Plasiyer Kaşe/İmza' :
+      'Müşteri Kaşe/İmza',
+    rightTitle:
+      slipType === 'end_of_day' ? 'Onaylayan Kasa' :
+      slipType === 'van_loading' ? 'Teslim Alan Plasiyer' :
+      slipType === 'van_audit' ? 'Merkez Muhasebe/Denetçi' :
+      'Teslim Alan',
+    rightSubtitle:
+      slipType === 'end_of_day' ? 'Merkez Muhasebe' :
+      slipType === 'van_loading' ? 'Araç Sorumlusu' :
+      slipType === 'van_audit' ? 'Onay Kaşe/İmza' :
+      'Plasiyer İmza',
+  };
+
+  // 1 numaralı termal yazıcı için yapılandırılmış fiş verisi oluşturma
+  const buildThermalPrintPayload = () => {
+    const metaRows: Array<{ label: string; value: string; boxed?: boolean }> = [];
+    let table: {
+      columns: Array<{ header: string; align: 'left' | 'center' | 'right'; widthRatio: number }>;
+      rows: Array<{ cells: string[]; subText?: string }>;
+    } | undefined;
+    let sections: Array<{
+      title: string;
+      rows: Array<{ label: string; value: string; bold?: boolean }>;
+    }> | undefined;
+    const totals: Array<{ label: string; value: string; isGrandTotal?: boolean; isBoxedNote?: boolean }> = [];
+    const campaigns: string[] = [];
+
+    const fmtMoney = (v: number) =>
+      `${v.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ₺`;
+
+    if (slipType === 'order' && orderData) {
+      metaRows.push({ label: 'FİŞ NO:', value: orderData.tempId || '-' });
+      if (orderData.erp12DocNo) {
+        metaRows.push({ label: 'ERP NO:', value: orderData.erp12DocNo });
+      }
+      if (orderData.saleType === 'hot') {
+        metaRows.push({
+          label: 'SATIŞ ŞEKLİ:',
+          value: `ARAÇTAN TESLİM (${orderData.vanPlate || 'ARAÇ'})`,
+          boxed: true,
+        });
+      }
+      metaRows.push({ label: 'TARİH/SAAT:', value: nowFormatted });
+      metaRows.push({ label: 'MÜŞTERİ:', value: orderData.customerName || '-' });
+      metaRows.push({ label: 'CARİ KOD:', value: orderData.customerCode || '-' });
+      metaRows.push({
+        label: 'İSKONTO ORANI:',
+        value: `%${orderDiscountRate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}`,
+      });
+      metaRows.push({ label: 'PLASİYER:', value: orderData.salesRepCode || '-' });
+
+      table = {
+        columns: [
+          { header: 'ÜRÜN ADI', align: 'left', widthRatio: 0.46 },
+          { header: 'MİKTAR', align: 'center', widthRatio: 0.14 },
+          { header: 'FİYAT', align: 'right', widthRatio: 0.19 },
+          { header: 'TUTAR', align: 'right', widthRatio: 0.21 },
+        ],
+        rows: orderData.items.map((it) => ({
+          cells: [
+            it.productName,
+            String(it.quantity),
+            it.isGift
+              ? (it.originalUnitPrice || it.unitPrice).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+              : it.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            it.isGift
+              ? '0,00'
+              : it.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          ],
+          subText: it.isGift ? `BEDELSİZ HEDİYE (${it.campaignTitle || 'Promosyon'})` : undefined,
+        })),
+      };
+
+      totals.push({ label: 'Ara Toplam:', value: fmtMoney(orderSubtotal) });
+      totals.push({
+        label: 'İskonto Oranı:',
+        value: `%${orderDiscountRate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}`,
+      });
+      totals.push({
+        label: 'İskonto Tutarı:',
+        value: `${orderDiscountAmount > 0 ? '-' : ''}${fmtMoney(orderDiscountAmount)}`,
+      });
+      if (orderData.campaignDiscount && orderData.campaignDiscount > 0) {
+        totals.push({
+          label: 'Kampanya İndirimi:',
+          value: `-${fmtMoney(orderData.campaignDiscount)}`,
+        });
+      }
+      totals.push({ label: 'KDV Tutarı:', value: fmtMoney(orderEffectiveVat) });
+      totals.push({
+        label: 'GENEL TOPLAM:',
+        value: fmtMoney(orderEffectiveGrandTotal),
+        isGrandTotal: true,
+      });
+
+      if (orderData.totalCampaignSavings && orderData.totalCampaignSavings > 0) {
+        totals.push({
+          label: 'TOPLAM KAMPANYA KAZANCINIZ:',
+          value: fmtMoney(orderData.totalCampaignSavings),
+          isBoxedNote: true,
+        });
+      }
+      if (orderData.appliedCampaigns && orderData.appliedCampaigns.length > 0) {
+        orderData.appliedCampaigns.forEach((c) => {
+          campaigns.push(`* ${c.campaignTitle}`);
+        });
+      }
+    } else if (slipType === 'collection' && collectionData) {
+      metaRows.push({ label: 'MAKBUZ NO:', value: collectionData.receiptNo || '-' });
+      metaRows.push({ label: 'TARİH/SAAT:', value: nowFormatted });
+      metaRows.push({ label: 'MÜŞTERİ:', value: collectionData.customerName || '-' });
+      metaRows.push({ label: 'CARİ KOD:', value: collectionData.customerCode || '-' });
+      metaRows.push({
+        label: 'TAHSİLAT TÜRÜ:',
+        value: paymentLabels[collectionData.paymentMethod] || collectionData.paymentMethod,
+      });
+      if (collectionData.paymentMethod === 'cek') {
+        metaRows.push({ label: 'ÇEK NO:', value: collectionData.checkNo || '-' });
+        metaRows.push({ label: 'BANKA:', value: collectionData.checkBank || '-' });
+        metaRows.push({ label: 'VADE:', value: collectionData.checkDueDate || '-' });
+      }
+
+      totals.push({
+        label: 'TAHSİLAT TUTARI:',
+        value: fmtMoney(collectionData.amount),
+        isGrandTotal: true,
+      });
+      totals.push({
+        label: '',
+        value: amountToTurkishWords(collectionData.amount),
+        isBoxedNote: true,
+      });
+      totals.push({ label: 'Önceki Bakiye:', value: fmtMoney(customerPreviousBalance) });
+      totals.push({ label: 'Tahsil Edilen:', value: `-${fmtMoney(collectionData.amount)}` });
+      totals.push({
+        label: 'Kalan Cari Bakiye:',
+        value: fmtMoney(Math.max(0, customerPreviousBalance - collectionData.amount)),
+      });
+    } else if (slipType === 'return' && returnData) {
+      metaRows.push({ label: 'İADE NO:', value: returnData.receiptNo || '-' });
+      metaRows.push({ label: 'TARİH/SAAT:', value: nowFormatted });
+      metaRows.push({ label: 'MÜŞTERİ:', value: returnData.customerName || '-' });
+      metaRows.push({ label: 'CARİ KOD:', value: returnData.customerCode || '-' });
+      metaRows.push({ label: 'PLASİYER:', value: returnData.salesRepCode || '-' });
+
+      table = {
+        columns: [
+          { header: 'İADE EDİLEN ÜRÜN', align: 'left', widthRatio: 0.54 },
+          { header: 'MİKTAR', align: 'center', widthRatio: 0.20 },
+          { header: 'TUTAR', align: 'right', widthRatio: 0.26 },
+        ],
+        rows: returnData.items.map((it) => ({
+          cells: [
+            it.productName,
+            `${it.quantity} ${it.unit}`,
+            fmtMoney(it.totalAmount),
+          ],
+          subText: it.reason ? `[${it.reason}]` : undefined,
+        })),
+      };
+
+      totals.push({
+        label: 'TOPLAM İADE TUTARI:',
+        value: fmtMoney(returnData.grandTotal),
+        isGrandTotal: true,
+      });
+      totals.push({
+        label: '',
+        value: amountToTurkishWords(returnData.grandTotal),
+        isBoxedNote: true,
+      });
+      totals.push({ label: 'Önceki Cari Borç:', value: fmtMoney(customerPreviousBalance) });
+      totals.push({ label: 'İade Düşümü:', value: `-${fmtMoney(returnData.grandTotal)}` });
+      totals.push({
+        label: 'Güncellenen Cari Borç:',
+        value: fmtMoney(Math.max(0, customerPreviousBalance - returnData.grandTotal)),
+      });
+    } else if (slipType === 'van_loading' && vanLoadingData) {
+      metaRows.push({ label: 'TRANSFER NO:', value: vanLoadingData.docNo || '-' });
+      metaRows.push({ label: 'TARİH/SAAT:', value: nowFormatted });
+      metaRows.push({ label: 'ARAÇ PLAKASI:', value: vanLoadingData.vanPlate || '-' });
+      metaRows.push({ label: 'ÇIKIŞ DEPOSU:', value: vanLoadingData.sourceWarehouse || '-' });
+      metaRows.push({ label: 'HEDEF DEPO:', value: vanLoadingData.targetVanWarehouse || '-' });
+      metaRows.push({ label: 'PLASİYER:', value: vanLoadingData.salesRepCode || '-' });
+
+      table = {
+        columns: [
+          { header: 'YÜKLENEN ÜRÜN', align: 'left', widthRatio: 0.58 },
+          { header: 'BİRİM', align: 'center', widthRatio: 0.20 },
+          { header: 'MİKTAR', align: 'right', widthRatio: 0.22 },
+        ],
+        rows: vanLoadingData.items.map((it) => ({
+          cells: [it.productName, it.unit, String(it.quantity)],
+        })),
+      };
+
+      totals.push({ label: 'Yüklenen Çeşit:', value: `${vanLoadingData.items.length} Kalem` });
+      totals.push({
+        label: 'TOPLAM YÜKLENEN ADET:',
+        value: `${vanLoadingData.totalQuantity} Adet`,
+        isGrandTotal: true,
+      });
+    } else if (slipType === 'van_audit' && vanAuditData) {
+      metaRows.push({ label: 'TUTANAK NO:', value: vanAuditData.docNo || '-' });
+      metaRows.push({ label: 'TARİH/SAAT:', value: nowFormatted });
+      metaRows.push({ label: 'ARAÇ PLAKASI:', value: vanAuditData.vanPlate || '-' });
+      metaRows.push({ label: 'PLASİYER:', value: vanAuditData.salesRepCode || '-' });
+      metaRows.push({ label: 'SAYILAN ÇEŞİT:', value: `${vanAuditData.items.length} Kalem` });
+
+      table = {
+        columns: [
+          { header: 'ÜRÜN ADI', align: 'left', widthRatio: 0.46 },
+          { header: 'TEORİK', align: 'center', widthRatio: 0.18 },
+          { header: 'SAYILAN', align: 'center', widthRatio: 0.18 },
+          { header: 'FARK', align: 'right', widthRatio: 0.18 },
+        ],
+        rows: vanAuditData.items.map((it) => ({
+          cells: [
+            it.productName,
+            String(it.theoreticalStock),
+            String(it.countedStock),
+            it.difference > 0 ? `+${it.difference}` : String(it.difference),
+          ],
+        })),
+      };
+
+      totals.push({ label: 'Teorik Araç Stoğu:', value: `${vanAuditData.totalTheoretical} Adet` });
+      totals.push({ label: 'Fiili Sayılan Stok:', value: `${vanAuditData.totalCounted} Adet` });
+      totals.push({
+        label: 'NET SAYIM FARKI:',
+        value: `${vanAuditData.totalDifference > 0 ? `+${vanAuditData.totalDifference}` : vanAuditData.totalDifference} Adet`,
+        isGrandTotal: true,
+      });
+      totals.push({ label: 'FARK TUTARI:', value: fmtMoney(vanAuditData.totalDifferenceAmount) });
+    } else if (slipType === 'end_of_day' && endOfDayData) {
+      metaRows.push({ label: 'RAPOR TARİHİ:', value: endOfDayData.date || '-' });
+      metaRows.push({
+        label: 'PLASİYER:',
+        value: `${endOfDayData.salesRepName} (${endOfDayData.salesRepCode})`,
+      });
+      metaRows.push({ label: 'BASIM SAATİ:', value: nowFormatted });
+
+      sections = [
+        {
+          title: '1. SİPARİŞ PERFORMANSI',
+          rows: [
+            { label: 'Sipariş Sayısı:', value: `${endOfDayData.ordersSummary.count} Adet` },
+            { label: 'Net Sipariş Cirosu:', value: fmtMoney(endOfDayData.ordersSummary.totalNet) },
+          ],
+        },
+        {
+          title: '2. TAHSİLAT DAĞILIMI',
+          rows: [
+            {
+              label: 'Nakit Tahsilat:',
+              value: `${fmtMoney(endOfDayData.collectionsSummary.cashAmount)} (${endOfDayData.collectionsSummary.cashCount} Adet)`,
+            },
+            {
+              label: 'Kredi Kartı / POS:',
+              value: `${fmtMoney(endOfDayData.collectionsSummary.posAmount)} (${endOfDayData.collectionsSummary.posCount} Adet)`,
+            },
+            {
+              label: 'Müşteri Çeki:',
+              value: `${fmtMoney(endOfDayData.collectionsSummary.checkAmount)} (${endOfDayData.collectionsSummary.checkCount} Adet)`,
+            },
+            {
+              label: 'Toplam Tahsilat:',
+              value: fmtMoney(endOfDayData.collectionsSummary.totalAmount),
+            },
+          ],
+        },
+        {
+          title: '3. RUT & ZİYARETLER',
+          rows: [
+            {
+              label: 'Ziyaret / Planlanan:',
+              value: `${endOfDayData.visitsSummary.completed} / ${endOfDayData.visitsSummary.totalPlanned} (%${endOfDayData.visitsSummary.successRate})`,
+            },
+            {
+              label: 'Sipariş Alınan Müşteri:',
+              value: `${endOfDayData.visitsSummary.withOrder} Cari`,
+            },
+          ],
+        },
+      ];
+
+      totals.push({
+        label: 'FİİLİ NAKİT KASA:',
+        value: fmtMoney(endOfDayData.netCashBalance),
+        isGrandTotal: true,
+      });
+    }
+
+    return {
+      printerName: '1',
+      paperWidth,
+      issuer: {
+        mainTitle: issuerMainTitle,
+        subTitle: issuerSubTitle || undefined,
+        addressLine: issuerAddressLine || (!issuerPhoneLine && !issuerTaxLine ? 'Saha Dağıtım & Mobil B2B Sistemi' : undefined),
+        phoneLine: issuerPhoneLine || undefined,
+        taxLine: issuerTaxLine || undefined,
+      },
+      documentTitle: documentBoxTitle,
+      metaRows,
+      table,
+      sections,
+      totals,
+      campaigns: campaigns.length > 0 ? campaigns : undefined,
+      signatures: signaturesConfig,
+      footer: {
+        primaryText: footerPrimaryText,
+        secondaryText: 'Fatura ve resmi sevk irsaliyesi yerine geçmez.',
+        softwareText: 'Yazılım: ERP12 Mobil Saha & B2B Dağıtım',
+      },
+    };
+  };
+
+  // Yedek tarayıcı yazdırma (kesintisiz gizli iframe ile tam boy ve koyu siyah baskı)
+  const printViaUnclippedIframe = () => {
+    const printElement = document.getElementById('thermal-print-area');
+    if (!printElement) {
+      window.print();
+      return;
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    document.body.appendChild(iframe);
+
+    const doc = iframe.contentWindow?.document;
+    if (!doc) {
+      document.body.removeChild(iframe);
+      window.print();
+      return;
+    }
+
+    const styleTags = Array.from(document.querySelectorAll('style, link[rel="stylesheet"]'))
+      .map((el) => el.outerHTML)
+      .join('\n');
+
+    const targetWidthMm = paperWidth === '58mm' ? '58mm' : '72mm';
+
+    doc.open();
+    doc.write(`
+      <!DOCTYPE html>
+      <html>
+        <head>
+          <meta charset="utf-8" />
+          <title>ERP12 Termal Fiş</title>
+          ${styleTags}
+          <style>
+            @page {
+              size: ${paperWidth === '58mm' ? '58mm auto' : '80mm auto'};
+              margin: 0mm;
+            }
+            html, body {
+              margin: 0 !important;
+              padding: 0 !important;
+              width: ${targetWidthMm} !important;
+              height: auto !important;
+              max-height: none !important;
+              overflow: visible !important;
+              background: #ffffff !important;
+              color: #000000 !important;
+              font-family: Arial, Helvetica, Tahoma, sans-serif !important;
+              font-weight: 700 !important;
+              -webkit-print-color-adjust: exact !important;
+              print-color-adjust: exact !important;
+            }
+            #thermal-print-wrapper, #thermal-print-wrapper * {
+              color: #000000 !important;
+              border-color: #000000 !important;
+              font-weight: 700 !important;
+              text-shadow: none !important;
+              opacity: 1 !important;
+              visibility: visible !important;
+            }
+            #thermal-print-wrapper {
+              width: 100% !important;
+              padding: 2mm !important;
+              box-sizing: border-box !important;
+            }
+          </style>
+        </head>
+        <body>
+          <div id="thermal-print-wrapper">${printElement.innerHTML}</div>
+        </body>
+      </html>
+    `);
+    doc.close();
+
+    setTimeout(() => {
+      try {
+        iframe.contentWindow?.focus();
+        iframe.contentWindow?.print();
+      } finally {
+        setTimeout(() => {
+          if (iframe.parentNode) {
+            iframe.parentNode.removeChild(iframe);
+          }
+        }, 2000);
+      }
+    }, 350);
+  };
+
+  const handlePrint = async () => {
+    if (isPrinting) return;
+    setIsPrinting(true);
+    setPrintStatusMsg(null);
+
+    try {
+      const payload = buildThermalPrintPayload();
+      const result = await apiService.printThermalReceipt(serverConfig, payload);
+
+      if (result.success) {
+        setPrintStatusMsg({
+          type: 'success',
+          text: `Fiş doğrudan "${result.printerName || '1'}" numaralı termal yazıcıya gönderildi!`,
+        });
+        setTimeout(() => setPrintStatusMsg(null), 4500);
+        return;
+      }
+
+      // Yerel/tünel yazıcı servisine erişilemezse kesintisiz iframe ile yazdır
+      setPrintStatusMsg({
+        type: 'info',
+        text: '1 numaralı yazıcı servisine ulaşılamadı, tarayıcı yazdırma ekranı açılıyor...',
+      });
+      printViaUnclippedIframe();
+    } catch {
+      printViaUnclippedIframe();
+    } finally {
+      setIsPrinting(false);
+    }
   };
 
   // WhatsApp için düz metin fiş oluşturma
@@ -281,13 +757,6 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
     setTimeout(() => setCopiedAlert(false), 2500);
   };
 
-  const paymentLabels: Record<string, string> = {
-    nakit: 'NAKİT TAHSİLAT',
-    kredi_karti: 'KREDİ KARTI / POS',
-    havale: 'BANKA HAVALE / EFT',
-    cek: 'MÜŞTERİ ÇEKİ',
-  };
-
   const slipTitle = 
     slipType === 'order' ? (orderData?.saleType === 'hot' ? '🔥 Sıcak Satış Teslim Fişi' : 'Sipariş Bilgi Fişi') :
     slipType === 'collection' ? 'Tahsilat Makbuzu' :
@@ -297,35 +766,52 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
     'Gün Sonu Z Raporu';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/75 backdrop-blur-sm animate-fadeIn">
-      {/* Yazdırma Sırasında Ekranda Gözükmeyen Stil */}
+    <div id="thermal-modal-root" className="fixed inset-0 z-50 flex items-center justify-center p-3 bg-black/75 backdrop-blur-sm animate-fadeIn">
+      {/* Yazdırma Sırasında Kesilmeyi ve Solukluğu Önleyen Stil */}
       <style>{`
         @media print {
+          html, body, #root, #thermal-modal-root, #thermal-modal-card, #thermal-modal-scroll {
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
+            position: static !important;
+            background: #ffffff !important;
+            margin: 0 !important;
+            padding: 0 !important;
+          }
           body * {
             visibility: hidden !important;
           }
           #thermal-print-area, #thermal-print-area * {
             visibility: visible !important;
+            color: #000000 !important;
+            border-color: #000000 !important;
+            font-weight: 700 !important;
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
           }
           #thermal-print-area {
             position: absolute !important;
             left: 0 !important;
             top: 0 !important;
-            width: ${paperWidth === '58mm' ? '58mm' : '80mm'} !important;
+            width: ${paperWidth === '58mm' ? '58mm' : '72mm'} !important;
+            height: auto !important;
+            max-height: none !important;
+            overflow: visible !important;
             margin: 0 !important;
-            padding: 8px !important;
-            background: white !important;
-            color: black !important;
+            padding: 2mm !important;
+            background: #ffffff !important;
+            color: #000000 !important;
             box-shadow: none !important;
           }
           @page {
             size: ${paperWidth === '58mm' ? '58mm auto' : '80mm auto'};
-            margin: 0;
+            margin: 0mm;
           }
         }
       `}</style>
 
-      <div className="relative w-full max-w-md max-h-[92vh] flex flex-col bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
+      <div id="thermal-modal-card" className="relative w-full max-w-md max-h-[92vh] flex flex-col bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 overflow-hidden">
         {/* Üst Bar / Kontroller */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800 bg-slate-50/80 dark:bg-slate-900/80">
           <div className="flex items-center gap-2.5">
@@ -340,7 +826,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
               <h3 className="font-bold text-slate-900 dark:text-white text-sm">
                 {slipTitle}
               </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">Termal Mobil Çıktı Önizleme</p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">1 Nolu Termal Yazıcı Önizleme</p>
             </div>
           </div>
 
@@ -380,52 +866,52 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
           </div>
         </div>
 
-        {/* Fiş Önizleme Alanı (Termal Kağıt Efekti) */}
-        <div className="flex-1 overflow-y-auto p-4 bg-slate-100 dark:bg-slate-950 flex justify-center items-start">
+        {/* Fiş Önizleme Alanı (Termal Kağıt Efekti - Tam Siyah & Kalın Kontrast) */}
+        <div id="thermal-modal-scroll" className="flex-1 overflow-y-auto p-4 bg-slate-100 dark:bg-slate-950 flex justify-center items-start">
           <div
             id="thermal-print-area"
             style={{
               width: paperWidth === '58mm' ? '300px' : '380px',
-              fontFamily: "'Courier New', Courier, monospace",
+              fontFamily: "Arial, Helvetica, Tahoma, sans-serif",
             }}
-            className="bg-white text-black p-5 shadow-lg rounded-sm text-xs leading-relaxed border-t-4 border-slate-300 select-none print:shadow-none print:border-none"
+            className="bg-white text-black font-bold p-5 shadow-lg rounded-sm text-xs leading-relaxed border-t-4 border-black select-none print:shadow-none print:border-none"
           >
             {/* Firma Başlığı */}
-            <div className="text-center pb-3 border-b border-dashed border-black space-y-0.5">
+            <div className="text-center pb-3 border-b-2 border-dashed border-black space-y-0.5">
               <div className="flex justify-center mb-1">
-                <Building2 className="w-6 h-6 text-black" />
+                <Building2 className="w-6 h-6 text-black stroke-[2.5]" />
               </div>
-              <h2 className="font-extrabold text-sm uppercase tracking-wider leading-snug break-words">
+              <h2 className="font-black text-sm uppercase tracking-wide leading-snug break-words text-black">
                 {issuerMainTitle}
               </h2>
               {issuerSubTitle && (
-                <p className="text-[10px] font-semibold text-gray-800 leading-snug break-words">
+                <p className="text-[11px] font-extrabold text-black leading-snug break-words">
                   {issuerSubTitle}
                 </p>
               )}
               {issuerAddressLine && (
-                <p className="text-[9px] text-gray-700 leading-tight break-words">
+                <p className="text-[10px] font-bold text-black leading-tight break-words">
                   {issuerAddressLine}
                 </p>
               )}
               {issuerPhoneLine && (
-                <p className="text-[9px] text-gray-700 leading-tight">
+                <p className="text-[10px] font-bold text-black leading-tight">
                   {issuerPhoneLine}
                 </p>
               )}
               {issuerTaxLine && (
-                <p className="text-[9px] text-gray-600 leading-tight">
+                <p className="text-[10px] font-bold text-black leading-tight">
                   {issuerTaxLine}
                 </p>
               )}
               {!issuerAddressLine && !issuerPhoneLine && !issuerTaxLine && (
-                <p className="text-[9px] text-gray-600">Saha Dağıtım & Mobil B2B Sistemi</p>
+                <p className="text-[10px] font-bold text-black">Saha Dağıtım & Mobil B2B Sistemi</p>
               )}
             </div>
 
             {/* Belge Türü Başlığı */}
-            <div className="text-center py-2.5 my-1 border-b border-dashed border-black">
-              <span className="font-black text-xs uppercase tracking-widest px-2 py-0.5 border border-black inline-block">
+            <div className="text-center py-2.5 my-1 border-b-2 border-dashed border-black">
+              <span className="font-black text-xs uppercase tracking-wider px-2.5 py-1 border-2 border-black text-black inline-block">
                 {slipType === 'order' ? (orderData?.saleType === 'hot' ? '🔥 SICAK SATIŞ TESLİM FİŞİ' : 'SİPARİŞ BİLGİ FİŞİ') :
                  slipType === 'collection' ? 'TAHSİLAT MAKBUZU' :
                  slipType === 'return' ? 'SAHA İADE / DEĞİŞİM FİŞİ' :
@@ -436,126 +922,126 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
             </div>
 
             {/* Belge & Müşteri Detayları */}
-            <div className="py-2 text-[11px] border-b border-dashed border-black space-y-1">
+            <div className="py-2 text-[11px] border-b-2 border-dashed border-black space-y-1 text-black font-bold">
               {slipType === 'order' && orderData && (
                 <>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">FİŞ NO:</span>
-                    <span className="font-bold">{orderData.tempId}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black shrink-0">FİŞ NO:</span>
+                    <span className="font-black text-black text-right">{orderData.tempId}</span>
                   </div>
                   {orderData.erp12DocNo && (
-                    <div className="flex justify-between">
-                      <span className="text-gray-600">ERP NO:</span>
-                      <span className="font-bold">{orderData.erp12DocNo}</span>
+                    <div className="flex justify-between gap-2">
+                      <span className="font-bold text-black shrink-0">ERP NO:</span>
+                      <span className="font-black text-black text-right">{orderData.erp12DocNo}</span>
                     </div>
                   )}
                   {orderData.saleType === 'hot' && (
-                    <div className="flex justify-between font-bold text-black border border-black px-1 py-0.5 bg-gray-50 text-[10px]">
+                    <div className="flex justify-between font-black text-black border-2 border-black px-1.5 py-0.5 text-[10px]">
                       <span>SATIŞ ŞEKLİ:</span>
                       <span>🔥 ARAÇTAN TESLİM ({orderData.vanPlate || 'ARAÇ'})</span>
                     </div>
                   )}
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">TARİH/SAAT:</span>
-                    <span>{nowFormatted}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black shrink-0">TARİH/SAAT:</span>
+                    <span className="font-bold text-black text-right">{nowFormatted}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">MÜŞTERİ:</span>
-                    <span className="font-bold text-right max-w-[170px] truncate">{orderData.customerName}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black shrink-0">MÜŞTERİ:</span>
+                    <span className="font-black text-black text-right break-words">{orderData.customerName}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">CARİ KOD:</span>
-                    <span>{orderData.customerCode}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black shrink-0">CARİ KOD:</span>
+                    <span className="font-bold text-black text-right">{orderData.customerCode}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">İSKONTO ORANI:</span>
-                    <span className="font-bold">%{orderDiscountRate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black shrink-0">İSKONTO ORANI:</span>
+                    <span className="font-black text-black text-right">%{orderDiscountRate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">PLASİYER:</span>
-                    <span>{orderData.salesRepCode}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black shrink-0">PLASİYER:</span>
+                    <span className="font-bold text-black text-right">{orderData.salesRepCode}</span>
                   </div>
                 </>
               )}
 
               {slipType === 'van_loading' && vanLoadingData && (
                 <>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">TRANSFER NO:</span>
-                    <span className="font-bold">{vanLoadingData.docNo}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">TRANSFER NO:</span>
+                    <span className="font-black text-black">{vanLoadingData.docNo}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">TARİH/SAAT:</span>
-                    <span>{nowFormatted}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">TARİH/SAAT:</span>
+                    <span className="font-bold text-black">{nowFormatted}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">ARAÇ PLAKASI:</span>
-                    <span className="font-bold">{vanLoadingData.vanPlate}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">ARAÇ PLAKASI:</span>
+                    <span className="font-black text-black">{vanLoadingData.vanPlate}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">ÇIKIŞ DEPOSU:</span>
-                    <span>{vanLoadingData.sourceWarehouse}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">ÇIKIŞ DEPOSU:</span>
+                    <span className="font-bold text-black">{vanLoadingData.sourceWarehouse}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">HEDEF DEPO:</span>
-                    <span>{vanLoadingData.targetVanWarehouse}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">HEDEF DEPO:</span>
+                    <span className="font-bold text-black">{vanLoadingData.targetVanWarehouse}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">PLASİYER:</span>
-                    <span>{vanLoadingData.salesRepCode}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">PLASİYER:</span>
+                    <span className="font-bold text-black">{vanLoadingData.salesRepCode}</span>
                   </div>
                 </>
               )}
 
               {slipType === 'van_audit' && vanAuditData && (
                 <>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">TUTANAK NO:</span>
-                    <span className="font-bold">{vanAuditData.docNo}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">TUTANAK NO:</span>
+                    <span className="font-black text-black">{vanAuditData.docNo}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">TARİH/SAAT:</span>
-                    <span>{nowFormatted}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">TARİH/SAAT:</span>
+                    <span className="font-bold text-black">{nowFormatted}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">ARAÇ PLAKASI:</span>
-                    <span className="font-bold">{vanAuditData.vanPlate}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">ARAÇ PLAKASI:</span>
+                    <span className="font-black text-black">{vanAuditData.vanPlate}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">PLASİYER:</span>
-                    <span>{vanAuditData.salesRepCode}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">PLASİYER:</span>
+                    <span className="font-bold text-black">{vanAuditData.salesRepCode}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">SAYILAN ÇEŞİT:</span>
-                    <span>{vanAuditData.items.length} Kalem</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">SAYILAN ÇEŞİT:</span>
+                    <span className="font-bold text-black">{vanAuditData.items.length} Kalem</span>
                   </div>
                 </>
               )}
 
               {slipType === 'collection' && collectionData && (
                 <>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">MAKBUZ NO:</span>
-                    <span className="font-bold">{collectionData.receiptNo}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">MAKBUZ NO:</span>
+                    <span className="font-black text-black">{collectionData.receiptNo}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">TARİH/SAAT:</span>
-                    <span>{nowFormatted}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">TARİH/SAAT:</span>
+                    <span className="font-bold text-black">{nowFormatted}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">MÜŞTERİ:</span>
-                    <span className="font-bold text-right max-w-[170px] truncate">{collectionData.customerName}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black shrink-0">MÜŞTERİ:</span>
+                    <span className="font-black text-black text-right break-words">{collectionData.customerName}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">CARİ KOD:</span>
-                    <span>{collectionData.customerCode}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">CARİ KOD:</span>
+                    <span className="font-bold text-black">{collectionData.customerCode}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">TAHSİLAT TÜRÜ:</span>
-                    <span className="font-bold text-black">{paymentLabels[collectionData.paymentMethod] || collectionData.paymentMethod}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">TAHSİLAT TÜRÜ:</span>
+                    <span className="font-black text-black">{paymentLabels[collectionData.paymentMethod] || collectionData.paymentMethod}</span>
                   </div>
                   {collectionData.paymentMethod === 'cek' && (
-                    <div className="text-[10px] text-gray-700 bg-gray-50 p-1 rounded mt-1 border border-gray-200">
+                    <div className="text-[10px] font-bold text-black p-1.5 rounded mt-1 border border-black">
                       <div>Çek No: {collectionData.checkNo || '-'}</div>
                       <div>Banka: {collectionData.checkBank || '-'}</div>
                       <div>Vade: {collectionData.checkDueDate || '-'}</div>
@@ -566,42 +1052,42 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 
               {slipType === 'return' && returnData && (
                 <>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">İADE NO:</span>
-                    <span className="font-bold">{returnData.receiptNo}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">İADE NO:</span>
+                    <span className="font-black text-black">{returnData.receiptNo}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">TARİH/SAAT:</span>
-                    <span>{nowFormatted}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">TARİH/SAAT:</span>
+                    <span className="font-bold text-black">{nowFormatted}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">MÜŞTERİ:</span>
-                    <span className="font-bold text-right max-w-[170px] truncate">{returnData.customerName}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black shrink-0">MÜŞTERİ:</span>
+                    <span className="font-black text-black text-right break-words">{returnData.customerName}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">CARİ KOD:</span>
-                    <span>{returnData.customerCode}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">CARİ KOD:</span>
+                    <span className="font-bold text-black">{returnData.customerCode}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">PLASİYER:</span>
-                    <span>{returnData.salesRepCode}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">PLASİYER:</span>
+                    <span className="font-bold text-black">{returnData.salesRepCode}</span>
                   </div>
                 </>
               )}
 
               {slipType === 'end_of_day' && endOfDayData && (
                 <>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">RAPOR TARİHİ:</span>
-                    <span className="font-bold">{endOfDayData.date}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">RAPOR TARİHİ:</span>
+                    <span className="font-black text-black">{endOfDayData.date}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">PLASİYER:</span>
-                    <span className="font-bold">{endOfDayData.salesRepName} ({endOfDayData.salesRepCode})</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">PLASİYER:</span>
+                    <span className="font-black text-black">{endOfDayData.salesRepName} ({endOfDayData.salesRepCode})</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">BASIM SAATİ:</span>
-                    <span>{nowFormatted}</span>
+                  <div className="flex justify-between gap-2">
+                    <span className="font-bold text-black">BASIM SAATİ:</span>
+                    <span className="font-bold text-black">{nowFormatted}</span>
                   </div>
                 </>
               )}
@@ -609,41 +1095,37 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 
             {/* Kalemler / Detaylar Tablosu */}
             {slipType === 'order' && orderData && (
-              <div className="py-2 border-b border-dashed border-black">
-                <table className="w-full text-left text-[10px]">
+              <div className="py-2 border-b-2 border-dashed border-black">
+                <table className="w-full text-left text-[10px] text-black font-bold">
                   <thead>
-                    <tr className="border-b border-black text-gray-700">
+                    <tr className="border-b-2 border-black text-black font-black">
                       <th className="pb-1">ÜRÜN ADI</th>
                       <th className="pb-1 text-center">MİKTAR</th>
                       <th className="pb-1 text-right">FİYAT</th>
                       <th className="pb-1 text-right">TUTAR</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-dotted divide-gray-300">
+                  <tbody className="divide-y divide-dotted divide-black">
                     {orderData.items.map((it, idx) => (
-                      <tr key={idx} className={`py-1 ${it.isGift ? 'bg-emerald-50/50' : ''}`}>
-                        <td className="py-1 pr-1 truncate max-w-[110px]">
+                      <tr key={idx} className="py-1">
+                        <td className="py-1.5 pr-1 break-words max-w-[140px] font-bold text-black">
                           <div>{it.productName}</div>
                           {it.isGift && (
-                            <span className="text-[8px] font-bold text-emerald-800 uppercase block">
+                            <span className="text-[9px] font-black text-black uppercase block">
                               🎁 BEDELSİZ ({it.campaignTitle || 'Promosyon'})
                             </span>
                           )}
                         </td>
-                        <td className="py-1 text-center font-mono">{it.quantity}</td>
-                        <td className="py-1 text-right font-mono">
+                        <td className="py-1.5 text-center font-bold text-black">{it.quantity}</td>
+                        <td className="py-1.5 text-right font-bold text-black whitespace-nowrap">
                           {it.isGift ? (
-                            <span className="line-through text-gray-500">{(it.originalUnitPrice || it.unitPrice).toFixed(2)}</span>
+                            <span className="line-through text-black">{(it.originalUnitPrice || it.unitPrice).toFixed(2)}</span>
                           ) : (
                             it.unitPrice.toFixed(2)
                           )}
                         </td>
-                        <td className="py-1 text-right font-bold font-mono">
-                          {it.isGift ? (
-                            <span className="text-emerald-700">0.00</span>
-                          ) : (
-                            it.grandTotal.toFixed(2)
-                          )}
+                        <td className="py-1.5 text-right font-black text-black whitespace-nowrap">
+                          {it.isGift ? '0.00' : it.grandTotal.toFixed(2)}
                         </td>
                       </tr>
                     ))}
@@ -653,24 +1135,24 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
             )}
 
             {slipType === 'return' && returnData && (
-              <div className="py-2 border-b border-dashed border-black">
-                <table className="w-full text-left text-[10px]">
+              <div className="py-2 border-b-2 border-dashed border-black">
+                <table className="w-full text-left text-[10px] text-black font-bold">
                   <thead>
-                    <tr className="border-b border-black text-gray-700">
+                    <tr className="border-b-2 border-black text-black font-black">
                       <th className="pb-1">İADE EDİLEN ÜRÜN</th>
                       <th className="pb-1 text-center">MİKTAR</th>
                       <th className="pb-1 text-right">TUTAR</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-dotted divide-gray-300">
+                  <tbody className="divide-y divide-dotted divide-black">
                     {returnData.items.map((it, idx) => (
                       <tr key={idx} className="py-1">
-                        <td className="py-1 pr-1 truncate max-w-[130px]">
+                        <td className="py-1.5 pr-1 break-words max-w-[150px] font-bold text-black">
                           <div>{it.productName}</div>
-                          <div className="text-[9px] text-gray-500 italic">[{it.reason}]</div>
+                          <div className="text-[9px] font-bold text-black">[{it.reason}]</div>
                         </td>
-                        <td className="py-1 text-center font-mono">{it.quantity} {it.unit}</td>
-                        <td className="py-1 text-right font-bold font-mono">{it.totalAmount.toFixed(2)} ₺</td>
+                        <td className="py-1.5 text-center font-bold text-black">{it.quantity} {it.unit}</td>
+                        <td className="py-1.5 text-right font-black text-black whitespace-nowrap">{it.totalAmount.toFixed(2)} ₺</td>
                       </tr>
                     ))}
                   </tbody>
@@ -679,21 +1161,21 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
             )}
 
             {slipType === 'van_loading' && vanLoadingData && (
-              <div className="py-2 border-b border-dashed border-black">
-                <table className="w-full text-left text-[10px]">
+              <div className="py-2 border-b-2 border-dashed border-black">
+                <table className="w-full text-left text-[10px] text-black font-bold">
                   <thead>
-                    <tr className="border-b border-black text-gray-700">
+                    <tr className="border-b-2 border-black text-black font-black">
                       <th className="pb-1">YÜKLENEN ÜRÜN</th>
                       <th className="pb-1 text-center">BİRİM</th>
                       <th className="pb-1 text-right">MİKTAR</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-dotted divide-gray-300">
+                  <tbody className="divide-y divide-dotted divide-black">
                     {vanLoadingData.items.map((it, idx) => (
                       <tr key={idx} className="py-1">
-                        <td className="py-1 pr-1 truncate max-w-[150px] font-semibold">{it.productName}</td>
-                        <td className="py-1 text-center font-mono">{it.unit}</td>
-                        <td className="py-1 text-right font-bold font-mono">{it.quantity}</td>
+                        <td className="py-1.5 pr-1 break-words max-w-[160px] font-bold text-black">{it.productName}</td>
+                        <td className="py-1.5 text-center font-bold text-black">{it.unit}</td>
+                        <td className="py-1.5 text-right font-black text-black">{it.quantity}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -702,23 +1184,23 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
             )}
 
             {slipType === 'van_audit' && vanAuditData && (
-              <div className="py-2 border-b border-dashed border-black">
-                <table className="w-full text-left text-[9px]">
+              <div className="py-2 border-b-2 border-dashed border-black">
+                <table className="w-full text-left text-[10px] text-black font-bold">
                   <thead>
-                    <tr className="border-b border-black text-gray-700">
+                    <tr className="border-b-2 border-black text-black font-black">
                       <th className="pb-1">ÜRÜN ADI</th>
                       <th className="pb-1 text-center">TEORİK</th>
                       <th className="pb-1 text-center">SAYILAN</th>
                       <th className="pb-1 text-right">FARK</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-dotted divide-gray-300">
+                  <tbody className="divide-y divide-dotted divide-black">
                     {vanAuditData.items.map((it, idx) => (
                       <tr key={idx} className="py-1">
-                        <td className="py-1 pr-1 truncate max-w-[120px] font-medium">{it.productName}</td>
-                        <td className="py-1 text-center font-mono">{it.theoreticalStock}</td>
-                        <td className="py-1 text-center font-mono font-bold">{it.countedStock}</td>
-                        <td className={`py-1 text-right font-mono font-bold ${it.difference === 0 ? '' : it.difference > 0 ? 'text-blue-800' : 'text-rose-800'}`}>
+                        <td className="py-1.5 pr-1 break-words max-w-[130px] font-bold text-black">{it.productName}</td>
+                        <td className="py-1.5 text-center font-bold text-black">{it.theoreticalStock}</td>
+                        <td className="py-1.5 text-center font-black text-black">{it.countedStock}</td>
+                        <td className="py-1.5 text-right font-black text-black">
                           {it.difference > 0 ? `+${it.difference}` : it.difference}
                         </td>
                       </tr>
@@ -729,21 +1211,21 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
             )}
 
             {slipType === 'end_of_day' && endOfDayData && (
-              <div className="py-2 border-b border-dashed border-black space-y-2 text-[10px]">
+              <div className="py-2 border-b-2 border-dashed border-black space-y-2 text-[10px] text-black font-bold">
                 <div>
-                  <span className="font-bold block border-b border-black pb-0.5 mb-1">1. SİPARİŞ PERFORMANSI</span>
+                  <span className="font-black block border-b border-black pb-0.5 mb-1">1. SİPARİŞ PERFORMANSI</span>
                   <div className="flex justify-between">
                     <span>Sipariş Sayısı:</span>
-                    <span className="font-bold">{endOfDayData.ordersSummary.count} Adet</span>
+                    <span className="font-black">{endOfDayData.ordersSummary.count} Adet</span>
                   </div>
                   <div className="flex justify-between">
                     <span>Net Sipariş Cirosu:</span>
-                    <span className="font-bold">{endOfDayData.ordersSummary.totalNet.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
+                    <span className="font-black">{endOfDayData.ordersSummary.totalNet.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                   </div>
                 </div>
 
                 <div>
-                  <span className="font-bold block border-b border-black pb-0.5 mb-1">2. TAHSİLAT DAĞILIMI</span>
+                  <span className="font-black block border-b border-black pb-0.5 mb-1">2. TAHSİLAT DAĞILIMI</span>
                   <div className="flex justify-between">
                     <span>Nakit Tahsilat:</span>
                     <span>{endOfDayData.collectionsSummary.cashAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺ ({endOfDayData.collectionsSummary.cashCount} Adet)</span>
@@ -756,14 +1238,14 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
                     <span>Müşteri Çeki:</span>
                     <span>{endOfDayData.collectionsSummary.checkAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺ ({endOfDayData.collectionsSummary.checkCount} Adet)</span>
                   </div>
-                  <div className="flex justify-between font-bold pt-0.5 border-t border-dotted border-gray-400">
+                  <div className="flex justify-between font-black pt-0.5 border-t border-dotted border-black">
                     <span>Toplam Tahsilat:</span>
                     <span>{endOfDayData.collectionsSummary.totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                   </div>
                 </div>
 
                 <div>
-                  <span className="font-bold block border-b border-black pb-0.5 mb-1">3. RUT & ZİYARETLER</span>
+                  <span className="font-black block border-b border-black pb-0.5 mb-1">3. RUT & ZİYARETLER</span>
                   <div className="flex justify-between">
                     <span>Ziyaret Edilen / Planlanan:</span>
                     <span>{endOfDayData.visitsSummary.completed} / {endOfDayData.visitsSummary.totalPlanned} (%{endOfDayData.visitsSummary.successRate})</span>
@@ -777,51 +1259,51 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
             )}
 
             {/* Alt Toplamlar & İcmal */}
-            <div className="py-2.5 border-b border-dashed border-black space-y-1 text-[11px]">
+            <div className="py-2.5 border-b-2 border-dashed border-black space-y-1 text-[11px] text-black font-bold">
               {slipType === 'order' && orderData && (
                 <>
-                  <div className="flex justify-between text-gray-600">
+                  <div className="flex justify-between text-black font-bold">
                     <span>Ara Toplam:</span>
                     <span>{orderSubtotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                   </div>
-                  <div className="flex justify-between text-gray-700 font-semibold">
+                  <div className="flex justify-between text-black font-bold">
                     <span>İskonto Oranı:</span>
                     <span>%{orderDiscountRate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}</span>
                   </div>
-                  <div className="flex justify-between text-gray-700 font-semibold">
+                  <div className="flex justify-between text-black font-bold">
                     <span>İskonto Tutarı:</span>
                     <span>{orderDiscountAmount > 0 ? '-' : ''}{orderDiscountAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                   </div>
                   {orderData.campaignDiscount && orderData.campaignDiscount > 0 && (
-                    <div className="flex justify-between text-emerald-800 font-bold">
+                    <div className="flex justify-between text-black font-black">
                       <span>Kampanya İndirimi:</span>
                       <span>-{orderData.campaignDiscount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                     </div>
                   )}
-                  <div className="flex justify-between text-gray-600">
+                  <div className="flex justify-between text-black font-bold">
                     <span>KDV Tutarı:</span>
                     <span>{orderEffectiveVat.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                   </div>
-                  <div className="flex justify-between text-sm font-black pt-1 border-t border-black">
+                  <div className="flex justify-between text-sm font-black pt-1.5 border-t-2 border-black text-black">
                     <span>GENEL TOPLAM:</span>
                     <span>{orderEffectiveGrandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                   </div>
 
                   {orderData.totalCampaignSavings && orderData.totalCampaignSavings > 0 && (
-                    <div className="mt-2 p-1.5 bg-gray-100 border border-dashed border-gray-400 rounded text-center">
-                      <span className="font-bold text-[10px] text-black">
+                    <div className="mt-2 p-1.5 border border-black rounded text-center">
+                      <span className="font-black text-[10px] text-black">
                         🎁 TOPLAM KAMPANYA KAZANCINIZ: {orderData.totalCampaignSavings.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺
                       </span>
                     </div>
                   )}
 
                   {orderData.appliedCampaigns && orderData.appliedCampaigns.length > 0 && (
-                    <div className="mt-1.5 pt-1 border-t border-dotted border-gray-400 text-[9px] text-gray-700 space-y-0.5">
-                      <div className="font-bold uppercase tracking-wider text-[8px] text-gray-500">Uygulanan Kampanyalar:</div>
+                    <div className="mt-1.5 pt-1 border-t border-dotted border-black text-[9px] text-black font-bold space-y-0.5">
+                      <div className="font-black uppercase tracking-wider text-[8px] text-black">Uygulanan Kampanyalar:</div>
                       {orderData.appliedCampaigns.map((camp, cIdx) => (
                         <div key={cIdx} className="flex items-center gap-1">
                           <span>🎁</span>
-                          <span className="truncate">{camp.campaignTitle}</span>
+                          <span className="break-words">{camp.campaignTitle}</span>
                         </div>
                       ))}
                     </div>
@@ -831,25 +1313,25 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 
               {slipType === 'collection' && collectionData && (
                 <>
-                  <div className="flex justify-between text-sm font-black py-1">
+                  <div className="flex justify-between text-sm font-black py-1 text-black">
                     <span>TAHSİLAT TUTARI:</span>
                     <span className="text-base">{collectionData.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                   </div>
-                  <div className="p-1.5 bg-gray-100 rounded text-[10px] font-bold text-center italic">
+                  <div className="p-1.5 border border-black rounded text-[10px] font-bold text-center text-black">
                     {amountToTurkishWords(collectionData.amount)}
                   </div>
                   
                   {/* Bakiye Durumu */}
-                  <div className="pt-2 text-[10px] space-y-1">
-                    <div className="flex justify-between text-gray-600">
+                  <div className="pt-2 text-[10px] space-y-1 text-black font-bold">
+                    <div className="flex justify-between">
                       <span>Önceki Bakiye:</span>
                       <span>{customerPreviousBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                     </div>
-                    <div className="flex justify-between font-bold text-emerald-800">
+                    <div className="flex justify-between font-black">
                       <span>Tahsil Edilen:</span>
                       <span>-{collectionData.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                     </div>
-                    <div className="flex justify-between font-extrabold text-black pt-1 border-t border-gray-300">
+                    <div className="flex justify-between font-black text-black pt-1 border-t border-black">
                       <span>Kalan Cari Bakiye:</span>
                       <span>{Math.max(0, customerPreviousBalance - collectionData.amount).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                     </div>
@@ -859,24 +1341,24 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 
               {slipType === 'return' && returnData && (
                 <>
-                  <div className="flex justify-between text-sm font-black py-1">
+                  <div className="flex justify-between text-sm font-black py-1 text-black">
                     <span>TOPLAM İADE TUTARI:</span>
                     <span className="text-base">{returnData.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                   </div>
-                  <div className="p-1.5 bg-gray-100 rounded text-[10px] font-bold text-center italic">
+                  <div className="p-1.5 border border-black rounded text-[10px] font-bold text-center text-black">
                     {amountToTurkishWords(returnData.grandTotal)}
                   </div>
 
-                  <div className="pt-2 text-[10px] space-y-1">
-                    <div className="flex justify-between text-gray-600">
+                  <div className="pt-2 text-[10px] space-y-1 text-black font-bold">
+                    <div className="flex justify-between">
                       <span>Önceki Cari Borç:</span>
                       <span>{customerPreviousBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                     </div>
-                    <div className="flex justify-between font-bold text-rose-800">
+                    <div className="flex justify-between font-black">
                       <span>İade Düşümü:</span>
                       <span>-{returnData.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                     </div>
-                    <div className="flex justify-between font-extrabold text-black pt-1 border-t border-gray-300">
+                    <div className="flex justify-between font-black text-black pt-1 border-t border-black">
                       <span>Güncellenen Cari Borç:</span>
                       <span>{Math.max(0, customerPreviousBalance - returnData.grandTotal).toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                     </div>
@@ -886,16 +1368,16 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 
               {slipType === 'van_loading' && vanLoadingData && (
                 <>
-                  <div className="flex justify-between text-gray-600">
+                  <div className="flex justify-between text-black font-bold">
                     <span>Yüklenen Çeşit:</span>
                     <span>{vanLoadingData.items.length} Kalem</span>
                   </div>
-                  <div className="flex justify-between text-sm font-black pt-1 border-t border-black">
+                  <div className="flex justify-between text-sm font-black pt-1 border-t-2 border-black text-black">
                     <span>TOPLAM YÜKLENEN ADET:</span>
                     <span className="text-base">{vanLoadingData.totalQuantity} Adet</span>
                   </div>
                   {vanLoadingData.notes && (
-                    <p className="text-[10px] text-gray-600 italic pt-1">
+                    <p className="text-[10px] text-black font-bold pt-1">
                       Açıklama: {vanLoadingData.notes}
                     </p>
                   )}
@@ -904,26 +1386,26 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 
               {slipType === 'van_audit' && vanAuditData && (
                 <>
-                  <div className="flex justify-between text-gray-600">
+                  <div className="flex justify-between text-black font-bold">
                     <span>Teorik Araç Stoğu:</span>
                     <span>{vanAuditData.totalTheoretical} Adet</span>
                   </div>
-                  <div className="flex justify-between text-gray-600">
+                  <div className="flex justify-between text-black font-bold">
                     <span>Fiili Sayılan Stok:</span>
-                    <span className="font-bold">{vanAuditData.totalCounted} Adet</span>
+                    <span className="font-black">{vanAuditData.totalCounted} Adet</span>
                   </div>
-                  <div className="flex justify-between text-sm font-black pt-1 border-t border-black">
+                  <div className="flex justify-between text-sm font-black pt-1 border-t-2 border-black text-black">
                     <span>NET SAYIM FARKI:</span>
-                    <span className={vanAuditData.totalDifference === 0 ? 'text-black' : vanAuditData.totalDifference > 0 ? 'text-blue-800' : 'text-rose-800'}>
+                    <span>
                       {vanAuditData.totalDifference > 0 ? `+${vanAuditData.totalDifference}` : vanAuditData.totalDifference} Adet
                     </span>
                   </div>
-                  <div className="flex justify-between text-xs font-bold text-gray-700">
+                  <div className="flex justify-between text-xs font-black text-black">
                     <span>FARK TUTARI:</span>
                     <span>{vanAuditData.totalDifferenceAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                   </div>
                   {vanAuditData.notes && (
-                    <p className="text-[10px] text-gray-600 italic pt-1">
+                    <p className="text-[10px] text-black font-bold pt-1">
                       Sayım Notu: {vanAuditData.notes}
                     </p>
                   )}
@@ -931,12 +1413,12 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
               )}
 
               {slipType === 'end_of_day' && endOfDayData && (
-                <div className="pt-1 border-t border-black space-y-1">
+                <div className="pt-1 border-t-2 border-black space-y-1 text-black">
                   <div className="flex justify-between text-xs font-black">
                     <span>FİİLİ NAKİT KASA:</span>
-                    <span className="text-sm font-mono">{endOfDayData.netCashBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
+                    <span className="text-sm">{endOfDayData.netCashBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺</span>
                   </div>
-                  <p className="text-[9px] text-gray-500 italic text-center">
+                  <p className="text-[9px] text-black font-bold text-center">
                     Kasaya teslim edilecek net nakit para tutarıdır.
                   </p>
                 </div>
@@ -944,54 +1426,29 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
             </div>
 
             {/* İmza Alanı */}
-            <div className="py-4 border-b border-dashed border-black">
-              <div className="grid grid-cols-2 gap-4 text-center text-[10px]">
-                <div className="border-t border-black pt-1">
-                  <p className="font-bold">
-                    {slipType === 'end_of_day' ? 'Raporu Düzenleyen' : 
-                     slipType === 'van_loading' ? 'Depo Yetkilisi' :
-                     slipType === 'van_audit' ? 'Sayımı Yapan Plasiyer' :
-                     'Teslim Eden'}
-                  </p>
-                  <p className="text-[9px] text-gray-500">
-                    {slipType === 'end_of_day' ? 'Plasiyer' : 
-                     slipType === 'van_loading' ? 'Merkez Depo' :
-                     slipType === 'van_audit' ? 'Plasiyer Kaşe/İmza' :
-                     'Müşteri Kaşe/İmza'}
-                  </p>
+            <div className="py-4 border-b-2 border-dashed border-black">
+              <div className="grid grid-cols-2 gap-4 text-center text-[10px] text-black">
+                <div className="border-t-2 border-black pt-1">
+                  <p className="font-black text-black">{signaturesConfig.leftTitle}</p>
+                  <p className="text-[9px] font-bold text-black">{signaturesConfig.leftSubtitle}</p>
                 </div>
-                <div className="border-t border-black pt-1">
-                  <p className="font-bold">
-                    {slipType === 'end_of_day' ? 'Onaylayan Kasa' : 
-                     slipType === 'van_loading' ? 'Teslim Alan Plasiyer' :
-                     slipType === 'van_audit' ? 'Merkez Muhasebe/Denetçi' :
-                     'Teslim Alan'}
-                  </p>
-                  <p className="text-[9px] text-gray-500">
-                    {slipType === 'end_of_day' ? 'Merkez Muhasebe' : 
-                     slipType === 'van_loading' ? 'Araç Sorumlusu' :
-                     slipType === 'van_audit' ? 'Onay Kaşe/İmza' :
-                     'Plasiyer İmza'}
-                  </p>
+                <div className="border-t-2 border-black pt-1">
+                  <p className="font-black text-black">{signaturesConfig.rightTitle}</p>
+                  <p className="text-[9px] font-bold text-black">{signaturesConfig.rightSubtitle}</p>
                 </div>
               </div>
             </div>
 
             {/* Alt Bilgi & QR Simülasyonu */}
-            <div className="text-center pt-3 text-[9px] text-gray-600 space-y-1.5">
+            <div className="text-center pt-3 text-[9px] text-black font-bold space-y-1.5">
               <div className="flex justify-center">
-                <QrCode className="w-12 h-12 text-black" />
+                <QrCode className="w-12 h-12 text-black stroke-[2.2]" />
               </div>
-              <p className="font-bold text-black text-[10px]">
-                {slipType === 'order' ? (orderData?.saleType === 'hot' ? '🔥 SICAK SATIŞ TESLİM FİŞİDİR' : 'BİLGİ FİŞİDİR - MALİ DEĞERİ YOKTUR') : 
-                 slipType === 'collection' ? 'TAHSİLAT BİLGİ MAKBUZUDUR' :
-                 slipType === 'return' ? 'SAHA İADE VE DEĞİŞİM BELGESİDİR' :
-                 slipType === 'van_loading' ? 'ARAÇ DEPO TRANSFER FİŞİDİR' :
-                 slipType === 'van_audit' ? 'GÜN SONU ARAÇ SAYIM MUTABAKATIDIR' :
-                 'PLASİYER GÜN SONU KASASI Z RAPORUDUR'}
+              <p className="font-black text-black text-[10px]">
+                {footerPrimaryText}
               </p>
-              <p>Fatura ve resmi sevk irsaliyesi yerine geçmez.</p>
-              <p className="text-[8px] text-gray-400">Yazılım: ERP12 Mobil Saha & B2B Dağıtım</p>
+              <p className="font-bold text-black">Fatura ve resmi sevk irsaliyesi yerine geçmez.</p>
+              <p className="text-[8px] font-bold text-black">Yazılım: ERP12 Mobil Saha & B2B Dağıtım</p>
             </div>
           </div>
         </div>
@@ -1001,6 +1458,19 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
           {copiedAlert && (
             <div className="p-2 text-xs rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-center font-medium animate-fadeIn">
               Fiş metni kopyalandı ve WhatsApp yönlendirildi!
+            </div>
+          )}
+
+          {printStatusMsg && (
+            <div
+              className={`p-2.5 text-xs rounded-xl flex items-center justify-center gap-1.5 font-bold animate-fadeIn ${
+                printStatusMsg.type === 'success'
+                  ? 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30'
+                  : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+              }`}
+            >
+              <CheckCircle2 className="w-4 h-4 shrink-0" />
+              <span>{printStatusMsg.text}</span>
             </div>
           )}
 
@@ -1017,10 +1487,20 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
             <button
               type="button"
               onClick={handlePrint}
-              className="flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold text-sm transition-all shadow-md active:scale-95"
+              disabled={isPrinting}
+              className="flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-semibold text-sm transition-all shadow-md active:scale-95"
             >
-              <Printer className="w-4 h-4" />
-              <span>Yazdır / Fiş Çıkar</span>
+              {isPrinting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Yazdırılıyor...</span>
+                </>
+              ) : (
+                <>
+                  <Printer className="w-4 h-4" />
+                  <span>Yazdır / Fiş Çıkar</span>
+                </>
+              )}
             </button>
           </div>
 

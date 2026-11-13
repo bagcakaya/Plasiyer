@@ -225,6 +225,15 @@ export const sqlCloudRelay = {
     return null;
   },
 
+  async remotePrintThermal(payload) {
+    const res = await callRemoteRelay('printThermal', {}, JSON.stringify(payload || {}));
+    if (!res) return null;
+    if (res.success && res.result) {
+      return res.result;
+    }
+    return null;
+  },
+
   startLocalCloudflareTunnel(localPort = 4000) {
     if (process.env.VERCEL || !process.env.BLOB_READ_WRITE_TOKEN) return;
     if (tunnelChild) return;

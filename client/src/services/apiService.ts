@@ -935,5 +935,59 @@ export const apiService = {
     } catch (err: any) {
       throw handleFetchError(err);
     }
+  },
+
+  // Fişi Doğrudan 1 Numaralı Termal Yazıcıya Gönder
+  async printThermalReceipt(
+    config: ServerConfig | undefined,
+    payload: Record<string, any>
+  ): Promise<{ success: boolean; printerName?: string; message?: string }> {
+    const baseUrl = await resolveApiBaseUrlAsync(config, true);
+    const reqHeaders = {
+      'Content-Type': 'application/json',
+      ...buildSqlHeaders(config),
+    };
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+
+    try {
+      let response = await fetch(`${baseUrl}/print/thermal`, {
+        method: 'POST',
+        headers: reqHeaders,
+        body: JSON.stringify(payload),
+        signal: controller.signal,
+      }).catch(() => null);
+
+      if ((!response || !response.ok) && baseUrl !== '/api') {
+        response = await fetch('/api/print/thermal', {
+          method: 'POST',
+          headers: reqHeaders,
+          body: JSON.stringify(payload),
+          signal: controller.signal,
+        }).catch(() => null);
+      }
+
+      clearTimeout(timeoutId);
+      if (!response || !response.ok) {
+        const errData = response ? await response.json().catch(() => ({})) : {};
+        return {
+          success: false,
+          message: errData.message || '1 numaralı termal yazıcı servisine ulaşılamadı.',
+        };
+      }
+      const data = await response.json().catch(() => ({}));
+      return {
+        success: Boolean(data?.success),
+        printerName: data?.printerName || '1',
+        message: data?.message,
+      };
+    } catch {
+      clearTimeout(timeoutId);
+      return {
+        success: false,
+        message: '1 numaralı termal yazıcı servisine ulaşılamadı.',
+      };
+    }
   }
 };
