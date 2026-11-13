@@ -47,80 +47,20 @@ const formatOrderDate = (isoDate?: string) => {
   });
 };
 
-const formatNumberTr = (val: number) => {
-  return new Intl.NumberFormat('tr-TR', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(val);
-};
-
-const toRawEditableNumber = (val: number) => {
-  if (!val || val <= 0) return '';
-  return Number.isInteger(val) ? String(val) : val.toFixed(2).replace('.', ',');
-};
-
-const parseTurkishFloat = (valStr: string): number => {
-  if (!valStr) return 0;
-  let cleaned = valStr.replace(/\s/g, '').replace(/₺/g, '');
-  if (cleaned.includes(',')) {
-    cleaned = cleaned.replace(/\./g, '').replace(',', '.');
-  } else {
-    const dotCount = (cleaned.match(/\./g) || []).length;
-    if (dotCount > 1) {
-      cleaned = cleaned.replace(/\./g, '');
-    }
-  }
-  const num = parseFloat(cleaned);
-  return isNaN(num) ? 0 : num;
-};
-
 interface CartItemRowProps {
   item: OrderItem;
-  userRole: string;
   removeFromCart: (productId: string) => void;
   updateCartItemQuantity: (productId: string, quantity: number) => void;
-  updateCartItemPrice: (productId: string, unitPrice: number) => void;
   toggleCartItemSelected: (productId: string) => void;
 }
 
 const CartItemRow: React.FC<CartItemRowProps> = ({
   item,
-  userRole,
   removeFromCart,
   updateCartItemQuantity,
-  updateCartItemPrice,
   toggleCartItemSelected,
 }) => {
   const isSelected = item.selected !== false;
-  const [unitPriceStr, setUnitPriceStr] = useState<string>(formatNumberTr(item.unitPrice));
-  const [isUnitPriceFocused, setIsUnitPriceFocused] = useState(false);
-
-  useEffect(() => {
-    if (!isUnitPriceFocused) {
-      setUnitPriceStr(formatNumberTr(item.unitPrice));
-    }
-  }, [item.unitPrice, isUnitPriceFocused]);
-
-  const handleUnitPriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
-    setUnitPriceStr(raw);
-    if (raw.trim() === '') return;
-    const val = parseTurkishFloat(raw);
-    if (!isNaN(val) && val >= 0) {
-      updateCartItemPrice(item.productId, val);
-    }
-  };
-
-  const handleUnitPriceBlur = () => {
-    setIsUnitPriceFocused(false);
-    const val = parseTurkishFloat(unitPriceStr);
-    if (unitPriceStr.trim() === '' || isNaN(val) || val < 0) {
-      setUnitPriceStr(formatNumberTr(item.unitPrice));
-    } else {
-      updateCartItemPrice(item.productId, val);
-      setUnitPriceStr(formatNumberTr(val));
-    }
-  };
 
   const imageUrl = getProductImageUrl(
     item.productName,
@@ -183,35 +123,11 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
               Sipariş Tarihi: {formattedDate}
             </div>
 
-            {/* BİRİM FİYATI (Telefon ekranında Görsel-2 gibi hemen tarihin altında belirgin, Web ekranında birim fiyat bilgisi) */}
+            {/* BİRİM FİYATI (Sabit / Düzenlenemez Metin) */}
             <div className="mt-1 flex items-center flex-wrap gap-x-2 gap-y-1">
-              {userRole === 'plasiyer' && !item.isGift ? (
-                <div className="inline-flex items-center gap-1.5">
-                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
-                    Birim Fiyatı:
-                  </span>
-                  <div className="inline-flex items-center gap-0.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus-within:border-orange-500 px-2 py-0.5 rounded-lg">
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={unitPriceStr}
-                      onFocus={(e) => {
-                        setIsUnitPriceFocused(true);
-                        setUnitPriceStr(toRawEditableNumber(item.unitPrice));
-                        setTimeout(() => e.target.select(), 10);
-                      }}
-                      onChange={handleUnitPriceChange}
-                      onBlur={handleUnitPriceBlur}
-                      className="w-20 bg-transparent text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white focus:outline-none"
-                    />
-                    <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">TL</span>
-                  </div>
-                </div>
-              ) : (
-                <span className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-300">
-                  Birim Fiyatı: <strong className="font-extrabold text-slate-900 dark:text-white">{formatCurrency(item.unitPrice)}</strong>
-                </span>
-              )}
+              <span className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-300">
+                Birim Fiyatı: <strong className="font-extrabold text-slate-900 dark:text-white">{formatCurrency(item.unitPrice)}</strong>
+              </span>
 
               {/* Telefon ekranında (Görsel-2) satır toplam tutarını burada kalın puntoyla göster */}
               <span className="sm:hidden text-base font-black text-slate-900 dark:text-white block w-full mt-0.5">
@@ -313,7 +229,6 @@ export const CartPage: React.FC = () => {
     cart, 
     cartSummary, 
     updateCartItemQuantity, 
-    updateCartItemPrice,
     toggleCartItemSelected,
     setAllCartItemsSelected,
     removeFromCart, 
@@ -674,10 +589,8 @@ export const CartPage: React.FC = () => {
           <CartItemRow
             key={item.productId}
             item={item}
-            userRole={userRole}
             removeFromCart={removeFromCart}
             updateCartItemQuantity={updateCartItemQuantity}
-            updateCartItemPrice={updateCartItemPrice}
             toggleCartItemSelected={toggleCartItemSelected}
           />
         ))}
