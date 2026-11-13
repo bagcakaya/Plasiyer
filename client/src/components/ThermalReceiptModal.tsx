@@ -492,7 +492,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
       footer: {
         primaryText: footerPrimaryText,
         secondaryText: 'Fatura ve resmi sevk irsaliyesi yerine geçmez.',
-        softwareText: 'Yazılım: ERP12 Mobil Saha & B2B Dağıtım',
+        softwareText: 'Polatlar Yazılım',
       },
     };
   };
@@ -1448,7 +1448,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
                 {footerPrimaryText}
               </p>
               <p className="font-bold text-black">Fatura ve resmi sevk irsaliyesi yerine geçmez.</p>
-              <p className="text-[8px] font-bold text-black">Yazılım: ERP12 Mobil Saha & B2B Dağıtım</p>
+              <p className="text-[8px] font-bold text-black">Polatlar Yazılım</p>
             </div>
           </div>
         </div>
