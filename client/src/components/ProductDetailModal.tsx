@@ -57,7 +57,14 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   if (!isOpen || !product) return null;
 
   const priceInfo = calculateCustomerPrice(product, activeCustomer);
+  const hasRealPhoto = Boolean(
+    localImage &&
+      (localImage.startsWith('/') ||
+        localImage.startsWith('http') ||
+        (localImage.startsWith('data:image/') && !localImage.startsWith('data:image/svg+xml')))
+  );
   const imageUrl = getProductImageUrl(product.name, product.category, localImage, 'hero');
+  const fallbackHeroUrl = getProductImageUrl(product.name, product.category, undefined, 'hero');
   const inCartQty = cart.find(i => i.productId === product.id)?.quantity || 0;
 
   const handleQuantityInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -141,13 +148,33 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
     <div className="fixed inset-0 z-[100] bg-slate-950 sm:bg-black/75 sm:backdrop-blur-sm flex items-stretch sm:items-center justify-center p-0 sm:p-4 overscroll-none animate-in fade-in">
       <div className="bg-white dark:bg-slate-900 w-full sm:max-w-md h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[92vh] rounded-none sm:rounded-3xl shadow-2xl border-0 sm:border border-slate-200 dark:border-slate-800 overflow-hidden overscroll-none flex flex-col">
         {/* Görsel Alanı & Kapat Butonu (iPhone Çentik / Dynamic Island Uyumlu Esnek Tek Ekran Başlığı) */}
-        <div className="relative min-h-[8.25rem] h-[26dvh] max-h-[15.5rem] sm:h-56 sm:max-h-none bg-slate-100 dark:bg-slate-800 overflow-hidden group shrink-0">
-          <img 
-            src={imageUrl} 
+        <div
+          className={`relative min-h-[8.25rem] h-[26dvh] max-h-[15.5rem] sm:h-56 sm:max-h-none overflow-hidden group shrink-0 ${
+            hasRealPhoto ? 'bg-white' : 'bg-slate-100 dark:bg-slate-800'
+          }`}
+        >
+          <img
+            src={imageUrl}
             alt={product.name}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+            onError={(e) => {
+              const target = e.currentTarget;
+              if (target.src !== fallbackHeroUrl) {
+                target.src = fallbackHeroUrl;
+                target.className =
+                  'w-full h-full object-cover transition-transform duration-500 group-hover:scale-105';
+              }
+            }}
+            className={`w-full h-full transition-transform duration-500 group-hover:scale-105 ${
+              hasRealPhoto ? 'object-contain p-2 bg-white' : 'object-cover'
+            }`}
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/65 via-transparent to-black/35" />
+          <div
+            className={`absolute inset-0 pointer-events-none ${
+              hasRealPhoto
+                ? 'bg-gradient-to-t from-black/45 via-transparent to-black/20'
+                : 'bg-gradient-to-t from-black/65 via-transparent to-black/35'
+            }`}
+          />
 
           {/* Fotoğraf Ekle / Değiştir Butonu */}
           <button

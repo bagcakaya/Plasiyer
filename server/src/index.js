@@ -11,6 +11,7 @@ import {
   executeJsonQuery,
   executeNonQuery,
   sqlContext,
+  decodeSqlConfigToken,
 } from './db.js';
 import { imageService } from './imageService.js';
 import {
@@ -47,7 +48,7 @@ app.use((req, res, next) => {
 app.use(express.json({ limit: '25mb' }));
 app.use(express.urlencoded({ extended: true, limit: '25mb' }));
 
-// Dinamik Çoklu Firma / Doğrudan SQL Server Bağlantı Bağlamı (X-SQL-Config Header)
+// Dinamik Çoklu Firma / Doğrudan SQL Server Bağlantı Bağlamı (X-SQL-Config Header veya ?t= Token)
 app.use((req, res, next) => {
   const rawHeader = req.headers['x-sql-config'];
   let parsedSqlCfg = null;
@@ -61,6 +62,8 @@ app.use((req, res, next) => {
     }
   } else if (req.body && req.body.sqlConfig && typeof req.body.sqlConfig === 'object') {
     parsedSqlCfg = req.body.sqlConfig;
+  } else if (req.query && typeof req.query.t === 'string' && req.query.t) {
+    parsedSqlCfg = decodeSqlConfigToken(req.query.t);
   }
 
   if (parsedSqlCfg && parsedSqlCfg.sqlHost) {
@@ -409,7 +412,7 @@ app.get('/api/products', async (req, res) => {
   const activeCfg = sqlContext.getStore();
   try {
     const products = await erpQueries.getProducts();
-    if (!process.env.VERCEL && sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+    if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
       sqlCloudMirror.saveProducts(activeCfg, products).catch(() => {});
     }
     res.json(products);
@@ -425,6 +428,78 @@ app.get('/api/products', async (req, res) => {
     console.error('Stok çekme hatası:', err.message);
     res.status(500).json({ error: 'Stoklar alınamadı', detail: err.message });
   }
+});
+
+// 2.0.1 ERP12 RESIM TABLOSUNDAN ÜRÜN GÖRSELİ SUNUMU (RESIM.ID = STOK.ID VEYA STOK.KOD)
+app.get('/api/products/erp-image/:idOrCode', async (req, res) => {
+  const { idOrCode } = req.params;
+  const code = String(req.query.code || '').trim();
+  const dbQuery = String(req.query.db || '').trim().toUpperCase();
+
+  let activeCfg = sqlContext.getStore();
+
+  // Eğer <img> etiketi ile doğrudan çağrıldıysa ve t token yoksa, db adına göre bulut kayıt defterinden SQL bilgisini bul
+  if ((!activeCfg || !activeCfg.sqlHost) && dbQuery) {
+    try {
+      const reg = await cloudRegistry.getFullRegistry();
+      const matchedProfile = (reg?.profiles || []).find(
+        (p) =>
+          String(p.sqlDatabase || '').trim().toUpperCase() === dbQuery ||
+          String(p.code || '').trim().toUpperCase() === dbQuery
+      );
+      if (matchedProfile && matchedProfile.sqlHost) {
+        activeCfg = {
+          sqlHost: matchedProfile.sqlHost,
+          sqlPort: matchedProfile.sqlPort || '1433',
+          sqlDatabase: matchedProfile.sqlDatabase,
+          sqlUser: matchedProfile.sqlUser,
+          sqlPassword: matchedProfile.sqlPassword,
+        };
+      }
+    } catch {
+      // ignore registry lookup error
+    }
+  }
+
+  const runFetch = async () => {
+    try {
+      const img = await erpQueries.getProductErpImage(idOrCode, code);
+      if (img?.buffer) {
+        if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+          sqlCloudMirror.saveProductImage(activeCfg, img.stokId || idOrCode, img).catch(() => {});
+        }
+        res.setHeader('Content-Type', img.contentType || 'image/jpeg');
+        res.setHeader(
+          'Cache-Control',
+          'public, max-age=604800, s-maxage=2592000, stale-while-revalidate=86400'
+        );
+        return res.send(img.buffer);
+      }
+      if (img?.link && /^https?:\/\//i.test(img.link)) {
+        return res.redirect(302, img.link);
+      }
+    } catch (sqlErr) {
+      if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+        const mirroredImg = await sqlCloudMirror.getProductImage(activeCfg, idOrCode);
+        if (mirroredImg?.buffer) {
+          res.setHeader('Content-Type', mirroredImg.contentType || 'image/jpeg');
+          res.setHeader(
+            'Cache-Control',
+            'public, max-age=604800, s-maxage=2592000, stale-while-revalidate=86400'
+          );
+          return res.send(mirroredImg.buffer);
+        }
+      }
+      console.warn(`⚠️ ERP12 görsel okuma uyarısı (${idOrCode}):`, sqlErr.message);
+    }
+
+    return res.status(404).end();
+  };
+
+  if (activeCfg && activeCfg.sqlHost && !sqlContext.getStore()) {
+    return sqlContext.run(activeCfg, runFetch);
+  }
+  return runFetch();
 });
 
 // 2.1 STOK GRUPLARI LİSTESİ (STOK_GRUP)

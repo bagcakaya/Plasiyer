@@ -374,7 +374,15 @@ export const CatalogPage: React.FC = () => {
             const inCartQty = getItemQuantityInCart(product.id);
             const isOutOfStock = product.stockQuantity <= 0;
             const priceInfo = calculateCustomerPrice(product, activeCustomer);
+            const hasRealPhoto = Boolean(
+              product.image &&
+                (product.image.startsWith('/') ||
+                  product.image.startsWith('http') ||
+                  (product.image.startsWith('data:image/') &&
+                    !product.image.startsWith('data:image/svg+xml')))
+            );
             const imgUrl = getProductImageUrl(product.name, product.category, product.image);
+            const fallbackCardUrl = getProductImageUrl(product.name, product.category, undefined);
 
             return (
               <div
@@ -384,12 +392,24 @@ export const CatalogPage: React.FC = () => {
                 {/* Üst Görsel Alanı */}
                 <div 
                   onClick={() => setDetailProduct(product)}
-                  className="relative aspect-square bg-slate-100 dark:bg-slate-800 cursor-pointer overflow-hidden"
+                  className={`relative aspect-square cursor-pointer overflow-hidden ${
+                    hasRealPhoto ? 'bg-white' : 'bg-slate-100 dark:bg-slate-800'
+                  }`}
                 >
                   <img 
                     src={imgUrl} 
                     alt={product.name} 
-                    className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
+                    onError={(e) => {
+                      const target = e.currentTarget;
+                      if (target.src !== fallbackCardUrl) {
+                        target.src = fallbackCardUrl;
+                        target.className =
+                          'w-full h-full object-cover transition-transform duration-300 group-hover:scale-105';
+                      }
+                    }}
+                    className={`w-full h-full transition-transform duration-300 group-hover:scale-105 ${
+                      hasRealPhoto ? 'object-contain p-1.5 bg-white' : 'object-cover'
+                    }`}
                     loading="lazy"
                   />
                   {/* Hızlı İnceleme Butonu */}
@@ -552,7 +572,15 @@ export const CatalogPage: React.FC = () => {
             const inCartQty = getItemQuantityInCart(product.id);
             const isOutOfStock = product.stockQuantity <= 0;
             const priceInfo = calculateCustomerPrice(product, activeCustomer);
+            const hasRealPhoto = Boolean(
+              product.image &&
+                (product.image.startsWith('/') ||
+                  product.image.startsWith('http') ||
+                  (product.image.startsWith('data:image/') &&
+                    !product.image.startsWith('data:image/svg+xml')))
+            );
             const imgUrl = getProductImageUrl(product.name, product.category, product.image);
+            const fallbackCardUrl = getProductImageUrl(product.name, product.category, undefined);
 
             return (
               <div
@@ -564,12 +592,24 @@ export const CatalogPage: React.FC = () => {
                   {/* Görsel Thumbnail */}
                   <div 
                     onClick={() => setDetailProduct(product)}
-                    className="w-16 h-16 rounded-xl bg-slate-100 dark:bg-slate-800 shrink-0 overflow-hidden cursor-pointer relative group border border-slate-100 dark:border-slate-800"
+                    className={`w-16 h-16 rounded-xl shrink-0 overflow-hidden cursor-pointer relative group border border-slate-100 dark:border-slate-800 ${
+                      hasRealPhoto ? 'bg-white' : 'bg-slate-100 dark:bg-slate-800'
+                    }`}
                   >
                     <img 
                       src={imgUrl} 
                       alt={product.name} 
-                      className="w-full h-full object-cover transition-transform group-hover:scale-105"
+                      onError={(e) => {
+                        const target = e.currentTarget;
+                        if (target.src !== fallbackCardUrl) {
+                          target.src = fallbackCardUrl;
+                          target.className =
+                            'w-full h-full object-cover transition-transform group-hover:scale-105';
+                        }
+                      }}
+                      className={`w-full h-full transition-transform group-hover:scale-105 ${
+                        hasRealPhoto ? 'object-contain p-1 bg-white' : 'object-cover'
+                      }`}
                       loading="lazy"
                     />
                     <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">

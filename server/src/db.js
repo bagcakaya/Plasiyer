@@ -1,4 +1,5 @@
 import sql from 'mssql';
+import crypto from 'crypto';
 import { AsyncLocalStorage } from 'async_hooks';
 import { execFile } from 'child_process';
 import util from 'util';
@@ -114,6 +115,57 @@ export function getActiveDbKey() {
   const cfg = getActiveSqlConfig();
   if (!cfg) return `DEFAULT:${DB_SERVER}:${DB_PORT}:${DB_NAME}`;
   return `CUSTOM:${cfg.server}:${cfg.port}:${cfg.database}:${cfg.user}`;
+}
+
+const TOKEN_SECRET_KEY = crypto
+  .createHash('sha256')
+  .update(process.env.BLOB_READ_WRITE_TOKEN || 'polatlar-erp12-img-secret-v1')
+  .digest();
+
+export function encodeSqlConfigToken(customCfg) {
+  const cfg = customCfg || getActiveSqlConfig();
+  if (!cfg || !cfg.server) return '';
+  try {
+    const payload = JSON.stringify({
+      h: cfg.server || cfg.sqlHost,
+      p: String(cfg.port || cfg.sqlPort || 1433),
+      d: cfg.database || cfg.sqlDatabase || DB_NAME,
+      u: cfg.user || cfg.sqlUser || '',
+      w: cfg.password ?? cfg.sqlPassword ?? '',
+    });
+    const iv = crypto.randomBytes(12);
+    const cipher = crypto.createCipheriv('aes-256-gcm', TOKEN_SECRET_KEY, iv);
+    const enc = Buffer.concat([cipher.update(payload, 'utf8'), cipher.final()]);
+    const tag = cipher.getAuthTag();
+    return Buffer.concat([iv, tag, enc]).toString('base64url');
+  } catch {
+    return '';
+  }
+}
+
+export function decodeSqlConfigToken(token) {
+  if (!token || typeof token !== 'string') return null;
+  try {
+    const buf = Buffer.from(token, 'base64url');
+    if (buf.length < 29) return null;
+    const iv = buf.subarray(0, 12);
+    const tag = buf.subarray(12, 28);
+    const enc = buf.subarray(28);
+    const decipher = crypto.createDecipheriv('aes-256-gcm', TOKEN_SECRET_KEY, iv);
+    decipher.setAuthTag(tag);
+    const jsonStr = Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
+    const p = JSON.parse(jsonStr);
+    if (!p || !p.h) return null;
+    return {
+      sqlHost: String(p.h),
+      sqlPort: String(p.p || '1433'),
+      sqlDatabase: String(p.d || DB_NAME),
+      sqlUser: String(p.u || ''),
+      sqlPassword: String(p.w ?? ''),
+    };
+  } catch {
+    return null;
+  }
 }
 
 function buildMssqlConfig(cfg) {

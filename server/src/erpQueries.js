@@ -1,12 +1,34 @@
-import { executeJsonQuery, getActiveDbKey } from './db.js';
+import {
+  executeJsonQuery,
+  getActiveDbKey,
+  getActiveSqlConfig,
+  encodeSqlConfigToken,
+} from './db.js';
 import { imageService } from './imageService.js';
 
 // Yüksek Performanslı Bellek İçi Önbellek (Çoklu Firma / DB Anahtarı İle İzole)
 const memCache = {
-  customers: new Map(),   // `${dbKey}::${rep}` -> { data, expiresAt }
-  products: new Map(),    // `${dbKey}` -> { data, expiresAt }
-  companyInfo: new Map(), // `${dbKey}` -> { data, expiresAt }
+  customers: new Map(),     // `${dbKey}::${rep}` -> { data, expiresAt }
+  products: new Map(),      // `${dbKey}` -> { data, expiresAt }
+  companyInfo: new Map(),   // `${dbKey}` -> { data, expiresAt }
+  productImages: new Map(), // `${dbKey}::${idOrCode}` -> { data, expiresAt }
 };
+
+function detectImageMimeType(buf, rawExt = 'jpg') {
+  if (Buffer.isBuffer(buf) && buf.length >= 4) {
+    if (buf[0] === 0xff && buf[1] === 0xd8) return 'image/jpeg';
+    if (buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) return 'image/png';
+    if (buf[0] === 0x47 && buf[1] === 0x49 && buf[2] === 0x46) return 'image/gif';
+    if (buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46) return 'image/webp';
+    if (buf[0] === 0x42 && buf[1] === 0x4d) return 'image/bmp';
+  }
+  const ext = String(rawExt || 'jpg').toLowerCase().replace(/^\./, '').trim();
+  if (ext === 'png') return 'image/png';
+  if (ext === 'webp') return 'image/webp';
+  if (ext === 'gif') return 'image/gif';
+  if (ext === 'bmp') return 'image/bmp';
+  return 'image/jpeg';
+}
 
 export const erpQueries = {
   invalidateCustomerCache() {
@@ -288,7 +310,7 @@ export const erpQueries = {
       SELECT TOP 1 @p3 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 449803;
       IF @p3 IS NULL SELECT TOP 1 @p3 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID NOT IN (ISNULL(@p1, -1), ISNULL(@p2, -1)) ORDER BY ID ASC;
 
-      SELECT TOP 2000
+      SELECT TOP 10000
         S.ID AS id,
         S.KOD AS code,
         S.AD AS name,
@@ -299,7 +321,9 @@ export const erpQueries = {
         COALESCE(F.FIYAT, F_ANY.FIYAT, 0) AS price1,
         COALESCE(F2.FIYAT, F.FIYAT, F_ANY.FIYAT, 0) AS price2,
         COALESCE(F3.FIYAT, F.FIYAT, F_ANY.FIYAT, 0) AS price3,
-        ISNULL(M.MIKTAR, 0) AS stockQuantity
+        ISNULL(M.MIKTAR, 0) AS stockQuantity,
+        IMG.resimIdx AS resimIdx,
+        IMG.resimLink AS erpImageLink
       FROM STOK S WITH(NOLOCK)
       LEFT JOIN STOK_GRUP G WITH(NOLOCK) ON G.ID = S.STOK_GRUP
       LEFT JOIN STOK_VERGI V WITH(NOLOCK) ON V.ID = S.STOK_VERGI
@@ -322,6 +346,15 @@ export const erpQueries = {
       LEFT JOIN (
         SELECT STOK, SUM(MIKTAR) AS MIKTAR FROM STOK_MIKTAR WITH(NOLOCK) GROUP BY STOK
       ) M ON M.STOK = S.ID
+      LEFT JOIN (
+        SELECT
+          ID,
+          MIN(IDX) AS resimIdx,
+          MAX(CASE WHEN LINK IS NOT NULL AND LTRIM(RTRIM(LINK)) <> '' THEN LTRIM(RTRIM(LINK)) ELSE NULL END) AS resimLink
+        FROM RESIM WITH(NOLOCK)
+        WHERE RESIM IS NOT NULL OR (LINK IS NOT NULL AND LTRIM(RTRIM(LINK)) <> '')
+        GROUP BY ID
+      ) IMG ON IMG.ID = S.ID
       WHERE S.AKTIF = 1
         AND ISNULL(G.AD, '') NOT LIKE '%MASRAF%'
       ORDER BY S.AD ASC
@@ -331,34 +364,118 @@ export const erpQueries = {
     try {
       rows = await executeJsonQuery(query);
     } catch (err) {
-      const fallbackProdQuery = `
-        SELECT TOP 2000
+      const fallbackWithoutResimQuery = `
+        DECLARE @p1 bigint;
+        SELECT TOP 1 @p1 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 1016;
+        IF @p1 IS NULL SELECT TOP 1 @p1 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) ORDER BY ID ASC;
+
+        DECLARE @p2 bigint;
+        SELECT TOP 1 @p2 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 3294504;
+        IF @p2 IS NULL SELECT TOP 1 @p2 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID <> ISNULL(@p1, -1) ORDER BY ID ASC;
+
+        DECLARE @p3 bigint;
+        SELECT TOP 1 @p3 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 449803;
+        IF @p3 IS NULL SELECT TOP 1 @p3 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID NOT IN (ISNULL(@p1, -1), ISNULL(@p2, -1)) ORDER BY ID ASC;
+
+        SELECT TOP 10000
           S.ID AS id,
           S.KOD AS code,
           S.AD AS name,
           ISNULL(G.AD, 'Genel') AS category,
-          'ADET' AS unit,
-          1 AS vatRate,
-          S.KOD AS barcode,
-          0 AS price1,
-          0 AS price2,
-          0 AS price3,
-          0 AS stockQuantity
+          ISNULL(SB.AD, 'ADET') AS unit,
+          ISNULL(V.KDV_TOPTAN, 1) AS vatRate,
+          ISNULL(B.BARKOD, S.KOD) AS barcode,
+          COALESCE(F.FIYAT, F_ANY.FIYAT, 0) AS price1,
+          COALESCE(F2.FIYAT, F.FIYAT, F_ANY.FIYAT, 0) AS price2,
+          COALESCE(F3.FIYAT, F.FIYAT, F_ANY.FIYAT, 0) AS price3,
+          ISNULL(M.MIKTAR, 0) AS stockQuantity
         FROM STOK S WITH(NOLOCK)
         LEFT JOIN STOK_GRUP G WITH(NOLOCK) ON G.ID = S.STOK_GRUP
+        LEFT JOIN STOK_VERGI V WITH(NOLOCK) ON V.ID = S.STOK_VERGI
+        LEFT JOIN STOK_STOK_BIRIM SSB WITH(NOLOCK) ON SSB.STOK = S.ID AND SSB.VARSAYILAN = 1
+        LEFT JOIN STOK_BIRIM SB WITH(NOLOCK) ON SB.ID = SSB.STOK_BIRIM
+        LEFT JOIN (
+          SELECT STOK_STOK_BIRIM, MIN(BARKOD) AS BARKOD 
+          FROM STOK_BARKOD WITH(NOLOCK) 
+          WHERE AKTIF = 1 
+          GROUP BY STOK_STOK_BIRIM
+        ) B ON B.STOK_STOK_BIRIM = SSB.ID
+        LEFT JOIN STOK_VARSAYILAN_FIYAT F WITH(NOLOCK) ON F.STOK_STOK_BIRIM = SSB.ID AND F.STOK_FIYAT_AD = @p1
+        LEFT JOIN STOK_VARSAYILAN_FIYAT F2 WITH(NOLOCK) ON F2.STOK_STOK_BIRIM = SSB.ID AND F2.STOK_FIYAT_AD = @p2
+        LEFT JOIN STOK_VARSAYILAN_FIYAT F3 WITH(NOLOCK) ON F3.STOK_STOK_BIRIM = SSB.ID AND F3.STOK_FIYAT_AD = @p3
+        LEFT JOIN (
+          SELECT STOK_STOK_BIRIM, MAX(FIYAT) AS FIYAT
+          FROM STOK_VARSAYILAN_FIYAT WITH(NOLOCK)
+          GROUP BY STOK_STOK_BIRIM
+        ) F_ANY ON F_ANY.STOK_STOK_BIRIM = SSB.ID
+        LEFT JOIN (
+          SELECT STOK, SUM(MIKTAR) AS MIKTAR FROM STOK_MIKTAR WITH(NOLOCK) GROUP BY STOK
+        ) M ON M.STOK = S.ID
         WHERE S.AKTIF = 1
           AND ISNULL(G.AD, '') NOT LIKE '%MASRAF%'
         ORDER BY S.AD ASC
       `;
-      rows = await executeJsonQuery(fallbackProdQuery);
+      try {
+        rows = await executeJsonQuery(fallbackWithoutResimQuery);
+      } catch {
+        const fallbackProdQuery = `
+          SELECT TOP 10000
+            S.ID AS id,
+            S.KOD AS code,
+            S.AD AS name,
+            ISNULL(G.AD, 'Genel') AS category,
+            'ADET' AS unit,
+            1 AS vatRate,
+            S.KOD AS barcode,
+            0 AS price1,
+            0 AS price2,
+            0 AS price3,
+            0 AS stockQuantity
+          FROM STOK S WITH(NOLOCK)
+          LEFT JOIN STOK_GRUP G WITH(NOLOCK) ON G.ID = S.STOK_GRUP
+          WHERE S.AKTIF = 1
+            AND ISNULL(G.AD, '') NOT LIKE '%MASRAF%'
+          ORDER BY S.AD ASC
+        `;
+        rows = await executeJsonQuery(fallbackProdQuery);
+      }
     }
     const imageMap = imageService.getAllProductImagesMap();
+    const activeSqlCfg = getActiveSqlConfig();
+    const sqlToken = encodeSqlConfigToken(activeSqlCfg);
+    const activeDbName = activeSqlCfg?.database || '';
+    const dbQuerySuffix = [
+      activeDbName ? `db=${encodeURIComponent(activeDbName)}` : '',
+      sqlToken ? `t=${encodeURIComponent(sqlToken)}` : '',
+    ]
+      .filter(Boolean)
+      .join('&');
 
     const result = rows.map((row) => {
       const code = String(row.code);
       const id = String(row.id);
       const barcode = String(row.barcode || row.code);
-      const matchedImage = imageMap[code] || imageMap[id] || imageMap[barcode] || row.erpImageLink || undefined;
+
+      let erpResimUrl;
+      if (row.erpImageLink && /^https?:\/\//i.test(String(row.erpImageLink).trim())) {
+        erpResimUrl = String(row.erpImageLink).trim();
+      } else if (row.resimIdx) {
+        const qs = [
+          `code=${encodeURIComponent(code)}`,
+          `idx=${encodeURIComponent(String(row.resimIdx))}`,
+          dbQuerySuffix,
+        ]
+          .filter(Boolean)
+          .join('&');
+        erpResimUrl = `/api/products/erp-image/${encodeURIComponent(id)}?${qs}`;
+      }
+
+      const matchedImage =
+        imageMap[code] ||
+        imageMap[id] ||
+        imageMap[barcode] ||
+        erpResimUrl ||
+        undefined;
 
       return {
         id,
@@ -378,6 +495,88 @@ export const erpQueries = {
 
     // 60 saniye süreyle bellekte sakla
     memCache.products.set(dbKey, { data: result, expiresAt: Date.now() + 60000 });
+    return result;
+  },
+
+  // 2.0.1 ERP12 RESIM TABLOSUNDAN ÜRÜN GÖRSELİ (RESIM.ID = STOK.ID VEYA STOK.KOD)
+  async getProductErpImage(idOrCode, productCode = '') {
+    const dbKey = getActiveDbKey();
+    const safeId = String(idOrCode || '').trim().replace(/'/g, "''");
+    const safeCode = String(productCode || '').trim().replace(/'/g, "''");
+    if (!safeId && !safeCode) return null;
+
+    const cacheKey = `${dbKey}::${safeId}::${safeCode}`;
+    const now = Date.now();
+    const cached = memCache.productImages.get(cacheKey);
+    if (cached && cached.expiresAt > now) {
+      return cached.data;
+    }
+
+    const query = `
+      SELECT TOP 1
+        X.idx,
+        X.stokId,
+        X.ext,
+        X.link,
+        CAST('' AS xml).value('xs:base64Binary(sql:column("X.binData"))', 'varchar(max)') AS base64Data
+      FROM (
+        SELECT TOP 1
+          R.IDX AS idx,
+          R.ID AS stokId,
+          LOWER(LTRIM(RTRIM(ISNULL(R.UZANTI, 'jpg')))) AS ext,
+          LTRIM(RTRIM(ISNULL(R.LINK, ''))) AS link,
+          CAST(R.RESIM AS varbinary(max)) AS binData
+        FROM RESIM R WITH(NOLOCK)
+        LEFT JOIN STOK S WITH(NOLOCK) ON S.ID = R.ID
+        WHERE (
+          (TRY_CAST('${safeId}' AS bigint) IS NOT NULL AND R.ID = TRY_CAST('${safeId}' AS bigint))
+          OR ('${safeCode}' <> '' AND S.KOD = '${safeCode}')
+          OR S.KOD = '${safeId}'
+        )
+        AND (R.RESIM IS NOT NULL OR (R.LINK IS NOT NULL AND LTRIM(RTRIM(R.LINK)) <> ''))
+        ORDER BY ISNULL(R.SIRA, 1) ASC, R.IDX ASC
+      ) X
+    `;
+
+    const rows = await executeJsonQuery(query);
+    if (!Array.isArray(rows) || rows.length === 0) {
+      return null;
+    }
+
+    const row = rows[0];
+    const link = String(row.link || '').trim();
+    const base64Data = String(row.base64Data || '').trim();
+
+    let buffer = null;
+    let contentType = 'image/jpeg';
+
+    if (base64Data) {
+      buffer = Buffer.from(base64Data, 'base64');
+      contentType = detectImageMimeType(buffer, row.ext);
+    }
+
+    if (!buffer && !link) {
+      return null;
+    }
+
+    const result = {
+      idx: String(row.idx || ''),
+      stokId: String(row.stokId || safeId),
+      ext: String(row.ext || 'jpg'),
+      contentType,
+      buffer,
+      link: link || null,
+    };
+
+    if (memCache.productImages.size > 250) {
+      const oldestKey = memCache.productImages.keys().next().value;
+      if (oldestKey) memCache.productImages.delete(oldestKey);
+    }
+    memCache.productImages.set(cacheKey, {
+      data: result,
+      expiresAt: now + 30 * 60 * 1000,
+    });
+
     return result;
   },
 

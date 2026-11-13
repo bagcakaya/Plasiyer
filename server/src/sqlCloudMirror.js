@@ -197,6 +197,36 @@ export const sqlCloudMirror = {
     return data.info;
   },
 
+  async saveProductImage(cfg, stokId, imgObj) {
+    const key = makeMirrorKey(cfg);
+    const cleanId = String(stokId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (!key || !cleanId || !imgObj?.buffer) return;
+    await putMirrorJson(key, `erp-images/${cleanId}.json`, {
+      authHash: makeAuthHash(cfg),
+      syncedAt: new Date().toISOString(),
+      contentType: imgObj.contentType || 'image/jpeg',
+      ext: imgObj.ext || 'jpg',
+      idx: imgObj.idx || '',
+      base64: imgObj.buffer.toString('base64'),
+    });
+  },
+
+  async getProductImage(cfg, stokId) {
+    const key = makeMirrorKey(cfg);
+    const cleanId = String(stokId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+    if (!key || !cleanId) return null;
+    const data = await getMirrorJson(key, `erp-images/${cleanId}.json`);
+    if (!data || data.authHash !== makeAuthHash(cfg) || !data.base64) {
+      return null;
+    }
+    return {
+      contentType: data.contentType || 'image/jpeg',
+      ext: data.ext || 'jpg',
+      idx: data.idx || '',
+      buffer: Buffer.from(data.base64, 'base64'),
+    };
+  },
+
   async enqueueOutboxItem(cfg, item) {
     const key = makeMirrorKey(cfg);
     if (!key) return false;
