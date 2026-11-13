@@ -27,8 +27,28 @@ export const campaignService = {
     campaigns: Campaign[],
     allProducts: Product[]
   ): CampaignEvaluationResult {
+    const productMap = new Map<string, Product>();
+    allProducts.forEach((p) => {
+      productMap.set(p.id, p);
+      if (p.code) productMap.set(p.code, p);
+    });
+
     // Sadece kullanıcının manuel eklediği ana ürünleri al (önceki otomatik hediyeleri filtrele)
-    const regularItems = rawCart.filter((item) => !item.isGift);
+    // ve eksik görsel/kategori/tarih/seçim bilgilerini ürün tablosundan tamamla
+    const regularItems = rawCart
+      .filter((item) => !item.isGift)
+      .map((item) => {
+        const matchedProd = productMap.get(item.productId) || productMap.get(item.productCode);
+        return {
+          ...item,
+          image: item.image || matchedProd?.image,
+          category: item.category || matchedProd?.category,
+          addedAt: item.addedAt || new Date().toISOString(),
+          selected: item.selected !== false,
+        };
+      });
+    // Hesaplamalara yalnızca seçili (işaretli) ürünler dahil edilir (varsayılan: seçili)
+    const selectedRegularItems = regularItems.filter((item) => item.selected !== false);
 
     const activeCampaigns = campaigns.filter((c) => {
       if (!c.isActive) return false;
@@ -38,22 +58,19 @@ export const campaignService = {
       return true;
     });
 
-    const productMap = new Map<string, Product>();
-    allProducts.forEach((p) => productMap.set(p.id, p));
-
     const giftItems: OrderItem[] = [];
     const appliedCampaigns: AppliedCampaign[] = [];
     const opportunities: CampaignOpportunity[] = [];
     let campaignDiscountAmount = 0;
     let totalGiftSavings = 0;
 
-    // 1. Ana ürünlerin brüt ve net tutarlarını hesapla
+    // 1. Seçili ana ürünlerin brüt ve net tutarlarını hesapla
     let rawSubtotal = 0;
     let regularDiscountTotal = 0;
     let regularVatTotal = 0;
     let regularItemsCount = 0;
 
-    regularItems.forEach((item) => {
+    selectedRegularItems.forEach((item) => {
       const gross = item.unitPrice * item.quantity;
       const disc = gross * ((item.discountPercent || 0) / 100);
       const net = gross - disc;
@@ -70,8 +87,8 @@ export const campaignService = {
     // 2. Kampanyaları tara
     activeCampaigns.forEach((camp) => {
       if (camp.type === 'quantity_gift' || camp.type === 'cross_product_gift') {
-        // Hedef ürünün sepetteki toplam miktarını bul
-        const targetItems = regularItems.filter((i) => i.productId === camp.targetProductId);
+        // Hedef ürünün sepetteki seçili toplam miktarını bul
+        const targetItems = selectedRegularItems.filter((i) => i.productId === camp.targetProductId);
         const currentQty = targetItems.reduce((sum, i) => sum + i.quantity, 0);
         const minQty = camp.minQuantity || 1;
 

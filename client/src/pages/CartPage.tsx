@@ -2,11 +2,13 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { db } from '../db';
 import type { Order, OrderItem } from '../types';
+import { getProductImageUrl } from '../utils/productImages';
 import { 
   Trash2, 
   Plus, 
   Minus, 
   ShoppingBag, 
+  Check,
   CheckCircle, 
   AlertCircle, 
   Calendar, 
@@ -15,7 +17,6 @@ import {
   Send, 
   Wifi, 
   WifiOff, 
-  Percent, 
   ChevronRight,
   Sparkles,
   Printer,
@@ -31,10 +32,19 @@ import {
 
 const formatCurrency = (val: number) => {
   return new Intl.NumberFormat('tr-TR', {
-    style: 'currency',
-    currency: 'TRY',
     minimumFractionDigits: 2,
-  }).format(val);
+    maximumFractionDigits: 2,
+  }).format(val) + ' TL';
+};
+
+const formatOrderDate = (isoDate?: string) => {
+  const dateObj = isoDate ? new Date(isoDate) : new Date();
+  const validDate = isNaN(dateObj.getTime()) ? new Date() : dateObj;
+  return validDate.toLocaleDateString('tr-TR', {
+    day: '2-digit',
+    month: 'long',
+    year: 'numeric',
+  });
 };
 
 const formatNumberTr = (val: number) => {
@@ -67,70 +77,29 @@ const parseTurkishFloat = (valStr: string): number => {
 interface CartItemRowProps {
   item: OrderItem;
   userRole: string;
-  saleMode: 'hot' | 'cold';
   removeFromCart: (productId: string) => void;
   updateCartItemQuantity: (productId: string, quantity: number) => void;
   updateCartItemPrice: (productId: string, unitPrice: number) => void;
-  updateCartItemDiscount: (productId: string, discountPercent: number) => void;
-  updateCartItemVatRate: (productId: string, vatRate: number) => void;
-  updateCartItemNetTotal: (productId: string, netTotal: number) => void;
-  getVanStockByCode: (productCode: string) => number;
+  toggleCartItemSelected: (productId: string) => void;
 }
 
 const CartItemRow: React.FC<CartItemRowProps> = ({
   item,
   userRole,
-  saleMode,
   removeFromCart,
   updateCartItemQuantity,
   updateCartItemPrice,
-  updateCartItemDiscount,
-  updateCartItemVatRate,
-  updateCartItemNetTotal,
-  getVanStockByCode,
+  toggleCartItemSelected,
 }) => {
-  // Birim fiyat yerel metin durumu
+  const isSelected = item.selected !== false;
   const [unitPriceStr, setUnitPriceStr] = useState<string>(formatNumberTr(item.unitPrice));
   const [isUnitPriceFocused, setIsUnitPriceFocused] = useState(false);
 
-  // İskonto yerel metin durumu
-  const [discountStr, setDiscountStr] = useState<string>(
-    item.discountPercent > 0 ? String(item.discountPercent) : ''
-  );
-  const [isDiscountFocused, setIsDiscountFocused] = useState(false);
-
-  // KDV oranı yerel metin durumu
-  const [vatRateStr, setVatRateStr] = useState<string>(String(item.vatRate ?? 0));
-  const [isVatFocused, setIsVatFocused] = useState(false);
-
-  // Tutar (KDV hariç satır tutarı) yerel metin durumu
-  const [totalStr, setTotalStr] = useState<string>(formatNumberTr(item.totalAmount));
-  const [isTotalFocused, setIsTotalFocused] = useState(false);
-
-  // Input odaklı değilken güncel değeri binlik ayraçlı net formatla senkronize et
   useEffect(() => {
     if (!isUnitPriceFocused) {
       setUnitPriceStr(formatNumberTr(item.unitPrice));
     }
   }, [item.unitPrice, isUnitPriceFocused]);
-
-  useEffect(() => {
-    if (!isDiscountFocused) {
-      setDiscountStr(item.discountPercent > 0 ? String(item.discountPercent) : '');
-    }
-  }, [item.discountPercent, isDiscountFocused]);
-
-  useEffect(() => {
-    if (!isVatFocused) {
-      setVatRateStr(String(item.vatRate ?? 0));
-    }
-  }, [item.vatRate, isVatFocused]);
-
-  useEffect(() => {
-    if (!isTotalFocused) {
-      setTotalStr(formatNumberTr(item.totalAmount));
-    }
-  }, [item.totalAmount, isTotalFocused]);
 
   const handleUnitPriceChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = e.target.value;
@@ -153,302 +122,132 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
     }
   };
 
-  const handleDiscountChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
-    setDiscountStr(raw);
-    if (raw.trim() === '') {
-      updateCartItemDiscount(item.productId, 0);
-      return;
-    }
-    const val = parseTurkishFloat(raw);
-    if (!isNaN(val) && val >= 0 && val <= 100) {
-      updateCartItemDiscount(item.productId, val);
-    }
-  };
-
-  const handleDiscountBlur = () => {
-    setIsDiscountFocused(false);
-    if (discountStr.trim() === '' || isNaN(parseTurkishFloat(discountStr))) {
-      updateCartItemDiscount(item.productId, 0);
-      setDiscountStr('');
-    }
-  };
-
-  const handleVatChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
-    setVatRateStr(raw);
-    if (raw.trim() === '') {
-      updateCartItemVatRate(item.productId, 0);
-      return;
-    }
-    const val = parseTurkishFloat(raw);
-    if (!isNaN(val) && val >= 0 && val <= 100) {
-      updateCartItemVatRate(item.productId, val);
-    }
-  };
-
-  const handleVatBlur = () => {
-    setIsVatFocused(false);
-    const val = parseTurkishFloat(vatRateStr);
-    if (vatRateStr.trim() === '' || isNaN(val) || val < 0) {
-      updateCartItemVatRate(item.productId, 0);
-      setVatRateStr('0');
-    } else {
-      const clamped = Math.min(100, val);
-      updateCartItemVatRate(item.productId, clamped);
-      setVatRateStr(String(clamped));
-    }
-  };
-
-  const handleTotalChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const raw = e.target.value;
-    setTotalStr(raw);
-    if (raw.trim() === '') {
-      updateCartItemDiscount(item.productId, 0);
-      return;
-    }
-    const val = parseTurkishFloat(raw);
-    if (!isNaN(val) && val >= 0) {
-      updateCartItemNetTotal(item.productId, val);
-    }
-  };
-
-  const handleTotalBlur = () => {
-    setIsTotalFocused(false);
-    if (totalStr.trim() === '' || isNaN(parseTurkishFloat(totalStr))) {
-      updateCartItemDiscount(item.productId, 0);
-      setTotalStr(formatNumberTr(item.totalAmount));
-    } else {
-      setTotalStr(formatNumberTr(item.totalAmount));
-    }
-  };
-
-  const formattedTotalLen = totalStr.length;
-  const totalFontSizeClass =
-    formattedTotalLen > 12
-      ? 'text-[11px]'
-      : formattedTotalLen > 9
-      ? 'text-xs'
-      : 'text-sm';
+  const imageUrl = getProductImageUrl(
+    item.productName,
+    item.category || '',
+    item.image
+  );
+  const formattedDate = formatOrderDate(item.addedAt);
+  const lineTotal = item.totalAmount;
 
   return (
     <div
-      className={`rounded-2xl p-3.5 border shadow-xs space-y-2.5 transition ${
-        item.isGift
-          ? 'bg-emerald-50/70 dark:bg-emerald-950/30 border-emerald-300 dark:border-emerald-800/80 ring-1 ring-emerald-500/20'
-          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
+      className={`rounded-2xl p-3 sm:p-4 border transition-all ${
+        isSelected
+          ? 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 shadow-xs'
+          : 'bg-slate-50/80 dark:bg-slate-900/50 border-slate-200/70 dark:border-slate-800/60 opacity-75'
       }`}
     >
-      <div className="flex justify-between items-start gap-2">
-        <div className="flex-1 min-w-0">
-          {item.isGift && (
-            <div className="flex items-center gap-1.5 flex-wrap mb-0.5">
-              <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-emerald-600 text-white flex items-center gap-0.5">
-                <Gift className="w-3 h-3" />
-                <span>BEDELSİZ HEDİYE</span>
-              </span>
+      <div className="flex items-center gap-3 sm:gap-4">
+        {/* 1. SEÇİM KUTUSU (CHECKBOX) - EN SOLDA */}
+        <button
+          type="button"
+          onClick={() => toggleCartItemSelected(item.productId)}
+          aria-label={isSelected ? 'Ürün seçimini kaldır' : 'Ürünü seç'}
+          className={`w-6 h-6 rounded-lg border-2 flex items-center justify-center shrink-0 transition cursor-pointer active:scale-90 ${
+            isSelected
+              ? 'bg-orange-500 border-orange-500 text-white shadow-xs'
+              : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-transparent hover:border-orange-400'
+          }`}
+        >
+          <Check className="w-4 h-4 stroke-[3]" />
+        </button>
+
+        {/* 2. ÜRÜN RESMİ - SOLDA */}
+        <div className="w-24 h-24 sm:w-28 sm:h-28 rounded-2xl border border-slate-200 dark:border-slate-700 bg-white p-1.5 flex items-center justify-center shrink-0 overflow-hidden shadow-2xs">
+          <img
+            src={imageUrl}
+            alt={item.productName}
+            loading="lazy"
+            onError={(e) => {
+              const target = e.currentTarget;
+              if (!target.dataset.fallbackApplied) {
+                target.dataset.fallbackApplied = 'true';
+                target.src = getProductImageUrl(item.productName, item.category || '');
+              }
+            }}
+            className="w-full h-full object-contain"
+          />
+        </div>
+
+        {/* 3. SAĞ BİLGİ BLOĞU: Ürün Adı, Sipariş Tarihi, Birim Fiyatı, Sipariş Adedi */}
+        <div className="flex-1 min-w-0 flex flex-col justify-between gap-1.5 sm:gap-2">
+          <div>
+            {/* ÜRÜN ADI */}
+            <h4 className="font-bold text-sm sm:text-base text-slate-900 dark:text-white leading-snug line-clamp-2">
+              {item.productName}
+            </h4>
+
+            {/* SİPARİŞ VERDİĞİ TARİHİ */}
+            <div className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+              Sipariş Tarihi: {formattedDate}
             </div>
-          )}
-          <h4 className="font-black text-[16px] sm:text-lg text-slate-900 dark:text-white leading-snug tracking-tight">
-            {item.productName}
-          </h4>
-          <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-2 flex-wrap">
-            {item.isGift ? (
-              <>
-                <span className="font-bold text-emerald-600 dark:text-emerald-400">0,00 ₺ (BEDELSİZ)</span>
-                {item.originalUnitPrice && (
-                  <span className="line-through text-slate-400 text-[10px]">
-                    Liste: {formatCurrency(item.originalUnitPrice)}
+
+            {/* BİRİM FİYATI (Telefon ekranında Görsel-2 gibi hemen tarihin altında belirgin, Web ekranında birim fiyat bilgisi) */}
+            <div className="mt-1 flex items-center flex-wrap gap-x-2 gap-y-1">
+              {userRole === 'plasiyer' && !item.isGift ? (
+                <div className="inline-flex items-center gap-1.5">
+                  <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">
+                    Birim Fiyatı:
                   </span>
-                )}
-              </>
-            ) : (
-              <>
-                <span className="font-mono text-[10px] text-slate-400 dark:text-slate-500">
-                  {item.productCode} • {item.unit}
+                  <div className="inline-flex items-center gap-0.5 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus-within:border-orange-500 px-2 py-0.5 rounded-lg">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={unitPriceStr}
+                      onFocus={(e) => {
+                        setIsUnitPriceFocused(true);
+                        setUnitPriceStr(toRawEditableNumber(item.unitPrice));
+                        setTimeout(() => e.target.select(), 10);
+                      }}
+                      onChange={handleUnitPriceChange}
+                      onBlur={handleUnitPriceBlur}
+                      className="w-20 bg-transparent text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white focus:outline-none"
+                    />
+                    <span className="text-xs font-extrabold text-slate-700 dark:text-slate-300">TL</span>
+                  </div>
+                </div>
+              ) : (
+                <span className="text-xs sm:text-sm font-semibold text-slate-600 dark:text-slate-300">
+                  Birim Fiyatı: <strong className="font-extrabold text-slate-900 dark:text-white">{formatCurrency(item.unitPrice)}</strong>
                 </span>
-                {item.discountPercent > 0 && (
-                  <span className="text-emerald-600 dark:text-emerald-400 font-semibold text-[10px]">
-                    İskontolu Birim: {formatCurrency(item.netPrice)}
-                  </span>
-                )}
-              </>
-            )}
-          </div>
-          {item.campaignTitle && (
-            <span className="text-[10px] text-emerald-700 dark:text-emerald-400 font-semibold block mt-0.5">
-              🎁 {item.campaignTitle}
-            </span>
-          )}
+              )}
 
-          {/* AŞAMA 8: Sıcak Satış Araç Stok Uyarısı */}
-          {userRole === 'plasiyer' && saleMode === 'hot' && (() => {
-            const inVan = getVanStockByCode(item.productCode);
-            const isSufficient = inVan >= item.quantity;
-            return (
-              <div className={`mt-1.5 text-[10px] font-bold px-2 py-1 rounded-lg flex items-center gap-1.5 ${
-                isSufficient
-                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800'
-                  : 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800'
-              }`}>
-                <Truck className="w-3 h-3 shrink-0" />
-                {isSufficient ? (
-                  <span>Araçta Yeterli: {inVan} {item.unit} mevcut (Talep: {item.quantity})</span>
+              {/* Telefon ekranında (Görsel-2) satır toplam tutarını burada kalın puntoyla göster */}
+              <span className="sm:hidden text-base font-black text-slate-900 dark:text-white block w-full mt-0.5">
+                {formatCurrency(lineTotal)}
+              </span>
+            </div>
+          </div>
+
+          {/* ALT SATIR: Solda Oval Sipariş Adedi Kontrolü + Çıkarma, Sağda (Web / Görsel-1) Satır Tutarı */}
+          <div className="flex items-center justify-between gap-2 pt-0.5">
+            <div className="flex items-center gap-2">
+              {/* Görsel-1 ve Görsel-2'deki Oval / Hap Adet Kontrolü */}
+              <div className="inline-flex items-center rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-1.5 py-1 shadow-2xs gap-1">
+                {item.quantity <= 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => removeFromCart(item.productId)}
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-orange-500 hover:text-rose-600 hover:bg-orange-50 dark:hover:bg-slate-700 transition active:scale-90"
+                    title="Ürünü Sepetten Çıkar"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
                 ) : (
-                  <span>⚠️ Araç Stoğu Yetersiz! Araçta sadece {inVan} {item.unit} var ({item.quantity - inVan} adet eksik)</span>
+                  <button
+                    type="button"
+                    onClick={() => updateCartItemQuantity(item.productId, item.quantity - 1)}
+                    className="w-7 h-7 rounded-full flex items-center justify-center text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition active:scale-90"
+                    title="Adedi Azalt"
+                  >
+                    <Minus className="w-4 h-4" />
+                  </button>
                 )}
-              </div>
-            );
-          })()}
-        </div>
 
-        {!item.isGift ? (
-          <button
-            type="button"
-            onClick={() => removeFromCart(item.productId)}
-            className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1 rounded-lg shrink-0"
-            title="Ürünü Çıkar"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-        ) : (
-          <span className="text-emerald-600 dark:text-emerald-400 p-1 shrink-0" title="Otomatik Promosyon Ürünü">
-            <Gift className="w-4 h-4" />
-          </span>
-        )}
-      </div>
-
-      {/* Birim Adet Fiyatı, İskonto, Adet ve KDV Dahil Tutar Alanları */}
-      {item.isGift ? (
-        <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between text-xs gap-2">
-          <span className="text-[10px] font-bold px-2 py-1 rounded-lg bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300">
-            %100 Promosyon İndirimi
-          </span>
-          <div className="px-2.5 py-1 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300 font-bold text-xs">
-            {item.quantity} {item.unit}
-          </div>
-          <div className="text-right">
-            <span className="font-extrabold text-xs block text-emerald-600 dark:text-emerald-400">0,00 ₺</span>
-            <span className="text-[9px] text-slate-400 dark:text-slate-500 block">Hediye</span>
-          </div>
-        </div>
-      ) : (
-        <div className="pt-2.5 border-t border-slate-100 dark:border-slate-800 space-y-2.5 text-xs">
-          {/* ÜST SATIR: Birim Fiyat, İskonto ve KDV Oranı yan yana */}
-          <div className="grid grid-cols-3 gap-2">
-            {/* 1. BİRİM FİYAT */}
-            <div className="space-y-1 min-w-0">
-              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block truncate">
-                Birim Fiyat
-              </span>
-              {userRole === 'plasiyer' ? (
-                <div className="h-9 flex items-center gap-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 px-2 rounded-xl transition-all">
-                  <span className="text-xs font-bold text-slate-500 dark:text-slate-400 shrink-0">₺</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={unitPriceStr}
-                    placeholder="0,00"
-                    onFocus={(e) => {
-                      setIsUnitPriceFocused(true);
-                      setUnitPriceStr(toRawEditableNumber(item.unitPrice));
-                      setTimeout(() => e.target.select(), 10);
-                    }}
-                    onChange={handleUnitPriceChange}
-                    onBlur={handleUnitPriceBlur}
-                    className="w-full min-w-0 bg-transparent text-xs sm:text-sm font-extrabold text-right text-slate-900 dark:text-white focus:outline-none font-mono"
-                  />
-                </div>
-              ) : (
-                <div className="h-9 flex items-center justify-end bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-800 px-2 rounded-xl font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white font-mono">
-                  {formatCurrency(item.unitPrice)}
-                </div>
-              )}
-            </div>
-
-            {/* 2. İSKONTO */}
-            <div className="space-y-1 min-w-0">
-              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block truncate">
-                İskonto
-              </span>
-              {userRole === 'plasiyer' ? (
-                <div className="h-9 flex items-center justify-between gap-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 px-2 rounded-xl transition-all">
-                  <Percent className="w-3 h-3 text-slate-400 shrink-0" />
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={discountStr}
-                    placeholder="0"
-                    onFocus={(e) => {
-                      setIsDiscountFocused(true);
-                      e.target.select();
-                    }}
-                    onChange={handleDiscountChange}
-                    onBlur={handleDiscountBlur}
-                    className="w-full min-w-0 bg-transparent text-xs sm:text-sm font-extrabold text-slate-800 dark:text-white text-right focus:outline-none placeholder:text-slate-400/60 font-mono"
-                  />
-                </div>
-              ) : (
-                <div className="h-9 flex items-center justify-center bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-800 px-2 rounded-xl font-bold text-xs text-emerald-600 dark:text-emerald-400">
-                  %{item.discountPercent || 0}
-                </div>
-              )}
-            </div>
-
-            {/* 3. KDV ORANI */}
-            <div className="space-y-1 min-w-0">
-              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block truncate">
-                KDV Oranı
-              </span>
-              {userRole === 'plasiyer' ? (
-                <div className="h-9 flex items-center justify-between gap-1 bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-500 px-2 rounded-xl transition-all">
-                  <span className="text-[11px] text-slate-400 font-bold shrink-0">%</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={vatRateStr}
-                    placeholder="0"
-                    onFocus={(e) => {
-                      setIsVatFocused(true);
-                      e.target.select();
-                    }}
-                    onChange={handleVatChange}
-                    onBlur={handleVatBlur}
-                    className="w-full min-w-0 bg-transparent text-xs sm:text-sm font-extrabold text-slate-800 dark:text-white text-right focus:outline-none placeholder:text-slate-400/60 font-mono"
-                  />
-                </div>
-              ) : (
-                <div className="h-9 flex items-center justify-center bg-slate-50 dark:bg-slate-800/70 border border-slate-200 dark:border-slate-800 px-2 rounded-xl font-bold text-xs text-slate-700 dark:text-slate-300 font-mono">
-                  %{item.vatRate ?? 0}
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* ALT SATIR: Miktar ve Tutar (KDV hariç hesaplanır, etikette yalnızca Tutar yazar) */}
-          <div className="grid grid-cols-2 gap-2">
-            {/* 4. MİKTAR */}
-            <div className="space-y-1 min-w-0">
-              <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wide block">
-                Miktar
-              </span>
-              <div
-                className={`h-9 flex items-center justify-between gap-1 rounded-xl p-1 ${
-                  userRole === 'customer'
-                    ? 'bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800/60'
-                    : 'bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800/60'
-                }`}
-              >
-                <button
-                  type="button"
-                  onClick={() => updateCartItemQuantity(item.productId, item.quantity - 1)}
-                  className="w-7 h-7 bg-white dark:bg-slate-800 text-slate-700 dark:text-white rounded-lg flex items-center justify-center font-bold shadow-xs active:scale-90 shrink-0"
-                >
-                  <Minus className="w-3.5 h-3.5" />
-                </button>
                 <input
                   type="text"
-                  inputMode="decimal"
+                  inputMode="numeric"
                   defaultValue={item.quantity}
                   key={`cart-qty-${item.productId}-${item.quantity}`}
                   onFocus={(e) => e.target.select()}
@@ -465,54 +264,41 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
                       (e.target as HTMLInputElement).blur();
                     }
                   }}
-                  className="flex-1 min-w-0 w-full h-7 font-black text-xs sm:text-sm text-slate-900 dark:text-white text-center bg-white dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 px-1 focus:outline-none focus:ring-1 focus:ring-blue-500 shadow-2xs font-mono"
+                  className="w-9 sm:w-11 text-center font-extrabold text-xs sm:text-sm text-slate-900 dark:text-white bg-transparent focus:outline-none"
                 />
+
                 <button
                   type="button"
                   onClick={() => updateCartItemQuantity(item.productId, item.quantity + 1)}
-                  className={`w-7 h-7 text-white rounded-lg flex items-center justify-center font-bold shadow-xs active:scale-90 shrink-0 ${
-                    userRole === 'customer' ? 'bg-emerald-600' : 'bg-blue-600'
-                  }`}
+                  className="w-7 h-7 rounded-full flex items-center justify-center text-orange-500 hover:bg-orange-50 dark:hover:bg-slate-700 transition active:scale-90"
+                  title="Adedi Artır"
                 >
-                  <Plus className="w-3.5 h-3.5" />
+                  <Plus className="w-4 h-4" />
                 </button>
               </div>
+
+              {/* Adet > 1 olduğunda da kullanıcı isterse tek tıkla tamamen ürünü çıkarabilsin */}
+              {item.quantity > 1 && (
+                <button
+                  type="button"
+                  onClick={() => removeFromCart(item.productId)}
+                  className="w-8 h-8 rounded-full border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 flex items-center justify-center text-slate-400 hover:text-rose-600 hover:border-rose-200 dark:hover:border-rose-800 transition active:scale-90"
+                  title="Ürünü Tamamen Çıkar"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
             </div>
 
-            {/* 5. TUTAR (KDV hariç net tutar) */}
-            <div className="space-y-1 min-w-0">
-              <span className="text-[10px] font-extrabold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide block text-right">
-                Tutar
+            {/* Web / Tam Ekran Formatında (Görsel-1) Sağ Altta Toplam Fiyat */}
+            <div className="hidden sm:block text-right shrink-0">
+              <span className="text-base md:text-lg font-extrabold text-slate-900 dark:text-white tracking-tight">
+                {formatCurrency(lineTotal)}
               </span>
-              {userRole === 'plasiyer' ? (
-                <div className="h-9 flex items-center justify-between gap-1 bg-emerald-50/70 dark:bg-emerald-950/35 border border-emerald-300 dark:border-emerald-800/80 focus-within:border-emerald-500 focus-within:ring-1 focus-within:ring-emerald-500 px-2.5 rounded-xl transition-all">
-                  <span className="text-xs font-extrabold text-emerald-600 dark:text-emerald-400 shrink-0">₺</span>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={totalStr}
-                    placeholder="0,00"
-                    onFocus={(e) => {
-                      setIsTotalFocused(true);
-                      setTotalStr(toRawEditableNumber(item.totalAmount));
-                      setTimeout(() => e.target.select(), 10);
-                    }}
-                    onChange={handleTotalChange}
-                    onBlur={handleTotalBlur}
-                    className={`w-full min-w-0 bg-transparent ${totalFontSizeClass} font-black text-right text-emerald-700 dark:text-emerald-300 focus:outline-none placeholder:text-slate-400/60 font-mono tracking-tight`}
-                  />
-                </div>
-              ) : (
-                <div
-                  className={`h-9 flex items-center justify-end bg-emerald-50/70 dark:bg-emerald-950/35 border border-emerald-300 dark:border-emerald-800/80 px-2.5 rounded-xl font-black ${totalFontSizeClass} text-emerald-700 dark:text-emerald-300 font-mono tracking-tight`}
-                >
-                  {formatCurrency(item.totalAmount)}
-                </div>
-              )}
             </div>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };
@@ -528,9 +314,8 @@ export const CartPage: React.FC = () => {
     cartSummary, 
     updateCartItemQuantity, 
     updateCartItemPrice,
-    updateCartItemDiscount, 
-    updateCartItemVatRate,
-    updateCartItemNetTotal,
+    toggleCartItemSelected,
+    setAllCartItemsSelected,
     removeFromCart, 
     clearCart,
     submitCurrentOrder,
@@ -541,8 +326,7 @@ export const CartPage: React.FC = () => {
     openCampaignsModal,
     saleMode,
     setSaleMode,
-    vanPlate,
-    getVanStockByCode
+    vanPlate
   } = useApp();
 
   const [deliveryDate, setDeliveryDate] = useState(() => {
@@ -816,65 +600,85 @@ export const CartPage: React.FC = () => {
         </div>
       )}
 
-      {/* Sepet Başlığı ve Çoklu Ürün KDV Dahil Görünürlük Barı */}
-      <div
-        className={`${
-          cart.length > 1
-            ? `${selectedCustomer ? 'sticky top-11' : 'sticky top-1.5'} z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-emerald-500/30 dark:border-emerald-700/50 rounded-2xl px-3.5 py-2.5 shadow-md space-y-1.5`
-            : 'px-1'
-        }`}
-      >
-        <div className="flex justify-between items-center gap-2">
-          <span className="text-xs font-bold text-slate-700 dark:text-slate-300">
-            Sipariş Kalemleri ({cart.length} Kalem / {cartSummary.totalItems} Adet)
-          </span>
-          <div className="flex items-center gap-3 shrink-0">
-            {activeCampaigns.length > 0 && (
-              <button
-                onClick={() => openCampaignsModal()}
-                className="text-xs text-purple-600 dark:text-purple-400 hover:text-purple-700 font-bold flex items-center gap-1"
-              >
-                <Gift className="w-3.5 h-3.5" />
-                <span>Kampanyalar</span>
-              </button>
-            )}
-            <button
-              onClick={clearCart}
-              className="text-xs text-rose-600 dark:text-rose-400 hover:text-rose-700 font-medium flex items-center gap-1"
-            >
-              <Trash2 className="w-3.5 h-3.5" />
-              <span>Sepeti Temizle</span>
-            </button>
-          </div>
-        </div>
+      {/* Sepet Başlığı, Tümünü Seç ve Çoklu Ürün KDV Dahil Görünürlük Barı */}
+      {(() => {
+        const regularCartItems = cart.filter((it) => !it.isGift);
+        const selectedCartCount = regularCartItems.filter((it) => it.selected !== false).length;
+        const allSelected = regularCartItems.length > 0 && selectedCartCount === regularCartItems.length;
 
-        {cart.length > 1 && (
-          <div className="pt-1.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
-            <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
-              Sepet KDV Dahil Toplam ({cart.length} Ürün)
-            </span>
-            <span className="text-sm sm:text-base font-black font-mono text-emerald-600 dark:text-emerald-400 tracking-tight">
-              {formatCurrency(cartSummary.grandTotal)}
-            </span>
+        return (
+          <div
+            className={`${
+              cart.length > 1
+                ? `${selectedCustomer ? 'sticky top-11' : 'sticky top-1.5'} z-20 bg-white/95 dark:bg-slate-900/95 backdrop-blur-md border border-emerald-500/30 dark:border-emerald-700/50 rounded-2xl px-3.5 py-2.5 shadow-md space-y-1.5`
+                : 'bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-2xl px-3.5 py-2.5 shadow-xs'
+            }`}
+          >
+            <div className="flex justify-between items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAllCartItemsSelected(!allSelected)}
+                className="flex items-center gap-2.5 text-left group cursor-pointer"
+              >
+                <span
+                  className={`w-5 h-5 rounded-md border-2 flex items-center justify-center shrink-0 transition ${
+                    allSelected
+                      ? 'bg-orange-500 border-orange-500 text-white'
+                      : 'bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 text-transparent group-hover:border-orange-400'
+                  }`}
+                >
+                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                </span>
+                <span className="text-xs font-bold text-slate-800 dark:text-slate-200">
+                  Tümünü Seç ({selectedCartCount}/{regularCartItems.length} Ürün Seçili • {cartSummary.totalItems} Adet)
+                </span>
+              </button>
+
+              <div className="flex items-center gap-3 shrink-0">
+                {activeCampaigns.length > 0 && (
+                  <button
+                    onClick={() => openCampaignsModal()}
+                    className="text-xs text-purple-600 dark:text-purple-400 hover:text-purple-700 font-bold flex items-center gap-1"
+                  >
+                    <Gift className="w-3.5 h-3.5" />
+                    <span>Kampanyalar</span>
+                  </button>
+                )}
+                <button
+                  onClick={clearCart}
+                  className="text-xs text-rose-600 dark:text-rose-400 hover:text-rose-700 font-medium flex items-center gap-1"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Sepeti Temizle</span>
+                </button>
+              </div>
+            </div>
+
+            {cart.length > 1 && (
+              <div className="pt-1.5 border-t border-slate-100 dark:border-slate-800 flex items-center justify-between gap-2">
+                <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400">
+                  Seçili Sepet KDV Dahil Toplam ({selectedCartCount} Ürün)
+                </span>
+                <span className="text-sm sm:text-base font-black font-mono text-emerald-600 dark:text-emerald-400 tracking-tight">
+                  {formatCurrency(cartSummary.grandTotal)}
+                </span>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        );
+      })()}
 
       {/* Sepetteki Kalemler */}
-      <div className="space-y-2">
+      <div className="space-y-2.5">
         {cart.map((item) => (
           <CartItemRow
             key={item.productId}
             item={item}
             userRole={userRole}
-            saleMode={saleMode}
             removeFromCart={removeFromCart}
             updateCartItemQuantity={updateCartItemQuantity}
             updateCartItemPrice={updateCartItemPrice}
-            updateCartItemDiscount={updateCartItemDiscount}
-            updateCartItemVatRate={updateCartItemVatRate}
-            updateCartItemNetTotal={updateCartItemNetTotal}
-            getVanStockByCode={getVanStockByCode}
+            toggleCartItemSelected={toggleCartItemSelected}
           />
         ))}
       </div>
@@ -1034,9 +838,14 @@ export const CartPage: React.FC = () => {
             <h3 className="text-base font-bold">Sipariş Başarıyla Alındı!</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {isOnline
-                ? 'Sipariş sisteme iletildi. Yetkili onayının ardından faturalandırma ve sevkiyat başlayacaktır.'
-                : 'Sipariş cihaz hafızasına kaydedildi. İnternet bağlantısı sağlandığında otomatik senkronize edilecektir.'}
+                ? 'Seçtiğiniz ürünler siparişe dönüştürülerek sisteme iletildi. Yetkili onayının ardından faturalandırma ve sevkiyat başlayacaktır.'
+                : 'Seçtiğiniz ürünler cihaz hafızasına kaydedildi. İnternet bağlantısı sağlandığında otomatik senkronize edilecektir.'}
             </p>
+            {cart.length > 0 && (
+              <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
+                İşaretini kaldırdığınız <strong>{cart.length} ürün</strong> daha sonra sipariş verebilmeniz için sepetinizde bırakıldı.
+              </div>
+            )}
 
             <div className="flex flex-col sm:flex-row gap-2 pt-2">
               {orderSuccessModal.savedOrder && (
@@ -1053,6 +862,15 @@ export const CartPage: React.FC = () => {
                 >
                   <Printer className="w-4 h-4" />
                   <span>Fiş Yazdır</span>
+                </button>
+              )}
+              {cart.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setOrderSuccessModal(null)}
+                  className="flex-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold py-2.5 rounded-xl transition"
+                >
+                  Sepette Kalanlar ({cart.length})
                 </button>
               )}
               <button

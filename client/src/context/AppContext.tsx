@@ -95,6 +95,8 @@ interface AppContextType {
   updateCartItemPrice: (productId: string, unitPrice: number) => void;
   updateCartItemNetTotal: (productId: string, netTotal: number) => void;
   updateCartItemGrandTotal: (productId: string, grandTotal: number) => void;
+  toggleCartItemSelected: (productId: string) => void;
+  setAllCartItemsSelected: (selected: boolean) => void;
   removeFromCart: (productId: string) => void;
   clearCart: () => void;
   
@@ -508,7 +510,30 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return false;
   }, [currentUser]);
 
-  const [rawCart, setRawCart] = useState<OrderItem[]>([]);
+  const [rawCart, setRawCart] = useState<OrderItem[]>(() => {
+    try {
+      const saved = localStorage.getItem('plasiyer_cart_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+
+  useEffect(() => {
+    try {
+      const compactCart = rawCart.map((item) => ({
+        ...item,
+        image: item.image && item.image.startsWith('data:') ? undefined : item.image,
+      }));
+      localStorage.setItem('plasiyer_cart_v1', JSON.stringify(compactCart));
+    } catch {
+      // ignore
+    }
+  }, [rawCart]);
   const [activeTab, setActiveTabState] = useState<'customers' | 'catalog' | 'cart' | 'orders' | 'routes' | 'settings' | 'van_stock'>('catalog');
   const [customerSelectReturnTab, setCustomerSelectReturnTab] = useState<'cart' | 'catalog' | null>(null);
   const [isCustomerSelectModalOpen, setIsCustomerSelectModalOpen] = useState<boolean>(false);
@@ -1094,6 +1119,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           totalAmount,
           vatAmount,
           grandTotal: totalAmount + vatAmount,
+          image: product.image || item.image,
+          category: product.category || item.category,
+          addedAt: item.addedAt || new Date().toISOString(),
+          selected: true,
         };
         return updated;
       } else {
@@ -1115,6 +1144,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           vatAmount,
           grandTotal: totalAmount + vatAmount,
           originalUnitPrice: product.price1,
+          image: product.image,
+          category: product.category,
+          addedAt: new Date().toISOString(),
+          selected: true,
         };
         return [...prev, newItem];
       }
@@ -1333,6 +1366,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     );
   };
 
+  const toggleCartItemSelected = (productId: string) => {
+    setRawCart((prev) =>
+      prev.map((item) => {
+        if (item.productId === productId && !item.isGift) {
+          const currentSelected = item.selected !== false;
+          return {
+            ...item,
+            selected: !currentSelected,
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  const setAllCartItemsSelected = (selected: boolean) => {
+    setRawCart((prev) =>
+      prev.map((item) => (item.isGift ? item : { ...item, selected }))
+    );
+  };
+
   const removeFromCart = (productId: string) => {
     setRawCart((prev) => prev.filter((item) => item.productId !== productId && !item.isGift));
   };
@@ -1341,7 +1395,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRawCart([]);
   };
 
-  // Siparişi Onayla & IndexedDB'ye Kaydet
+  // Siparişi Onayla & IndexedDB'ye Kaydet (Yalnızca işaretli / seçili ürünleri gönderir, işaretsizleri sepette bırakır)
   const submitCurrentOrder = async (deliveryDate?: string, notes?: string) => {
     const activeCust = userRole === 'customer' ? currentCustomerUser : selectedCustomer;
 
@@ -1352,14 +1406,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, error: 'Sepetiniz boş. Lütfen ürün ekleyiniz.' };
     }
 
+    const selectedCartItems = cart.filter((it) => it.selected !== false);
+    if (selectedCartItems.length === 0) {
+      return {
+        success: false,
+        error: 'Siparişi onaylamak için lütfen sepetteki ürünlerden en az birini işaretleyiniz.',
+      };
+    }
+
     try {
       const now = new Date();
       const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
       const tempId = 'ORD-' + dateStr + '-' + Math.floor(1000 + Math.random() * 9000);
 
-      // AŞAMA 8: Sıcak Satış Kontrolü ve Araç Stoğu Düşümü
+      // AŞAMA 8: Sıcak Satış Kontrolü ve Araç Stoğu Düşümü (Yalnızca seçili ürünler için)
       if (userRole === 'plasiyer' && saleMode === 'hot') {
-        const availability = await vanStockService.checkVanStockAvailability(cart);
+        const availability = await vanStockService.checkVanStockAvailability(selectedCartItems);
         if (!availability.isAvailable) {
           const shortageNames = availability.shortages
             .map(s => `${s.productName} (İstenen: ${s.requested}, Araçta: ${s.inVan})`)
@@ -1371,7 +1433,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
 
         // Araç stoğundan anlık düşüm yap
-        await vanStockService.recordHotSaleDeduction(cart, vanPlate);
+        await vanStockService.recordHotSaleDeduction(selectedCartItems, vanPlate);
       }
 
       const newOrder: Order = {
@@ -1383,7 +1445,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         orderDate: now.toISOString(),
         deliveryDate: deliveryDate || new Date(Date.now() + 86400000).toISOString().slice(0, 10),
         notes: notes || '',
-        items: cart.map(it => ({ ...it, saleType: (userRole === 'plasiyer' ? saleMode : 'cold') })),
+        items: selectedCartItems.map(({ image: _img, ...it }) => ({
+          ...it,
+          saleType: userRole === 'plasiyer' ? saleMode : 'cold',
+        })),
         subtotal: cartSummary.subtotal,
         totalDiscount: cartSummary.totalDiscount,
         totalVat: cartSummary.totalVat,
@@ -1401,8 +1466,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 1. IndexedDB'ye kaydet
       const orderId = await db.orders.add(newOrder);
 
-      // 2. Sepeti temizle
-      clearCart();
+      // 2. Yalnızca seçili ürünleri sepetten çıkar; işareti kaldırılan ürünler sepette kalmaya devam etsin
+      setRawCart((prev) => prev.filter((item) => !item.isGift && item.selected === false));
 
       // 3. Eğer online isek ve otomatik senkronizasyon açıksa hemen ERP12'ye göndermeyi dene
       if (isOnline && serverConfig.autoSync && !isDemoMode(serverConfig)) {
@@ -1653,6 +1718,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateCartItemPrice,
         updateCartItemNetTotal,
         updateCartItemGrandTotal,
+        toggleCartItemSelected,
+        setAllCartItemsSelected,
         removeFromCart,
         clearCart,
         submitCurrentOrder,

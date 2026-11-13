@@ -81,6 +81,11 @@ export interface OrderItem {
   originalUnitPrice?: number; // Normal birim fiyat (üstü çizili göstermek için)
   // AŞAMA 8: Sıcak Satış
   saleType?: 'cold' | 'hot';
+  // Sepet Görünümü & Seçimli Sipariş Alanları
+  image?: string;
+  category?: string;
+  addedAt?: string;
+  selected?: boolean;
 }
 
 export interface Order {
