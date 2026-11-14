@@ -23,10 +23,13 @@ import {
 import { sqlCloudMirror } from './sqlCloudMirror.js';
 import { sqlCloudRelay, verifyRelayRequest } from './sqlCloudRelay.js';
 
-dotenv.config();
-
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+dotenv.config({ path: path.resolve(__dirname, '../.env') });
+if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
+}
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -1079,6 +1082,11 @@ app.post('/api/registry/companies', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Firma Kodu zorunludur.' });
     }
     const saved = await cloudRegistry.upsertCompany(profile);
+    if (!process.env.VERCEL) {
+      setTimeout(() => {
+        syncRegisteredRemoteSqlMirrors(true).catch(() => {});
+      }, 150);
+    }
     res.json({ success: true, ...saved });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
@@ -1254,8 +1262,32 @@ async function syncRegisteredRemoteSqlMirrors(includeCatalog = true) {
   }
 }
 
-// Sunucuyu başlat (Vercel Serverless dışındaki ortamlarda dinle)
+// Sunucuyu başlat (Vercel Serverless dışındaki ortamlarda dinle ve Masaüstü Web Uygulamasını sun)
 if (!process.env.VERCEL) {
+  const clientDistDir = path.resolve(__dirname, '../../client/dist');
+  app.use(
+    express.static(clientDistDir, {
+      setHeaders: (res, filePath) => {
+        if (
+          filePath.endsWith('index.html') ||
+          filePath.endsWith('sw.js') ||
+          filePath.endsWith('version.json') ||
+          filePath.endsWith('manifest.webmanifest')
+        ) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      },
+    })
+  );
+
+  app.get(/^(?!\/api\/|\/uploads\/).*/, (req, res, next) => {
+    const indexHtml = path.join(clientDistDir, 'index.html');
+    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+    res.sendFile(indexHtml, (err) => {
+      if (err) next();
+    });
+  });
+
   app.listen(PORT, async () => {
     console.log(`🚀 ERP12 Entegrasyon API Servisi http://localhost:${PORT} üzerinde çalışıyor.`);
     console.log(`📡 PWA uygulaması bu adrese bağlanacaktır.`);

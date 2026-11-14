@@ -202,6 +202,37 @@ export const AdminPortalPage: React.FC = () => {
         if (!quickAccCompany && res.profiles[0]?.code) {
           setQuickAccCompany(res.profiles[0].code);
         }
+        // Açık bir firma düzenleme formu varsa ve buluttan güncel veri geldiyse form alanlarını da eşitle
+        if (editingFirmOriginalCode) {
+          const freshFirm = res.profiles.find(
+            (p) => p.code.trim().toUpperCase() === editingFirmOriginalCode.trim().toUpperCase()
+          );
+          if (freshFirm) {
+            setFormTitle(freshFirm.companyTitle || freshFirm.name || '');
+            setFormPeriod(freshFirm.period || '2026');
+            setFormLicenseExpire(freshFirm.licenseExpireDate || '2027-12-31');
+            setFormMode(freshFirm.serverUrl && freshFirm.serverUrl !== 'demo' ? 'live' : 'demo');
+            setFormSqlHost(freshFirm.sqlHost || '');
+            setFormSqlPort(freshFirm.sqlPort || '1433');
+            setFormSqlDb(freshFirm.sqlDatabase || '');
+            setFormSqlUser(freshFirm.sqlUser || '');
+            setFormSqlPassword(freshFirm.sqlPassword || '');
+          }
+        }
+        // Aktif serverConfig buluttaki firma ile aynıysa ve veritabanı/host değişmişse (örn: GUNEYLERB2B -> GUNEYLERB3B) anında eşitle
+        const activeFirmCode = (serverConfig.companyCode || '').trim().toUpperCase();
+        const matchedActive = res.profiles.find(
+          (p) => p.code.trim().toUpperCase() === activeFirmCode
+        );
+        if (
+          matchedActive &&
+          ((matchedActive.sqlDatabase || '').trim().toUpperCase() !==
+            (serverConfig.sqlDatabase || '').trim().toUpperCase() ||
+            (matchedActive.sqlHost || '').trim() !== (serverConfig.sqlHost || '').trim() ||
+            (matchedActive.sqlPort || '1433').trim() !== (serverConfig.sqlPort || '1433').trim())
+        ) {
+          updateServerConfig(plasiyerAuthService.profileToServerConfig(matchedActive));
+        }
       } else {
         refreshData();
       }

@@ -99,6 +99,21 @@ function isUntouchedDefaultServerConfig(cfg?: ServerConfig | null): boolean {
 }
 
 export const plasiyerAuthService = {
+  async fetchRegistryApi(subpath: string, init?: RequestInit): Promise<Response> {
+    try {
+      const baseUrl = await resolveApiBaseUrlAsync();
+      if (baseUrl && baseUrl !== '/api') {
+        const localRes = await fetch(`${baseUrl}/registry${subpath}`, init);
+        if (localRes.ok) {
+          return localRes;
+        }
+      }
+    } catch {
+      // Yerel köprü erişilemezse doğrudan bulut endpoint'ine devam et
+    }
+    return fetch(`/api/registry${subpath}`, init);
+  },
+
   buildAdminHeaders(): Record<string, string> {
     return {
       'X-Admin-Auth': encodeBase64Utf8(
@@ -470,7 +485,7 @@ export const plasiyerAuthService = {
     }
 
     try {
-      const res = await fetch('/api/registry/sync', {
+      const res = await this.fetchRegistryApi('/sync', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -497,7 +512,7 @@ export const plasiyerAuthService = {
       this.saveCompanyProfiles(cloudProfiles);
       this.saveLocalAccounts(cloudAccounts);
 
-      // Eğer SERVER_CONFIG_KEY içindeki firma silinmişse tekrar dirilmesini önle
+      // Eğer SERVER_CONFIG_KEY içindeki firma bulutta güncellenmişse (örn: GUNEYLERB2B -> GUNEYLERB3B) anında eşitle; silinmişse temizle
       try {
         const cfgRaw = localStorage.getItem(SERVER_CONFIG_KEY);
         if (cfgRaw) {
@@ -508,11 +523,17 @@ export const plasiyerAuthService = {
             activeCode !== ADMIN_COMPANY_CODE &&
             !isUntouchedDefaultServerConfig(cfg)
           ) {
-            const stillExists = cloudProfiles.some(
+            const matchedCloud = cloudProfiles.find(
               (p) => p.code.trim().toUpperCase() === activeCode
             );
-            if (!stillExists) {
+            if (!matchedCloud) {
               localStorage.removeItem(SERVER_CONFIG_KEY);
+            } else {
+              const syncedCfg: ServerConfig = {
+                ...cfg,
+                ...this.profileToServerConfig(matchedCloud),
+              };
+              localStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify(syncedCfg));
             }
           }
         }
@@ -573,7 +594,7 @@ export const plasiyerAuthService = {
               sqlUser: cfg.sqlUser,
               sqlPassword: cfg.sqlPassword,
               licenseExpireDate: cfg.licenseExpireDate || '2027-12-31',
-              updatedAt: new Date().toISOString(),
+              updatedAt: '2020-01-01T00:00:00.000Z',
             });
           }
         }
@@ -636,7 +657,7 @@ export const plasiyerAuthService = {
     // Arka planda merkezi buluta da gönder (Admin oturumu açıksa)
     const adminHeaders = this.buildRegistryAuthHeaders();
     if (adminHeaders['X-Admin-Auth'] && (typeof navigator === 'undefined' || navigator.onLine)) {
-      fetch('/api/registry/companies', {
+      this.fetchRegistryApi('/companies', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -659,7 +680,7 @@ export const plasiyerAuthService = {
 
     if (typeof navigator === 'undefined' || navigator.onLine) {
       try {
-        const res = await fetch('/api/registry/companies', {
+        const res = await this.fetchRegistryApi('/companies', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -702,7 +723,7 @@ export const plasiyerAuthService = {
     this.saveCompanyProfiles(remaining);
 
     if (typeof navigator === 'undefined' || navigator.onLine) {
-      fetch(`/api/registry/companies/${encodeURIComponent(target)}`, {
+      this.fetchRegistryApi(`/companies/${encodeURIComponent(target)}`, {
         method: 'DELETE',
         headers: this.buildAdminHeaders(),
       }).catch(() => {});
@@ -716,7 +737,7 @@ export const plasiyerAuthService = {
     const target = codeOrId.trim().toUpperCase();
     if (typeof navigator === 'undefined' || navigator.onLine) {
       try {
-        const res = await fetch(`/api/registry/companies/${encodeURIComponent(target)}`, {
+        const res = await this.fetchRegistryApi(`/companies/${encodeURIComponent(target)}`, {
           method: 'DELETE',
           headers: this.buildAdminHeaders(),
         });
@@ -848,8 +869,8 @@ export const plasiyerAuthService = {
 
     if (typeof navigator === 'undefined' || navigator.onLine) {
       try {
-        const res = await fetch(
-          `/api/registry/license-status?companyCode=${encodeURIComponent(codeUpper)}`
+        const res = await this.fetchRegistryApi(
+          `/license-status?companyCode=${encodeURIComponent(codeUpper)}`
         );
         if (res.ok) {
           const data = await res.json();
@@ -962,7 +983,7 @@ export const plasiyerAuthService = {
     // 1. Çevrimiçi ise önce Merkezi Bulut Kayıt Defterinden doğrula (yeni telefon/PC kurulum linki gerekmeden giriş yapabilsin)
     if (typeof navigator === 'undefined' || navigator.onLine) {
       try {
-        const cloudRes = await fetch('/api/registry/authenticate', {
+        const cloudRes = await this.fetchRegistryApi('/authenticate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({

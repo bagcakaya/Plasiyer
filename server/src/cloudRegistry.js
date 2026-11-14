@@ -301,7 +301,7 @@ export const cloudRegistry = {
         if (!existing) {
           profileMap.set(norm.code, norm);
           dirty = true;
-        } else if (rawP.updatedAt && existing.updatedAt && rawP.updatedAt > existing.updatedAt) {
+        } else if (!existing.sqlDatabase && norm.sqlDatabase) {
           profileMap.set(norm.code, norm);
           dirty = true;
         }

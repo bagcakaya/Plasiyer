@@ -96,33 +96,45 @@ if (typeof window !== 'undefined') {
   });
 }
 
-// Auto-register service worker for PWA offline & Android WebAPK support
-const updateSW = registerSW({
-  immediate: true,
-  onNeedRefresh() {
-    console.log('🔄 Yeni sürüm algılandı, güncelleniyor...');
-    updateSW(true);
-  },
-  onRegistered(registration) {
-    if (registration) {
-      // Açılışta beklemeden anında SW güncellemesini denetle
-      registration.update().catch(() => {});
+// Auto-register service worker for PWA offline & Android WebAPK support (skip on localhost so local server is always live)
+const isLocalhostHost =
+  typeof window !== 'undefined' &&
+  (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
 
-      // 60 saniyede bir ve uygulama öne geldiğinde yeni sürüm kontrolü yap
-      setInterval(() => {
-        registration?.update().catch(() => {});
-        checkLiveServerVersion();
-      }, 60000);
+if (isLocalhostHost && 'serviceWorker' in navigator) {
+  navigator.serviceWorker.getRegistrations().then((regs) => {
+    regs.forEach((r) => r.unregister());
+  }).catch(() => {});
+}
 
-      document.addEventListener('visibilitychange', () => {
-        if (document.visibilityState === 'visible') {
-          registration?.update().catch(() => {});
-          checkLiveServerVersion();
+const updateSW = !isLocalhostHost
+  ? registerSW({
+      immediate: true,
+      onNeedRefresh() {
+        console.log('🔄 Yeni sürüm algılandı, güncelleniyor...');
+        updateSW(true);
+      },
+      onRegistered(registration) {
+        if (registration) {
+          // Açılışta beklemeden anında SW güncellemesini denetle
+          registration.update().catch(() => {});
+
+          // 60 saniyede bir ve uygulama öne geldiğinde yeni sürüm kontrolü yap
+          setInterval(() => {
+            registration?.update().catch(() => {});
+            checkLiveServerVersion();
+          }, 60000);
+
+          document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+              registration?.update().catch(() => {});
+              checkLiveServerVersion();
+            }
+          });
         }
-      });
-    }
-  },
-});
+      },
+    })
+  : () => Promise.resolve();
 
 // Mobil sanal klavye açıldığında input veya textarea'nın klavye altında kalmasını önleme
 if (typeof window !== 'undefined') {
