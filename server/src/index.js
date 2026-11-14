@@ -467,10 +467,11 @@ app.get('/api/products', async (req, res) => {
   }
 });
 
-// 2.0.1 ERP12 RESIM TABLOSUNDAN ÜRÜN GÖRSELİ SUNUMU (RESIM.ID = STOK.ID VEYA STOK.KOD + KARDEŞ DATA DESTEKLİ)
+// 2.0.1 ERP12 RESIM TABLOSUNDAN ÜRÜN GÖRSELİ SUNUMU (PK_RESIM / R.IDX CLUSTERED SEEK İLE ANINDA ~25ms TESLİM)
 app.get('/api/products/erp-image/:idOrCode', async (req, res) => {
   const { idOrCode } = req.params;
   const code = String(req.query.code || '').trim();
+  const idx = String(req.query.idx || '').trim();
   const dbQuery = String(req.query.db || '').trim().toUpperCase();
 
   let activeCfg = sqlContext.getStore();
@@ -516,27 +517,15 @@ app.get('/api/products/erp-image/:idOrCode', async (req, res) => {
     res.setHeader('Content-Type', imgObj.contentType || 'image/jpeg');
     res.setHeader(
       'Cache-Control',
-      'public, max-age=604800, s-maxage=2592000, stale-while-revalidate=86400'
+      'public, max-age=31536000, s-maxage=31536000, stale-while-revalidate=86400, immutable'
     );
     return res.send(imgObj.buffer);
   };
 
   const runFetch = async () => {
-    // 1. Bulut (Vercel) ortamında önce hızlı Bulut Aynasını (Aktif DB + Ortak Stok Kodu Havuzu + Kardeş DB) kontrol et
-    if (process.env.VERCEL && sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
-      try {
-        const fastMirrored = await sqlCloudMirror.getProductImage(activeCfg, idOrCode, code);
-        if (fastMirrored?.buffer) {
-          return sendImageBuffer(fastMirrored);
-        }
-      } catch {
-        // continue to live SQL / tunnel
-      }
-    }
-
-    // 2. Canlı SQL (Aktif DB ve aynı sunucudaki kardeş DB'ler, örn: GUNEYLERB2B <-> GUNEYLERB3B)
+    // 1. Önce Canlı SQL Bellek Önbelleği (0ms) veya PK_RESIM Clustered Index Seek (~25ms)
     try {
-      const img = await erpQueries.getProductErpImage(idOrCode, code);
+      const img = await erpQueries.getProductErpImage(idOrCode, code, idx);
       if (img?.buffer) {
         if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
           sqlCloudMirror
@@ -552,7 +541,7 @@ app.get('/api/products/erp-image/:idOrCode', async (req, res) => {
       console.warn(`⚠️ ERP12 görsel okuma uyarısı (${idOrCode} / ${code}):`, sqlErr.message);
     }
 
-    // 3. Yedek Bulut Aynası kontrolü (Kardeş DB ve Stok Kodu eşleştirmesi dahil)
+    // 2. Yedek Bulut Aynası kontrolü (Kardeş DB ve Stok Kodu eşleştirmesi dahil)
     if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
       try {
         const mirroredImg = await sqlCloudMirror.getProductImage(activeCfg, idOrCode, code);

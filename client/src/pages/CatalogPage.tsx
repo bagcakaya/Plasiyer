@@ -145,6 +145,22 @@ export const CatalogPage: React.FC = () => {
     [filteredProducts, startIndex, endIndex]
   );
 
+  // Mevcut sayfa ve bir sonraki sayfadaki gerçek ürün görsellerini tarayıcı önbelleğine anında önceden yükle (Preload)
+  useEffect(() => {
+    if (typeof window === 'undefined' || filteredProducts.length === 0) return;
+    const preloadSlice = filteredProducts.slice(startIndex, Math.min(endIndex + pageSize, filteredProducts.length));
+    const timer = setTimeout(() => {
+      for (const p of preloadSlice) {
+        if (p.image && (p.image.startsWith('/') || p.image.startsWith('http'))) {
+          const img = new window.Image();
+          img.decoding = 'async';
+          img.src = p.image;
+        }
+      }
+    }, 10);
+    return () => clearTimeout(timer);
+  }, [filteredProducts, startIndex, endIndex, pageSize]);
+
   const handlePageChange = (nextPage: number) => {
     const clamped = Math.min(Math.max(1, nextPage), totalPages);
     setCurrentPage(clamped);
@@ -471,7 +487,7 @@ export const CatalogPage: React.FC = () => {
       ) : viewMode === 'grid' ? (
         /* VİTRİN / GRID MODU (B2B E-Ticaret & Masaüstü Çoklu Izgara) */
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 md:gap-4">
-          {visibleProducts.map((product) => {
+          {visibleProducts.map((product, prodIdx) => {
             const inCartQty = getItemQuantityInCart(product.id);
             const isOutOfStock = product.stockQuantity <= 0;
             const priceInfo = calculateCustomerPrice(product, activeCustomer);
@@ -510,7 +526,9 @@ export const CatalogPage: React.FC = () => {
                     className={`w-full h-full transition-transform duration-300 group-hover:scale-105 ${
                       hasRealPhoto ? 'object-contain p-1.5 bg-white' : 'object-cover'
                     }`}
-                    loading="lazy"
+                    loading={prodIdx < 12 ? 'eager' : 'lazy'}
+                    fetchPriority={prodIdx < 8 ? 'high' : 'auto'}
+                    decoding="async"
                   />
                   {/* Hızlı İnceleme Butonu */}
                   <button
@@ -668,7 +686,7 @@ export const CatalogPage: React.FC = () => {
       ) : (
         /* KOMPAKT LİSTE MODU (Plasiyer Hızlı Raf Tarama & Masaüstü Çoklu Sütun) */
         <div className="space-y-2.5 md:space-y-0 md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-3">
-          {visibleProducts.map((product) => {
+          {visibleProducts.map((product, prodIdx) => {
             const inCartQty = getItemQuantityInCart(product.id);
             const isOutOfStock = product.stockQuantity <= 0;
             const priceInfo = calculateCustomerPrice(product, activeCustomer);
@@ -709,7 +727,9 @@ export const CatalogPage: React.FC = () => {
                       className={`w-full h-full transition-transform group-hover:scale-105 ${
                         hasRealPhoto ? 'object-contain p-1 bg-white' : 'object-cover'
                       }`}
-                      loading="lazy"
+                      loading={prodIdx < 12 ? 'eager' : 'lazy'}
+                      fetchPriority={prodIdx < 8 ? 'high' : 'auto'}
+                      decoding="async"
                     />
                     <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center text-white">
                       <Eye className="w-4 h-4" />
