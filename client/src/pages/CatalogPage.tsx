@@ -30,7 +30,7 @@ import { BarcodeScannerModal } from '../components/BarcodeScannerModal';
 import { ProductDetailModal } from '../components/ProductDetailModal';
 import { ProductPhotoModal } from '../components/ProductPhotoModal';
 import { CategoryStoriesBar } from '../components/CategoryStoriesBar';
-import { getProductImageUrl } from '../utils/productImages';
+import { getProductImageUrl, handleProductImageError } from '../utils/productImages';
 
 const PAGE_SIZE_OPTIONS = [20, 30, 50, 100] as const;
 const PAGE_SIZE_STORAGE_KEY = 'plasiyer_catalog_page_size';
@@ -464,14 +464,13 @@ export const CatalogPage: React.FC = () => {
                   <img 
                     src={imgUrl} 
                     alt={product.name} 
-                    onError={(e) => {
-                      const target = e.currentTarget;
-                      if (target.src !== fallbackCardUrl) {
-                        target.src = fallbackCardUrl;
-                        target.className =
-                          'w-full h-full object-cover transition-transform duration-300 group-hover:scale-105';
-                      }
-                    }}
+                    onError={(e) =>
+                      handleProductImageError(
+                        e,
+                        fallbackCardUrl,
+                        'w-full h-full object-cover transition-transform duration-300 group-hover:scale-105'
+                      )
+                    }
                     className={`w-full h-full transition-transform duration-300 group-hover:scale-105 ${
                       hasRealPhoto ? 'object-contain p-1.5 bg-white' : 'object-cover'
                     }`}
@@ -664,14 +663,13 @@ export const CatalogPage: React.FC = () => {
                     <img 
                       src={imgUrl} 
                       alt={product.name} 
-                      onError={(e) => {
-                        const target = e.currentTarget;
-                        if (target.src !== fallbackCardUrl) {
-                          target.src = fallbackCardUrl;
-                          target.className =
-                            'w-full h-full object-cover transition-transform group-hover:scale-105';
-                        }
-                      }}
+                      onError={(e) =>
+                        handleProductImageError(
+                          e,
+                          fallbackCardUrl,
+                          'w-full h-full object-cover transition-transform group-hover:scale-105'
+                        )
+                      }
                       className={`w-full h-full transition-transform group-hover:scale-105 ${
                         hasRealPhoto ? 'object-contain p-1 bg-white' : 'object-cover'
                       }`}

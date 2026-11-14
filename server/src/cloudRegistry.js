@@ -473,6 +473,7 @@ export const cloudRegistry = {
       companyCode: cCode,
       licenseExpireDate: exp || undefined,
       licenseExpired: expired,
+      matchedServerConfig: profileToServerConfig(profile),
       error: expired ? LICENSE_EXPIRED_MESSAGE : undefined,
     };
   },

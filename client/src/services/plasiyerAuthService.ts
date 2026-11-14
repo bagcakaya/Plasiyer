@@ -838,6 +838,7 @@ export const plasiyerAuthService = {
   async checkCompanyLicenseStatus(companyCode?: string): Promise<{
     licenseExpired: boolean;
     licenseExpireDate?: string;
+    matchedServerConfig?: ServerConfig | null;
     error?: string;
   }> {
     const codeUpper = (companyCode || '').trim().toUpperCase();
@@ -852,6 +853,22 @@ export const plasiyerAuthService = {
         );
         if (res.ok) {
           const data = await res.json();
+          const remoteCfg = (data?.matchedServerConfig as ServerConfig | null) || null;
+          if (remoteCfg?.companyCode) {
+            this.saveCompanyProfileLocalOnly({
+              code: remoteCfg.companyCode,
+              name: remoteCfg.companyTitle || remoteCfg.companyCode,
+              companyTitle: remoteCfg.companyTitle || remoteCfg.companyCode,
+              period: remoteCfg.period || '2026',
+              serverUrl: isDemoMode(remoteCfg) ? 'demo' : '/api',
+              sqlHost: remoteCfg.sqlHost,
+              sqlPort: remoteCfg.sqlPort,
+              sqlDatabase: remoteCfg.sqlDatabase,
+              sqlUser: remoteCfg.sqlUser,
+              sqlPassword: remoteCfg.sqlPassword,
+              licenseExpireDate: remoteCfg.licenseExpireDate,
+            });
+          }
           if (data?.foundCompany && data?.licenseExpireDate) {
             this.syncLocalLicenseExpireDate(codeUpper, data.licenseExpireDate);
           }
@@ -859,6 +876,7 @@ export const plasiyerAuthService = {
             return {
               licenseExpired: true,
               licenseExpireDate: data?.licenseExpireDate,
+              matchedServerConfig: remoteCfg,
               error: LICENSE_EXPIRED_MESSAGE,
             };
           }
@@ -866,6 +884,7 @@ export const plasiyerAuthService = {
             return {
               licenseExpired: false,
               licenseExpireDate: data?.licenseExpireDate,
+              matchedServerConfig: remoteCfg,
             };
           }
         }
@@ -879,6 +898,7 @@ export const plasiyerAuthService = {
       return {
         licenseExpired: true,
         licenseExpireDate: localCfg?.licenseExpireDate,
+        matchedServerConfig: localCfg,
         error: LICENSE_EXPIRED_MESSAGE,
       };
     }
@@ -886,6 +906,7 @@ export const plasiyerAuthService = {
     return {
       licenseExpired: false,
       licenseExpireDate: localCfg?.licenseExpireDate,
+      matchedServerConfig: localCfg,
     };
   },
 

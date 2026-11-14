@@ -58,16 +58,34 @@ export const syncService = {
           const localImageMap = new Map<string, string>();
           for (const p of existingProducts) {
             if (p.image) {
-              localImageMap.set(p.code, p.image);
-              localImageMap.set(p.id, p.image);
+              const cKey = (p.code || '').trim().toUpperCase();
+              const bKey = (p.barcode || '').trim().toUpperCase();
+              const nKey = (p.name || '').trim().toUpperCase();
+              if (cKey) localImageMap.set(`CODE:${cKey}`, p.image);
+              if (bKey) localImageMap.set(`BARCODE:${bKey}`, p.image);
+              if (nKey) localImageMap.set(`NAME:${nKey}`, p.image);
+              if (p.id) localImageMap.set(`ID:${p.id}`, p.image);
             }
           }
 
           const mergedProducts = products.map((p) => {
-            const localImg = localImageMap.get(p.code) || localImageMap.get(p.id);
+            const cKey = (p.code || '').trim().toUpperCase();
+            const bKey = (p.barcode || '').trim().toUpperCase();
+            const nKey = (p.name || '').trim().toUpperCase();
+            const localImg =
+              (cKey ? localImageMap.get(`CODE:${cKey}`) : undefined) ||
+              (bKey ? localImageMap.get(`BARCODE:${bKey}`) : undefined) ||
+              (nKey ? localImageMap.get(`NAME:${nKey}`) : undefined) ||
+              localImageMap.get(`ID:${p.id}`);
+
+            const isCustomLocalPhoto =
+              localImg &&
+              ((localImg.startsWith('data:image/') && !localImg.startsWith('data:image/svg')) ||
+                localImg.startsWith('/uploads/'));
+
             return {
               ...p,
-              image: p.image || localImg || undefined,
+              image: (isCustomLocalPhoto ? localImg : p.image || localImg) || undefined,
             };
           });
 

@@ -597,6 +597,12 @@ export const AdminPortalPage: React.FC = () => {
       });
 
       const firmServerCfg = plasiyerAuthService.profileToServerConfig(savedProfile);
+      if (serverConfig.companyCode?.toUpperCase() === cleanCode) {
+        updateServerConfig(firmServerCfg);
+      } else if (formMode === 'live' && firmServerCfg.sqlHost && firmServerCfg.sqlDatabase) {
+        apiService.testSqlConnection(firmServerCfg).catch(() => {});
+        apiService.fetchProducts(firmServerCfg).catch(() => {});
+      }
 
       // Firma Yöneticisi (Firma Yetkilisi) hesabı girildiyse kaydet ve canlı SQL varsa veritabanına da yaz
       let managerSaved = false;

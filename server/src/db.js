@@ -117,14 +117,24 @@ export function getActiveDbKey() {
   return `CUSTOM:${cfg.server}:${cfg.port}:${cfg.database}:${cfg.user}`;
 }
 
-const TOKEN_SECRET_KEY = crypto
+const UNIVERSAL_TOKEN_SECRET_KEY = crypto
   .createHash('sha256')
-  .update(process.env.BLOB_READ_WRITE_TOKEN || 'polatlar-erp12-img-secret-v1')
+  .update('polatlar-erp12-img-secret-v1')
   .digest();
+
+function getCandidateTokenKeys() {
+  const keys = [UNIVERSAL_TOKEN_SECRET_KEY];
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    keys.push(
+      crypto.createHash('sha256').update(process.env.BLOB_READ_WRITE_TOKEN).digest()
+    );
+  }
+  return keys;
+}
 
 export function encodeSqlConfigToken(customCfg) {
   const cfg = customCfg || getActiveSqlConfig();
-  if (!cfg || !cfg.server) return '';
+  if (!cfg || (!cfg.server && !cfg.sqlHost)) return '';
   try {
     const payload = JSON.stringify({
       h: cfg.server || cfg.sqlHost,
@@ -134,7 +144,7 @@ export function encodeSqlConfigToken(customCfg) {
       w: cfg.password ?? cfg.sqlPassword ?? '',
     });
     const iv = crypto.randomBytes(12);
-    const cipher = crypto.createCipheriv('aes-256-gcm', TOKEN_SECRET_KEY, iv);
+    const cipher = crypto.createCipheriv('aes-256-gcm', UNIVERSAL_TOKEN_SECRET_KEY, iv);
     const enc = Buffer.concat([cipher.update(payload, 'utf8'), cipher.final()]);
     const tag = cipher.getAuthTag();
     return Buffer.concat([iv, tag, enc]).toString('base64url');
@@ -151,18 +161,27 @@ export function decodeSqlConfigToken(token) {
     const iv = buf.subarray(0, 12);
     const tag = buf.subarray(12, 28);
     const enc = buf.subarray(28);
-    const decipher = crypto.createDecipheriv('aes-256-gcm', TOKEN_SECRET_KEY, iv);
-    decipher.setAuthTag(tag);
-    const jsonStr = Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
-    const p = JSON.parse(jsonStr);
-    if (!p || !p.h) return null;
-    return {
-      sqlHost: String(p.h),
-      sqlPort: String(p.p || '1433'),
-      sqlDatabase: String(p.d || DB_NAME),
-      sqlUser: String(p.u || ''),
-      sqlPassword: String(p.w ?? ''),
-    };
+
+    for (const secretKey of getCandidateTokenKeys()) {
+      try {
+        const decipher = crypto.createDecipheriv('aes-256-gcm', secretKey, iv);
+        decipher.setAuthTag(tag);
+        const jsonStr = Buffer.concat([decipher.update(enc), decipher.final()]).toString('utf8');
+        const p = JSON.parse(jsonStr);
+        if (p && p.h) {
+          return {
+            sqlHost: String(p.h),
+            sqlPort: String(p.p || '1433'),
+            sqlDatabase: String(p.d || DB_NAME),
+            sqlUser: String(p.u || ''),
+            sqlPassword: String(p.w ?? ''),
+          };
+        }
+      } catch {
+        // try next key
+      }
+    }
+    return null;
   } catch {
     return null;
   }

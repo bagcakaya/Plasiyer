@@ -693,7 +693,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const verifyActiveLicense = async () => {
       const status = await plasiyerAuthService.checkCompanyLicenseStatus(targetCompany);
       if (cancelled) return;
-      if (status.licenseExpireDate && status.licenseExpireDate !== serverConfig.licenseExpireDate) {
+      const remoteCfg = status.matchedServerConfig;
+      if (remoteCfg && remoteCfg.sqlHost && remoteCfg.sqlDatabase) {
+        const dbChanged =
+          (remoteCfg.sqlDatabase || '').trim().toUpperCase() !==
+            (serverConfig.sqlDatabase || '').trim().toUpperCase() ||
+          (remoteCfg.sqlHost || '').trim() !== (serverConfig.sqlHost || '').trim() ||
+          (remoteCfg.sqlPort || '1433').trim() !== (serverConfig.sqlPort || '1433').trim() ||
+          (remoteCfg.sqlUser || '').trim() !== (serverConfig.sqlUser || '').trim() ||
+          (remoteCfg.sqlPassword ?? '') !== (serverConfig.sqlPassword ?? '');
+
+        if (dbChanged || (status.licenseExpireDate && status.licenseExpireDate !== serverConfig.licenseExpireDate)) {
+          const nextCfg: ServerConfig = {
+            ...serverConfig,
+            apiUrl: remoteCfg.apiUrl || '/api',
+            companyCode: remoteCfg.companyCode || serverConfig.companyCode,
+            companyTitle: remoteCfg.companyTitle || serverConfig.companyTitle,
+            period: remoteCfg.period || serverConfig.period,
+            sqlHost: remoteCfg.sqlHost,
+            sqlPort: remoteCfg.sqlPort || '1433',
+            sqlDatabase: remoteCfg.sqlDatabase,
+            sqlUser: remoteCfg.sqlUser,
+            sqlPassword: remoteCfg.sqlPassword,
+            licenseExpireDate: status.licenseExpireDate || remoteCfg.licenseExpireDate || serverConfig.licenseExpireDate,
+          };
+          setServerConfig(nextCfg);
+          localStorage.setItem('plasiyer_server_config', JSON.stringify(nextCfg));
+          if (dbChanged) {
+            syncService.pullDataFromERP(nextCfg, salesRep.code).then((res) => {
+              if (res.companyInfo) {
+                persistIssuerInfo(nextCfg, res.companyInfo);
+              }
+            }).catch(() => {});
+          }
+        }
+      } else if (status.licenseExpireDate && status.licenseExpireDate !== serverConfig.licenseExpireDate) {
         setServerConfig((prev) => {
           const next = { ...prev, licenseExpireDate: status.licenseExpireDate };
           localStorage.setItem('plasiyer_server_config', JSON.stringify(next));
@@ -967,6 +1001,41 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       window.removeEventListener('offline', handleOffline);
     };
   }, [serverConfig, autoSyncEnabled]);
+
+  // Uygulama açılışında veya aktif SQL veritabanı değiştiğinde (örn: GUNEYLERB2B -> GUNEYLERB3B) güncel stok ve görselleri anında çek
+  useEffect(() => {
+    if (userRole === 'admin' || !isOnline || isDemoMode(serverConfig)) {
+      return;
+    }
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      syncService
+        .pullDataFromERP(serverConfig, salesRep.code)
+        .then((res) => {
+          if (cancelled) return;
+          if (res.companyInfo) {
+            persistIssuerInfo(serverConfig, res.companyInfo);
+          }
+          if (res.success) {
+            const now = new Date();
+            setLastSyncTime(now);
+            localStorage.setItem('plasiyer_last_sync_time', now.toISOString());
+          }
+        })
+        .catch(() => {});
+    }, 150);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [
+    userRole,
+    isOnline,
+    serverConfig.sqlDatabase,
+    serverConfig.sqlHost,
+    serverConfig.companyCode,
+  ]);
 
   // Aşama 6 - B: Arka Planda Canlı Çift Yönlü Otomatik Senkronizasyon (60 sn)
   useEffect(() => {

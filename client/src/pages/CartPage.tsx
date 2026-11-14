@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { db } from '../db';
 import type { Order, OrderItem } from '../types';
-import { getProductImageUrl } from '../utils/productImages';
+import { getProductImageUrl, handleProductImageError } from '../utils/productImages';
 import { 
   Trash2, 
   Plus, 
@@ -99,13 +99,12 @@ const CartItemRow: React.FC<CartItemRowProps> = ({
             src={imageUrl}
             alt={item.productName}
             loading="lazy"
-            onError={(e) => {
-              const target = e.currentTarget;
-              if (!target.dataset.fallbackApplied) {
-                target.dataset.fallbackApplied = 'true';
-                target.src = getProductImageUrl(item.productName, item.category || '');
-              }
-            }}
+            onError={(e) =>
+              handleProductImageError(
+                e,
+                getProductImageUrl(item.productName, item.category || '')
+              )
+            }
             className="w-full h-full object-contain"
           />
         </div>

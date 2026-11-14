@@ -6,6 +6,9 @@
  * 3. Yüksek Kaliteli Vektör Kategori Rozeti (SVG): Çevrimdışı garantili, sıfır hatalı, profesyonel
  */
 
+import type React from 'react';
+import { resolveMediaAssetUrl } from '../services/apiService';
+
 const svgBadgeCache = new Map<string, string>();
 
 function createCategorySvgBadge(
@@ -141,9 +144,9 @@ export function getProductImageUrl(
   existingImage?: string,
   variant: 'card' | 'hero' = 'card'
 ): string {
-  // 1. Mevcut veya yüklenen gerçek fotoğraf kontrolü
+  // 1. Mevcut veya yüklenen gerçek fotoğraf kontrolü (Yerel köprü aktifse doğrudan localhost:4000 üzerinden hızlı sunum)
   if (existingImage && (existingImage.startsWith('data:') || existingImage.startsWith('/') || existingImage.startsWith('http'))) {
-    return existingImage;
+    return resolveMediaAssetUrl(existingImage) || existingImage;
   }
 
   const n = normalizeTurkish(productName);
@@ -259,4 +262,48 @@ export function getProductImageUrl(
   // Varsayılan Genel Paket Gıda Rozeti
   const displayTitle = productName.length > 20 ? productName.substring(0, 20) + '...' : productName;
   return createCategorySvgBadge(displayTitle, categoryName || 'Toptan Gıda', '#334155', '#1e293b', ICONS.package, variant);
+}
+
+export function handleProductImageError(
+  e: React.SyntheticEvent<HTMLImageElement>,
+  fallbackUrl: string,
+  fallbackClassName?: string
+): void {
+  const target = e.currentTarget;
+  const currentSrc = target.src || '';
+
+  // 1. Yerel köprüden (localhost:4000) yüklenemediyse bulut '/api/' uç noktasına geç
+  if (
+    (currentSrc.startsWith('http://localhost:') || currentSrc.startsWith('http://127.0.0.1:')) &&
+    currentSrc.includes('/api/') &&
+    !target.dataset.cloudFallback
+  ) {
+    target.dataset.cloudFallback = '1';
+    const apiIdx = currentSrc.indexOf('/api/');
+    if (apiIdx >= 0) {
+      target.src = currentSrc.slice(apiIdx);
+      return;
+    }
+  }
+
+  // 2. Bulut veya tünel yoğunluğunda 1 kez otomatik yeniden dene
+  if (currentSrc.includes('/api/products/erp-image/') && !target.dataset.retried) {
+    target.dataset.retried = '1';
+    const sep = currentSrc.includes('?') ? '&' : '?';
+    const retryUrl = `${currentSrc}${sep}r=1`;
+    setTimeout(() => {
+      if (target) {
+        target.src = retryUrl;
+      }
+    }, 350);
+    return;
+  }
+
+  // 3. Yedek kategori vektör rozetine düş
+  if (target.src !== fallbackUrl) {
+    target.src = fallbackUrl;
+    if (fallbackClassName) {
+      target.className = fallbackClassName;
+    }
+  }
 }

@@ -70,6 +70,27 @@ export const resolveApiBaseUrl = (config?: ServerConfig): string => {
   return `http://${host || 'localhost'}:${bridge}/api`;
 };
 
+if (typeof window !== 'undefined') {
+  resolveApiBaseUrlAsync().catch(() => {});
+}
+
+export const resolveMediaAssetUrl = (rawUrl?: string): string | undefined => {
+  if (!rawUrl) return undefined;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return undefined;
+  if (trimmed.startsWith('data:') || trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    return trimmed;
+  }
+  const baseApi = resolveApiBaseUrl();
+  if (baseApi.startsWith('http://') || baseApi.startsWith('https://')) {
+    const origin = baseApi.replace(/\/api\/?$/, '');
+    if (trimmed.startsWith('/api/') || trimmed.startsWith('/uploads/')) {
+      return `${origin}${trimmed}`;
+    }
+  }
+  return trimmed;
+};
+
 const encodeUtf8Base64 = (str: string): string => {
   const bytes = new TextEncoder().encode(str);
   let binary = '';

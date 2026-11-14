@@ -8,11 +8,116 @@ import { imageService } from './imageService.js';
 
 // Yüksek Performanslı Bellek İçi Önbellek (Çoklu Firma / DB Anahtarı İle İzole)
 const memCache = {
-  customers: new Map(),     // `${dbKey}::${rep}` -> { data, expiresAt }
-  products: new Map(),      // `${dbKey}` -> { data, expiresAt }
-  companyInfo: new Map(),   // `${dbKey}` -> { data, expiresAt }
-  productImages: new Map(), // `${dbKey}::${idOrCode}` -> { data, expiresAt }
+  customers: new Map(),      // `${dbKey}::${rep}` -> { data, expiresAt }
+  products: new Map(),       // `${dbKey}` -> { data, expiresAt }
+  companyInfo: new Map(),    // `${dbKey}` -> { data, expiresAt }
+  productImages: new Map(),  // `${dbKey}::${idOrCode}` -> { data, expiresAt }
+  siblingDbs: new Map(),     // `${dbKey}` -> { data: string[], expiresAt }
+  siblingImgMeta: new Map(), // `${hostPort}::${sibDb}` -> { byCode, byName, byId, expiresAt }
 };
+
+function extractDbBasePrefix(dbName = '') {
+  const clean = String(dbName || '').trim().toUpperCase();
+  if (!clean) return '';
+  const stripped = clean
+    .replace(/[_-]?(20\d{2}|B\d+B|V\d+|\d+)$/i, '')
+    .trim();
+  return stripped.length >= 3 ? stripped : clean.slice(0, Math.min(clean.length, 6));
+}
+
+function getActiveHostKey() {
+  const cfg = getActiveSqlConfig();
+  if (!cfg) return 'DEFAULT_HOST';
+  return `${cfg.server}:${cfg.port}`;
+}
+
+async function discoverSiblingErpDatabases() {
+  const dbKey = getActiveDbKey();
+  const now = Date.now();
+  const cached = memCache.siblingDbs.get(dbKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.data;
+  }
+
+  const activeCfg = getActiveSqlConfig();
+  const activeDb = String(activeCfg?.database || '').trim();
+  const prefix = extractDbBasePrefix(activeDb);
+  const safePrefix = prefix.replace(/'/g, "''").replace(/[^A-Z0-9_]/gi, '');
+
+  let siblingNames = [];
+  try {
+    const dbs = await executeJsonQuery(`
+      SELECT TOP 10 name
+      FROM sys.databases WITH(NOLOCK)
+      WHERE database_id > 4
+        AND state = 0
+        AND UPPER(name) <> UPPER(DB_NAME())
+        ${safePrefix.length >= 3 ? `AND UPPER(name) LIKE '${safePrefix}%'` : ''}
+      ORDER BY database_id DESC, name DESC
+    `);
+    siblingNames = (Array.isArray(dbs) ? dbs : [])
+      .map((d) => String(d.name || '').trim())
+      .filter((n) => /^[A-Za-z0-9_.-]+$/.test(n));
+  } catch {
+    siblingNames = [];
+  }
+
+  memCache.siblingDbs.set(dbKey, {
+    data: siblingNames,
+    expiresAt: now + 5 * 60 * 1000,
+  });
+  return siblingNames;
+}
+
+async function getSiblingImageMeta(sibDb) {
+  const hostKey = getActiveHostKey();
+  const cacheKey = `${hostKey}::${sibDb.toUpperCase()}`;
+  const now = Date.now();
+  const cached = memCache.siblingImgMeta.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached;
+  }
+
+  const byCode = new Map();
+  const byName = new Map();
+  const byId = new Map();
+
+  try {
+    const rows = await executeJsonQuery(`
+      SELECT
+        S.ID AS stokId,
+        LTRIM(RTRIM(ISNULL(S.KOD, ''))) AS code,
+        LTRIM(RTRIM(ISNULL(S.AD, ''))) AS name,
+        MIN(R.IDX) AS resimIdx,
+        MAX(CASE WHEN R.LINK IS NOT NULL AND LTRIM(RTRIM(R.LINK)) <> '' THEN LTRIM(RTRIM(R.LINK)) ELSE NULL END) AS resimLink
+      FROM [${sibDb}].dbo.STOK S WITH(NOLOCK)
+      JOIN [${sibDb}].dbo.RESIM R WITH(NOLOCK) ON R.ID = S.ID
+      WHERE R.RESIM IS NOT NULL OR (R.LINK IS NOT NULL AND LTRIM(RTRIM(R.LINK)) <> '')
+      GROUP BY S.ID, S.KOD, S.AD
+    `);
+
+    for (const r of Array.isArray(rows) ? rows : []) {
+      const entry = {
+        stokId: String(r.stokId || ''),
+        resimIdx: r.resimIdx,
+        resimLink: r.resimLink || null,
+        sourceDb: sibDb,
+      };
+      const cUpper = String(r.code || '').trim().toUpperCase();
+      const nUpper = String(r.name || '').trim().toUpperCase();
+      const sId = String(r.stokId || '').trim();
+      if (cUpper && !byCode.has(cUpper)) byCode.set(cUpper, entry);
+      if (nUpper && !byName.has(nUpper)) byName.set(nUpper, entry);
+      if (sId && !byId.has(sId)) byId.set(sId, entry);
+    }
+  } catch {
+    // ignore sibling DB access error
+  }
+
+  const meta = { byCode, byName, byId, expiresAt: now + 5 * 60 * 1000 };
+  memCache.siblingImgMeta.set(cacheKey, meta);
+  return meta;
+}
 
 function detectImageMimeType(buf, rawExt = 'jpg') {
   if (Buffer.isBuffer(buf) && buf.length >= 4) {
@@ -451,27 +556,65 @@ export const erpQueries = {
       .filter(Boolean)
       .join('&');
 
+    // Aktif veritabanında resmi olmayan ürünler için aynı sunucudaki kardeş ERP12 veritabanlarını (örn: GUNEYLERB2B <-> GUNEYLERB3B) kontrol et
+    const hasMissingResim = rows.some((r) => !r.resimIdx && !r.erpImageLink);
+    const siblingMetas = [];
+    if (hasMissingResim) {
+      const siblingDbs = await discoverSiblingErpDatabases();
+      for (const sibDb of siblingDbs) {
+        const meta = await getSiblingImageMeta(sibDb);
+        if (meta.byCode.size > 0 || meta.byId.size > 0) {
+          siblingMetas.push(meta);
+        }
+      }
+    }
+
     const result = rows.map((row) => {
-      const code = String(row.code);
-      const id = String(row.id);
-      const barcode = String(row.barcode || row.code);
+      const code = String(row.code || '').trim();
+      const id = String(row.id || '').trim();
+      const barcode = String(row.barcode || row.code || '').trim();
+      const nameStr = String(row.name || '').trim();
+      const codeUpper = code.toUpperCase();
+      const nameUpper = nameStr.toUpperCase();
+      const cleanCodeKey = code.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+      let resolvedResimIdx = row.resimIdx;
+      let resolvedResimLink = row.erpImageLink;
+      let resolvedTargetId = id;
+
+      if (!resolvedResimIdx && !resolvedResimLink && siblingMetas.length > 0) {
+        for (const meta of siblingMetas) {
+          const matched =
+            (codeUpper && meta.byCode.get(codeUpper)) ||
+            (id && meta.byId.get(id)) ||
+            (nameUpper && meta.byName.get(nameUpper));
+          if (matched) {
+            resolvedResimIdx = matched.resimIdx;
+            resolvedResimLink = matched.resimLink;
+            if (matched.stokId) resolvedTargetId = matched.stokId;
+            break;
+          }
+        }
+      }
 
       let erpResimUrl;
-      if (row.erpImageLink && /^https?:\/\//i.test(String(row.erpImageLink).trim())) {
-        erpResimUrl = String(row.erpImageLink).trim();
-      } else if (row.resimIdx) {
+      if (resolvedResimLink && /^https?:\/\//i.test(String(resolvedResimLink).trim())) {
+        erpResimUrl = String(resolvedResimLink).trim();
+      } else if (resolvedResimIdx) {
         const qs = [
           `code=${encodeURIComponent(code)}`,
-          `idx=${encodeURIComponent(String(row.resimIdx))}`,
+          `idx=${encodeURIComponent(String(resolvedResimIdx))}`,
           dbQuerySuffix,
         ]
           .filter(Boolean)
           .join('&');
-        erpResimUrl = `/api/products/erp-image/${encodeURIComponent(id)}?${qs}`;
+        erpResimUrl = `/api/products/erp-image/${encodeURIComponent(resolvedTargetId)}?${qs}`;
       }
 
       const matchedImage =
         imageMap[code] ||
+        imageMap[codeUpper] ||
+        imageMap[cleanCodeKey] ||
         imageMap[id] ||
         imageMap[barcode] ||
         erpResimUrl ||
@@ -481,7 +624,7 @@ export const erpQueries = {
         id,
         code,
         barcode,
-        name: String(row.name),
+        name: nameStr,
         category: String(row.category || 'Genel'),
         unit: String(row.unit || 'ADET'),
         vatRate: Number(row.vatRate || 1),
@@ -498,24 +641,32 @@ export const erpQueries = {
     return result;
   },
 
-  // 2.0.1 ERP12 RESIM TABLOSUNDAN ÜRÜN GÖRSELİ (RESIM.ID = STOK.ID VEYA STOK.KOD)
+  // 2.0.1 ERP12 RESIM TABLOSUNDAN ÜRÜN GÖRSELİ (RESIM.ID = STOK.ID VEYA STOK.KOD + KARDEŞ DB YEDEKLİ)
   async getProductErpImage(idOrCode, productCode = '') {
     const dbKey = getActiveDbKey();
+    const hostKey = getActiveHostKey();
     const safeId = String(idOrCode || '').trim().replace(/'/g, "''");
     const safeCode = String(productCode || '').trim().replace(/'/g, "''");
     if (!safeId && !safeCode) return null;
 
     const cacheKey = `${dbKey}::${safeId}::${safeCode}`;
+    const codeCacheKey = safeCode ? `${hostKey}::CODE::${safeCode.toUpperCase()}` : null;
+    const idCacheKey = safeId ? `${hostKey}::ID::${safeId}` : null;
     const now = Date.now();
-    const cached = memCache.productImages.get(cacheKey);
+
+    const cached =
+      memCache.productImages.get(cacheKey) ||
+      (codeCacheKey ? memCache.productImages.get(codeCacheKey) : null) ||
+      (idCacheKey ? memCache.productImages.get(idCacheKey) : null);
     if (cached && cached.expiresAt > now) {
       return cached.data;
     }
 
-    const query = `
+    const buildImageSelectSql = (dbPrefix = '') => `
       SELECT TOP 1
         X.idx,
         X.stokId,
+        X.stokKod,
         X.ext,
         X.link,
         CAST('' AS xml).value('xs:base64Binary(sql:column("X.binData"))', 'varchar(max)') AS base64Data
@@ -523,22 +674,48 @@ export const erpQueries = {
         SELECT TOP 1
           R.IDX AS idx,
           R.ID AS stokId,
+          LTRIM(RTRIM(ISNULL(S.KOD, ''))) AS stokKod,
           LOWER(LTRIM(RTRIM(ISNULL(R.UZANTI, 'jpg')))) AS ext,
           LTRIM(RTRIM(ISNULL(R.LINK, ''))) AS link,
           CAST(R.RESIM AS varbinary(max)) AS binData
-        FROM RESIM R WITH(NOLOCK)
-        LEFT JOIN STOK S WITH(NOLOCK) ON S.ID = R.ID
+        FROM ${dbPrefix}RESIM R WITH(NOLOCK)
+        LEFT JOIN ${dbPrefix}STOK S WITH(NOLOCK) ON S.ID = R.ID
         WHERE (
-          (TRY_CAST('${safeId}' AS bigint) IS NOT NULL AND R.ID = TRY_CAST('${safeId}' AS bigint))
-          OR ('${safeCode}' <> '' AND S.KOD = '${safeCode}')
-          OR S.KOD = '${safeId}'
+          ('${safeCode}' <> '' AND LTRIM(RTRIM(S.KOD)) = '${safeCode}')
+          OR (TRY_CAST('${safeId}' AS bigint) IS NOT NULL AND R.ID = TRY_CAST('${safeId}' AS bigint))
+          OR LTRIM(RTRIM(S.KOD)) = '${safeId}'
         )
         AND (R.RESIM IS NOT NULL OR (R.LINK IS NOT NULL AND LTRIM(RTRIM(R.LINK)) <> ''))
-        ORDER BY ISNULL(R.SIRA, 1) ASC, R.IDX ASC
+        ORDER BY
+          CASE WHEN '${safeCode}' <> '' AND LTRIM(RTRIM(S.KOD)) = '${safeCode}' THEN 0 ELSE 1 END ASC,
+          ISNULL(R.SIRA, 1) ASC,
+          R.IDX ASC
       ) X
     `;
 
-    const rows = await executeJsonQuery(query);
+    let rows = [];
+    try {
+      rows = await executeJsonQuery(buildImageSelectSql(''));
+    } catch {
+      rows = [];
+    }
+
+    // Aktif veritabanında bulunamadıysa aynı SQL sunucusundaki kardeş ERP12 veritabanlarında (örn: GUNEYLERB2B <-> GUNEYLERB3B) ara
+    if (!Array.isArray(rows) || rows.length === 0) {
+      const siblingDbs = await discoverSiblingErpDatabases();
+      for (const sibDb of siblingDbs) {
+        try {
+          const sibRows = await executeJsonQuery(buildImageSelectSql(`[${sibDb}].dbo.`));
+          if (Array.isArray(sibRows) && sibRows.length > 0) {
+            rows = sibRows;
+            break;
+          }
+        } catch {
+          // ignore sibling db error
+        }
+      }
+    }
+
     if (!Array.isArray(rows) || rows.length === 0) {
       return null;
     }
@@ -559,23 +736,32 @@ export const erpQueries = {
       return null;
     }
 
+    const resolvedCode = String(row.stokKod || safeCode || '').trim();
     const result = {
       idx: String(row.idx || ''),
       stokId: String(row.stokId || safeId),
+      productCode: resolvedCode,
       ext: String(row.ext || 'jpg'),
       contentType,
       buffer,
       link: link || null,
     };
 
-    if (memCache.productImages.size > 250) {
+    while (memCache.productImages.size > 400) {
       const oldestKey = memCache.productImages.keys().next().value;
       if (oldestKey) memCache.productImages.delete(oldestKey);
+      else break;
     }
-    memCache.productImages.set(cacheKey, {
+    const cacheEntry = {
       data: result,
       expiresAt: now + 30 * 60 * 1000,
-    });
+    };
+    memCache.productImages.set(cacheKey, cacheEntry);
+    if (codeCacheKey) memCache.productImages.set(codeCacheKey, cacheEntry);
+    if (resolvedCode) {
+      memCache.productImages.set(`${hostKey}::CODE::${resolvedCode.toUpperCase()}`, cacheEntry);
+    }
+    if (idCacheKey) memCache.productImages.set(idCacheKey, cacheEntry);
 
     return result;
   },

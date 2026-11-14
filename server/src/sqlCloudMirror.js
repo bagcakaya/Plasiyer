@@ -45,12 +45,64 @@ export function makeMirrorKey(cfg = {}) {
     .replace(/[^A-Z0-9_.-]/g, '_');
 }
 
+function makeSharedHostKey(cfg = {}) {
+  const { host, port } = parseCleanDbParts(cfg);
+  if (!host) return null;
+  const hLower = host.toLowerCase();
+  if (hLower === 'localhost' || hLower === '127.0.0.1' || hLower === '.') return null;
+  return `${host}_${port}_SHARED`
+    .toUpperCase()
+    .replace(/[^A-Z0-9_.-]/g, '_');
+}
+
 function makeAuthHash(cfg = {}) {
   const { host, port, database, user, password } = parseCleanDbParts(cfg);
   return crypto
     .createHash('sha256')
     .update(`${host.toLowerCase()}|${port}|${database.toUpperCase()}|${user.toUpperCase()}|${password}`)
     .digest('hex');
+}
+
+function makeHostAuthHash(cfg = {}) {
+  const { host, port, user, password } = parseCleanDbParts(cfg);
+  return crypto
+    .createHash('sha256')
+    .update(`${host.toLowerCase()}|${port}|${user.toUpperCase()}|${password}`)
+    .digest('hex');
+}
+
+function getSiblingDatabaseCandidates(dbName = '') {
+  const clean = String(dbName || '').trim().toUpperCase();
+  if (!clean) return [];
+  const candidates = new Set();
+
+  // Örn: GUNEYLERB3B -> GUNEYLERB2B, GUNEYLERB1B, GUNEYLERB4B
+  const bMatch = clean.match(/^(.*?)B(\d+)B$/i);
+  if (bMatch) {
+    const prefix = bMatch[1];
+    const ver = parseInt(bMatch[2], 10);
+    for (const v of [ver - 1, ver - 2, ver + 1, 1, 2, 3, 4, 5]) {
+      if (v > 0 && v !== ver) {
+        candidates.add(`${prefix}B${v}B`);
+      }
+    }
+  }
+
+  // Örn: FIRMA2026 veya FIRMA_2026 -> FIRMA2025, FIRMA_2025
+  const numMatch = clean.match(/^(.*?)(\d+)$/);
+  if (numMatch) {
+    const prefix = numMatch[1];
+    const num = parseInt(numMatch[2], 10);
+    if (Number.isFinite(num)) {
+      for (const n of [num - 1, num - 2, num + 1]) {
+        if (n > 0 && n !== num) {
+          candidates.add(`${prefix}${n}`);
+        }
+      }
+    }
+  }
+
+  return Array.from(candidates);
 }
 
 async function putMirrorJson(mirrorKey, fileName, data) {
@@ -197,34 +249,107 @@ export const sqlCloudMirror = {
     return data.info;
   },
 
-  async saveProductImage(cfg, stokId, imgObj) {
+  async saveProductImage(cfg, stokId, imgObj, productCode = '') {
     const key = makeMirrorKey(cfg);
+    const sharedKey = makeSharedHostKey(cfg);
     const cleanId = String(stokId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
+    const cleanCode = String(productCode || imgObj?.productCode || '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9_-]/g, '_');
     if (!key || !cleanId || !imgObj?.buffer) return;
-    await putMirrorJson(key, `erp-images/${cleanId}.json`, {
+
+    const payload = {
       authHash: makeAuthHash(cfg),
+      hostAuthHash: makeHostAuthHash(cfg),
       syncedAt: new Date().toISOString(),
       contentType: imgObj.contentType || 'image/jpeg',
       ext: imgObj.ext || 'jpg',
       idx: imgObj.idx || '',
+      productCode: String(productCode || imgObj?.productCode || '').trim(),
       base64: imgObj.buffer.toString('base64'),
-    });
+    };
+
+    const tasks = [putMirrorJson(key, `erp-images/${cleanId}.json`, payload)];
+    if (sharedKey) {
+      tasks.push(putMirrorJson(sharedKey, `erp-images/id_${cleanId}.json`, payload));
+      if (cleanCode) {
+        tasks.push(putMirrorJson(sharedKey, `erp-images/code_${cleanCode}.json`, payload));
+      }
+    }
+    await Promise.allSettled(tasks);
   },
 
-  async getProductImage(cfg, stokId) {
+  async getProductImage(cfg, stokId, productCode = '') {
     const key = makeMirrorKey(cfg);
+    const sharedKey = makeSharedHostKey(cfg);
     const cleanId = String(stokId || '').trim().replace(/[^a-zA-Z0-9_-]/g, '_');
-    if (!key || !cleanId) return null;
-    const data = await getMirrorJson(key, `erp-images/${cleanId}.json`);
-    if (!data || data.authHash !== makeAuthHash(cfg) || !data.base64) {
-      return null;
-    }
-    return {
+    const cleanCode = String(productCode || '')
+      .trim()
+      .toUpperCase()
+      .replace(/[^A-Z0-9_-]/g, '_');
+    if (!key && !sharedKey) return null;
+
+    const expectedAuthHash = makeAuthHash(cfg);
+    const expectedHostHash = makeHostAuthHash(cfg);
+
+    const isValidImgData = (data, allowedAuthHash) => {
+      if (!data || !data.base64) return false;
+      if (data.hostAuthHash && data.hostAuthHash === expectedHostHash) return true;
+      if (data.authHash && (data.authHash === expectedAuthHash || data.authHash === allowedAuthHash)) {
+        return true;
+      }
+      return false;
+    };
+
+    const toImgResult = (data) => ({
       contentType: data.contentType || 'image/jpeg',
       ext: data.ext || 'jpg',
       idx: data.idx || '',
       buffer: Buffer.from(data.base64, 'base64'),
-    };
+    });
+
+    // 1. Aktif veritabanı aynası
+    if (key && cleanId) {
+      const data = await getMirrorJson(key, `erp-images/${cleanId}.json`);
+      if (isValidImgData(data, expectedAuthHash)) {
+        return toImgResult(data);
+      }
+    }
+
+    // 2. Aynı SQL sunucusu üzerindeki ortak (veritabanı adından bağımsız) görsel havuzu (Stok Kodu ve Stok ID ile)
+    if (sharedKey) {
+      if (cleanCode) {
+        const byCodeData = await getMirrorJson(sharedKey, `erp-images/code_${cleanCode}.json`);
+        if (isValidImgData(byCodeData, expectedAuthHash)) {
+          return toImgResult(byCodeData);
+        }
+      }
+      if (cleanId) {
+        const byIdData = await getMirrorJson(sharedKey, `erp-images/id_${cleanId}.json`);
+        if (isValidImgData(byIdData, expectedAuthHash)) {
+          return toImgResult(byIdData);
+        }
+      }
+    }
+
+    // 3. Aynı SQL sunucusundaki kardeş veritabanı aynaları (örn: GUNEYLERB2B -> GUNEYLERB3B geçişinde eski datadaki görseller)
+    if (cleanId) {
+      const { database } = parseCleanDbParts(cfg);
+      const siblingDbs = getSiblingDatabaseCandidates(database);
+      for (const sibDb of siblingDbs) {
+        const sibCfg = { ...cfg, sqlDatabase: sibDb, database: sibDb };
+        const sibKey = makeMirrorKey(sibCfg);
+        if (!sibKey) continue;
+        const sibAuthHash = makeAuthHash(sibCfg);
+        const sibData = await getMirrorJson(sibKey, `erp-images/${cleanId}.json`);
+        if (isValidImgData(sibData, sibAuthHash)) {
+          return toImgResult(sibData);
+        }
+      }
+    }
+
+    return null;
   },
 
   async enqueueOutboxItem(cfg, item) {

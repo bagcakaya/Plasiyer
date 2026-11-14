@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { useApp } from '../context/AppContext';
 import { Layers, ChevronLeft, ChevronRight } from 'lucide-react';
+import { resolveMediaAssetUrl } from '../services/apiService';
 
 export interface CategoryItem {
   id: string;
@@ -33,6 +34,8 @@ export const CategoryStoriesBar: React.FC = () => {
 
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(true);
+  const [visibleImageLimit, setVisibleImageLimit] = useState(14);
+  const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
 
   // PC Mouse ile sürükleyerek kaydırma state'leri
   const [isMouseDown, setIsMouseDown] = useState(false);
@@ -97,6 +100,10 @@ export const CategoryStoriesBar: React.FC = () => {
     const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
     setShowLeftArrow(scrollLeft > 10);
     setShowRightArrow(scrollLeft < scrollWidth - clientWidth - 10);
+    const approxVisibleIdx = Math.ceil((scrollLeft + clientWidth * 1.5) / 72) + 6;
+    if (approxVisibleIdx > visibleImageLimit) {
+      setVisibleImageLimit(approxVisibleIdx);
+    }
   };
 
   // PC'de mouse tekerleğiyle dikey çevirmeyi yatay kaydırmaya dönüştür
@@ -226,11 +233,28 @@ export const CategoryStoriesBar: React.FC = () => {
                       <div className="w-full h-full bg-gradient-to-tr from-blue-600 to-indigo-600 flex flex-col items-center justify-center text-white">
                         <Layers className="w-5 h-5 drop-shadow" />
                       </div>
-                    ) : cat.image ? (
+                    ) : cat.image && idx <= visibleImageLimit && !failedImages[cat.id] ? (
                       /* Kategorinin görseli varsa boyut ona göre içinde yer alır */
                       <img
-                        src={cat.image}
+                        src={resolveMediaAssetUrl(cat.image) || cat.image}
                         alt={cat.name}
+                        onError={(e) => {
+                          const target = e.currentTarget;
+                          const src = target.src || '';
+                          if (
+                            (src.startsWith('http://localhost:') || src.startsWith('http://127.0.0.1:')) &&
+                            src.includes('/api/') &&
+                            !target.dataset.cloudFallback
+                          ) {
+                            target.dataset.cloudFallback = '1';
+                            const apiIdx = src.indexOf('/api/');
+                            if (apiIdx >= 0) {
+                              target.src = src.slice(apiIdx);
+                              return;
+                            }
+                          }
+                          setFailedImages((prev) => ({ ...prev, [cat.id]: true }));
+                        }}
                         className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-300"
                         loading="lazy"
                         draggable={false}

@@ -464,7 +464,7 @@ app.get('/api/products', async (req, res) => {
   }
 });
 
-// 2.0.1 ERP12 RESIM TABLOSUNDAN ÜRÜN GÖRSELİ SUNUMU (RESIM.ID = STOK.ID VEYA STOK.KOD)
+// 2.0.1 ERP12 RESIM TABLOSUNDAN ÜRÜN GÖRSELİ SUNUMU (RESIM.ID = STOK.ID VEYA STOK.KOD + KARDEŞ DATA DESTEKLİ)
 app.get('/api/products/erp-image/:idOrCode', async (req, res) => {
   const { idOrCode } = req.params;
   const code = String(req.query.code || '').trim();
@@ -472,20 +472,34 @@ app.get('/api/products/erp-image/:idOrCode', async (req, res) => {
 
   let activeCfg = sqlContext.getStore();
 
-  // Eğer <img> etiketi ile doğrudan çağrıldıysa ve t token yoksa, db adına göre bulut kayıt defterinden SQL bilgisini bul
+  // Eğer <img> etiketi ile doğrudan çağrıldıysa ve t token yoksa, db adına veya firma kök adına göre bulut kayıt defterinden SQL bilgisini bul
   if ((!activeCfg || !activeCfg.sqlHost) && dbQuery) {
     try {
       const reg = await cloudRegistry.getFullRegistry();
-      const matchedProfile = (reg?.profiles || []).find(
-        (p) =>
-          String(p.sqlDatabase || '').trim().toUpperCase() === dbQuery ||
-          String(p.code || '').trim().toUpperCase() === dbQuery
-      );
+      const profiles = reg?.profiles || [];
+      const dbBasePrefix = dbQuery
+        .replace(/[_-]?(20\d{2}|B\d+B|V\d+|\d+)$/i, '')
+        .trim();
+
+      const matchedProfile =
+        profiles.find(
+          (p) =>
+            String(p.sqlDatabase || '').trim().toUpperCase() === dbQuery ||
+            String(p.code || '').trim().toUpperCase() === dbQuery
+        ) ||
+        (dbBasePrefix.length >= 4
+          ? profiles.find((p) => {
+              const pDb = String(p.sqlDatabase || '').trim().toUpperCase();
+              const pCode = String(p.code || '').trim().toUpperCase();
+              return pDb.startsWith(dbBasePrefix) || pCode.startsWith(dbBasePrefix);
+            })
+          : null);
+
       if (matchedProfile && matchedProfile.sqlHost) {
         activeCfg = {
           sqlHost: matchedProfile.sqlHost,
           sqlPort: matchedProfile.sqlPort || '1433',
-          sqlDatabase: matchedProfile.sqlDatabase,
+          sqlDatabase: matchedProfile.sqlDatabase || dbQuery,
           sqlUser: matchedProfile.sqlUser,
           sqlPassword: matchedProfile.sqlPassword,
         };
@@ -495,36 +509,56 @@ app.get('/api/products/erp-image/:idOrCode', async (req, res) => {
     }
   }
 
+  const sendImageBuffer = (imgObj) => {
+    res.setHeader('Content-Type', imgObj.contentType || 'image/jpeg');
+    res.setHeader(
+      'Cache-Control',
+      'public, max-age=604800, s-maxage=2592000, stale-while-revalidate=86400'
+    );
+    return res.send(imgObj.buffer);
+  };
+
   const runFetch = async () => {
+    // 1. Bulut (Vercel) ortamında önce hızlı Bulut Aynasını (Aktif DB + Ortak Stok Kodu Havuzu + Kardeş DB) kontrol et
+    if (process.env.VERCEL && sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      try {
+        const fastMirrored = await sqlCloudMirror.getProductImage(activeCfg, idOrCode, code);
+        if (fastMirrored?.buffer) {
+          return sendImageBuffer(fastMirrored);
+        }
+      } catch {
+        // continue to live SQL / tunnel
+      }
+    }
+
+    // 2. Canlı SQL (Aktif DB ve aynı sunucudaki kardeş DB'ler, örn: GUNEYLERB2B <-> GUNEYLERB3B)
     try {
       const img = await erpQueries.getProductErpImage(idOrCode, code);
       if (img?.buffer) {
         if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
-          sqlCloudMirror.saveProductImage(activeCfg, img.stokId || idOrCode, img).catch(() => {});
+          sqlCloudMirror
+            .saveProductImage(activeCfg, img.stokId || idOrCode, img, code || img.productCode)
+            .catch(() => {});
         }
-        res.setHeader('Content-Type', img.contentType || 'image/jpeg');
-        res.setHeader(
-          'Cache-Control',
-          'public, max-age=604800, s-maxage=2592000, stale-while-revalidate=86400'
-        );
-        return res.send(img.buffer);
+        return sendImageBuffer(img);
       }
       if (img?.link && /^https?:\/\//i.test(img.link)) {
         return res.redirect(302, img.link);
       }
     } catch (sqlErr) {
-      if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
-        const mirroredImg = await sqlCloudMirror.getProductImage(activeCfg, idOrCode);
+      console.warn(`⚠️ ERP12 görsel okuma uyarısı (${idOrCode} / ${code}):`, sqlErr.message);
+    }
+
+    // 3. Yedek Bulut Aynası kontrolü (Kardeş DB ve Stok Kodu eşleştirmesi dahil)
+    if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      try {
+        const mirroredImg = await sqlCloudMirror.getProductImage(activeCfg, idOrCode, code);
         if (mirroredImg?.buffer) {
-          res.setHeader('Content-Type', mirroredImg.contentType || 'image/jpeg');
-          res.setHeader(
-            'Cache-Control',
-            'public, max-age=604800, s-maxage=2592000, stale-while-revalidate=86400'
-          );
-          return res.send(mirroredImg.buffer);
+          return sendImageBuffer(mirroredImg);
         }
+      } catch {
+        // ignore mirror fallback error
       }
-      console.warn(`⚠️ ERP12 görsel okuma uyarısı (${idOrCode}):`, sqlErr.message);
     }
 
     return res.status(404).end();

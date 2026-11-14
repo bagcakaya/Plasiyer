@@ -5,7 +5,7 @@ import {
 } from 'lucide-react';
 import type { Product, Customer } from '../types';
 import { useApp } from '../context/AppContext';
-import { getProductImageUrl } from '../utils/productImages';
+import { getProductImageUrl, handleProductImageError } from '../utils/productImages';
 import { ProductPhotoModal } from './ProductPhotoModal';
 
 interface ProductDetailModalProps {
@@ -156,14 +156,13 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           <img
             src={imageUrl}
             alt={product.name}
-            onError={(e) => {
-              const target = e.currentTarget;
-              if (target.src !== fallbackHeroUrl) {
-                target.src = fallbackHeroUrl;
-                target.className =
-                  'w-full h-full object-cover transition-transform duration-500 group-hover:scale-105';
-              }
-            }}
+            onError={(e) =>
+              handleProductImageError(
+                e,
+                fallbackHeroUrl,
+                'w-full h-full object-cover transition-transform duration-500 group-hover:scale-105'
+              )
+            }
             className={`w-full h-full transition-transform duration-500 group-hover:scale-105 ${
               hasRealPhoto ? 'object-contain p-2 bg-white' : 'object-cover'
             }`}
