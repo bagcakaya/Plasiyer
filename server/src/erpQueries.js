@@ -1,3 +1,4 @@
+import sharp from 'sharp';
 import {
   executeJsonQuery,
   getActiveDbKey,
@@ -136,6 +137,40 @@ function detectImageMimeType(buf, rawExt = 'jpg') {
   if (ext === 'gif') return 'image/gif';
   if (ext === 'bmp') return 'image/bmp';
   return 'image/jpeg';
+}
+
+async function optimizeErpImageBuffer(buf, rawContentType = 'image/jpeg', maxWidth = 240) {
+  if (!Buffer.isBuffer(buf) || buf.length === 0) {
+    return { buffer: buf, contentType: rawContentType, ext: 'jpg' };
+  }
+  const targetDim = Math.min(Math.max(Number(maxWidth) || 240, 120), 640);
+  // Zaten çok küçük bir JPEG ise (< 14 KB) ve küçük boyut isteniyorsa olduğu gibi bırak
+  if (rawContentType === 'image/jpeg' && buf.length <= 14336 && targetDim >= 240) {
+    return { buffer: buf, contentType: 'image/jpeg', ext: 'jpg' };
+  }
+  try {
+    const compressed = await sharp(buf, { failOn: 'none' })
+      .rotate()
+      .resize({
+        width: targetDim,
+        height: targetDim,
+        fit: 'inside',
+        withoutEnlargement: true,
+      })
+      .flatten({ background: '#ffffff' })
+      .jpeg({
+        quality: targetDim <= 280 ? 72 : 80,
+        progressive: true,
+        mozjpeg: true,
+      })
+      .toBuffer();
+    if (compressed && compressed.length > 0 && compressed.length < buf.length) {
+      return { buffer: compressed, contentType: 'image/jpeg', ext: 'jpg' };
+    }
+  } catch {
+    // sharp sıkıştırma başarısız olursa orijinal veriyi döndür
+  }
+  return { buffer: buf, contentType: rawContentType, ext: 'jpg' };
 }
 
 export const erpQueries = {
@@ -678,20 +713,21 @@ export const erpQueries = {
     return result;
   },
 
-  // 2.0.1 ERP12 RESIM TABLOSUNDAN ÜRÜN GÖRSELİ (PK_RESIM / R.IDX CLUSTERED INDEX SEEK İLE ~25ms ANINDA OKUMA)
-  async getProductErpImage(idOrCode, productCode = '', resimIdx = '') {
+  // 2.0.1 ERP12 RESIM TABLOSUNDAN ÜRÜN GÖRSELİ (PK_RESIM / R.IDX CLUSTERED INDEX SEEK + MOBİL KÜÇÜLTME İLE ~6-10 KB ANINDA OKUMA)
+  async getProductErpImage(idOrCode, productCode = '', resimIdx = '', maxWidth = 240) {
     const dbKey = getActiveDbKey();
     const hostKey = getActiveHostKey();
     const safeId = String(idOrCode || '').trim().replace(/'/g, "''");
     const safeCode = String(productCode || '').trim().replace(/'/g, "''");
     const rawIdxNum = Number(resimIdx);
     const hasValidIdx = Number.isInteger(rawIdxNum) && rawIdxNum > 0;
+    const sizeBucket = Number(maxWidth) > 320 ? 'lg' : 'sm';
     if (!safeId && !safeCode && !hasValidIdx) return null;
 
-    const cacheKey = `${dbKey}::${safeId}::${safeCode}::${hasValidIdx ? rawIdxNum : ''}`;
-    const idxCacheKey = hasValidIdx ? `${hostKey}::IDX::${rawIdxNum}` : null;
-    const codeCacheKey = safeCode ? `${hostKey}::CODE::${safeCode.toUpperCase()}` : null;
-    const idCacheKey = safeId ? `${hostKey}::ID::${safeId}` : null;
+    const cacheKey = `${dbKey}::${safeId}::${safeCode}::${hasValidIdx ? rawIdxNum : ''}::${sizeBucket}`;
+    const idxCacheKey = hasValidIdx ? `${hostKey}::IDX::${rawIdxNum}::${sizeBucket}` : null;
+    const codeCacheKey = safeCode ? `${hostKey}::CODE::${safeCode.toUpperCase()}::${sizeBucket}` : null;
+    const idCacheKey = safeId ? `${hostKey}::ID::${safeId}::${sizeBucket}` : null;
     const now = Date.now();
 
     const cached =
@@ -797,6 +833,9 @@ export const erpQueries = {
     if (base64Data) {
       buffer = Buffer.from(base64Data, 'base64');
       contentType = detectImageMimeType(buffer, row.ext);
+      const optimized = await optimizeErpImageBuffer(buffer, contentType, maxWidth);
+      buffer = optimized.buffer;
+      contentType = optimized.contentType;
     }
 
     if (!buffer && !link) {
@@ -807,13 +846,13 @@ export const erpQueries = {
       idx: String(row.idx || (hasValidIdx ? rawIdxNum : '')),
       stokId: String(row.stokId || safeId),
       productCode: resolvedCode,
-      ext: String(row.ext || 'jpg'),
+      ext: 'jpg',
       contentType,
       buffer,
       link: link || null,
     };
 
-    while (memCache.productImages.size > 2000) {
+    while (memCache.productImages.size > 5000) {
       const oldestKey = memCache.productImages.keys().next().value;
       if (oldestKey) memCache.productImages.delete(oldestKey);
       else break;
@@ -824,10 +863,10 @@ export const erpQueries = {
     };
     memCache.productImages.set(cacheKey, cacheEntry);
     if (idxCacheKey) memCache.productImages.set(idxCacheKey, cacheEntry);
-    if (result.idx) memCache.productImages.set(`${hostKey}::IDX::${result.idx}`, cacheEntry);
+    if (result.idx) memCache.productImages.set(`${hostKey}::IDX::${result.idx}::${sizeBucket}`, cacheEntry);
     if (codeCacheKey) memCache.productImages.set(codeCacheKey, cacheEntry);
     if (resolvedCode) {
-      memCache.productImages.set(`${hostKey}::CODE::${resolvedCode.toUpperCase()}`, cacheEntry);
+      memCache.productImages.set(`${hostKey}::CODE::${resolvedCode.toUpperCase()}::${sizeBucket}`, cacheEntry);
     }
     if (idCacheKey) memCache.productImages.set(idCacheKey, cacheEntry);
 

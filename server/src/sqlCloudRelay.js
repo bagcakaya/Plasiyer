@@ -234,6 +234,25 @@ export const sqlCloudRelay = {
     return null;
   },
 
+  async remoteGetProductImage(cfg, { idOrCode, code = '', idx = '', w = 240 }) {
+    const res = await callRemoteRelay(
+      'erpImage',
+      cfg || {},
+      JSON.stringify({ idOrCode, code, idx, w })
+    );
+    if (!res || !res.success || !res.image) return null;
+    const img = res.image;
+    return {
+      idx: img.idx || '',
+      stokId: img.stokId || String(idOrCode || ''),
+      productCode: img.productCode || code || '',
+      ext: img.ext || 'jpg',
+      contentType: img.contentType || 'image/jpeg',
+      buffer: img.base64 ? Buffer.from(img.base64, 'base64') : null,
+      link: img.link || null,
+    };
+  },
+
   startLocalCloudflareTunnel(localPort = 4000) {
     if (process.env.VERCEL || !process.env.BLOB_READ_WRITE_TOKEN) return;
     if (tunnelChild) return;

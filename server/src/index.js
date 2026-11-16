@@ -165,6 +165,42 @@ app.post('/api/internal/sql-relay', async (req, res) => {
       const result = await thermalPrintService.printReceipt(payload);
       return res.json({ success: true, result });
     }
+    if (action === 'erpImage') {
+      const params = JSON.parse(query || '{}');
+      const img = await sqlContext.run(sqlConfig || {}, () =>
+        erpQueries.getProductErpImage(
+          params.idOrCode,
+          params.code || '',
+          params.idx || '',
+          Number(params.w) || 240
+        )
+      );
+      if (!img) {
+        return res.json({ success: false, notFound: true });
+      }
+      if (img.buffer && sqlCloudMirror.isRemoteMirrorable(sqlConfig)) {
+        sqlCloudMirror
+          .saveProductImage(
+            sqlConfig,
+            img.stokId || params.idOrCode,
+            img,
+            params.code || img.productCode
+          )
+          .catch(() => {});
+      }
+      return res.json({
+        success: true,
+        image: {
+          idx: img.idx,
+          stokId: img.stokId,
+          productCode: img.productCode,
+          ext: img.ext || 'jpg',
+          contentType: img.contentType || 'image/jpeg',
+          base64: img.buffer ? img.buffer.toString('base64') : null,
+          link: img.link || null,
+        },
+      });
+    }
     return res.status(400).json({ success: false, error: 'Bilinmeyen işlem' });
   } catch (err) {
     return res.json({
@@ -467,11 +503,12 @@ app.get('/api/products', async (req, res) => {
   }
 });
 
-// 2.0.1 ERP12 RESIM TABLOSUNDAN ÜRÜN GÖRSELİ SUNUMU (PK_RESIM / R.IDX CLUSTERED SEEK İLE ANINDA ~25ms TESLİM)
+// 2.0.1 ERP12 RESIM TABLOSUNDAN ÜRÜN GÖRSELİ SUNUMU (PK_RESIM / R.IDX CLUSTERED SEEK + MOBİL KÜÇÜLTME İLE ~6-10 KB ANINDA TESLİM)
 app.get('/api/products/erp-image/:idOrCode', async (req, res) => {
   const { idOrCode } = req.params;
   const code = String(req.query.code || '').trim();
   const idx = String(req.query.idx || '').trim();
+  const reqWidth = Number(req.query.w) || 240;
   const dbQuery = String(req.query.db || '').trim().toUpperCase();
 
   let activeCfg = sqlContext.getStore();
@@ -523,9 +560,38 @@ app.get('/api/products/erp-image/:idOrCode', async (req, res) => {
   };
 
   const runFetch = async () => {
-    // 1. Önce Canlı SQL Bellek Önbelleği (0ms) veya PK_RESIM Clustered Index Seek (~25ms)
+    // 1. Bulut (Vercel) ortamında önce hızlı Bulut Aynasını ve Tek-Atım Sıkıştırılmış Tünel Köprüsünü kullan
+    if (process.env.VERCEL && sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      try {
+        const fastMirrored = await sqlCloudMirror.getProductImage(activeCfg, idOrCode, code);
+        if (fastMirrored?.buffer) {
+          return sendImageBuffer(fastMirrored);
+        }
+      } catch {
+        // continue to fast image relay
+      }
+
+      try {
+        const relayedImg = await sqlCloudRelay.remoteGetProductImage(activeCfg, {
+          idOrCode,
+          code,
+          idx,
+          w: reqWidth,
+        });
+        if (relayedImg?.buffer) {
+          return sendImageBuffer(relayedImg);
+        }
+        if (relayedImg?.link && /^https?:\/\//i.test(relayedImg.link)) {
+          return res.redirect(302, relayedImg.link);
+        }
+      } catch {
+        // continue to fallback
+      }
+    }
+
+    // 2. Canlı SQL Bellek Önbelleği (0ms) veya PK_RESIM Clustered Index Seek + Mobil Sıkıştırma (~25ms, ~6-10 KB)
     try {
-      const img = await erpQueries.getProductErpImage(idOrCode, code, idx);
+      const img = await erpQueries.getProductErpImage(idOrCode, code, idx, reqWidth);
       if (img?.buffer) {
         if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
           sqlCloudMirror
@@ -538,11 +604,11 @@ app.get('/api/products/erp-image/:idOrCode', async (req, res) => {
         return res.redirect(302, img.link);
       }
     } catch (sqlErr) {
-      console.warn(`⚠️ ERP12 görsel okuma uyarısı (${idOrCode} / ${code}):`, sqlErr.message);
+      console.warn(`⚠️ Görsel okuma uyarısı (${idOrCode} / ${code}):`, sqlErr.message);
     }
 
-    // 2. Yedek Bulut Aynası kontrolü (Kardeş DB ve Stok Kodu eşleştirmesi dahil)
-    if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+    // 3. Yedek Bulut Aynası kontrolü
+    if (!process.env.VERCEL && sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
       try {
         const mirroredImg = await sqlCloudMirror.getProductImage(activeCfg, idOrCode, code);
         if (mirroredImg?.buffer) {
@@ -1242,6 +1308,24 @@ async function syncRegisteredRemoteSqlMirrors(includeCatalog = true) {
             console.log(
               `☁️✅ [${p.code}] Bulut SQL Aynası Güncellendi: ${custs.length} cari, ${prods.length} stok`
             );
+
+            // Kategori vitrin ikonlarını ve ilk sayfalardaki ürün görsellerini mobil boyutta (~6-10 KB) önbelleğe ve bulut aynasına hazırla
+            const priorityProducts = [
+              ...prods.filter((pr) => pr.stockQuantity > 0 && pr.image?.includes('erp-image')).slice(0, 60),
+              ...prods.filter((pr) => pr.stockQuantity <= 0 && pr.image?.includes('erp-image')).slice(0, 40),
+            ];
+            for (const pr of priorityProducts) {
+              try {
+                const idxMatch = String(pr.image || '').match(/[?&]idx=(\d+)/);
+                const parsedIdx = idxMatch ? idxMatch[1] : '';
+                const img = await erpQueries.getProductErpImage(pr.id, pr.code, parsedIdx, 240);
+                if (img?.buffer) {
+                  await sqlCloudMirror.saveProductImage(cfg, pr.id, img, pr.code);
+                }
+              } catch {
+                // ignore single image warm warning
+              }
+            }
           }
         }
       });

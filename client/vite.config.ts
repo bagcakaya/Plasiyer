@@ -30,11 +30,12 @@ export default defineConfig({
       registerType: 'autoUpdate',
       injectRegister: null,
       includeAssets: [
-        'favicon-64x64.png',
-        'apple-touch-icon.png',
-        'pwa-192x192.png',
-        'pwa-512x512.png',
-        'maskable-icon-512x512.png'
+        'favicon.ico',
+        'favicon-v4.png',
+        'apple-touch-icon-v4.png',
+        'pwa-192x192-v4.png',
+        'pwa-512x512-v4.png',
+        'maskable-icon-512x512-v4.png'
       ],
       manifest: {
         id: '/',
@@ -43,26 +44,26 @@ export default defineConfig({
         name: 'Mobil Plasiyer',
         short_name: 'Plasiyer',
         description: 'POLATLAR YAZILIM Entegre Mobil Saha Satış ve B2B Portalı',
-        theme_color: '#1d4ed8',
-        background_color: '#0f172a',
+        theme_color: '#071330',
+        background_color: '#071330',
         display: 'standalone',
         orientation: 'portrait',
         categories: ['business', 'productivity', 'finance'],
         icons: [
           {
-            src: '/pwa-192x192.png',
+            src: '/pwa-192x192-v4.png',
             sizes: '192x192',
             type: 'image/png',
             purpose: 'any'
           },
           {
-            src: '/pwa-512x512.png',
+            src: '/pwa-512x512-v4.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'any'
           },
           {
-            src: '/maskable-icon-512x512.png',
+            src: '/maskable-icon-512x512-v4.png',
             sizes: '512x512',
             type: 'image/png',
             purpose: 'maskable'

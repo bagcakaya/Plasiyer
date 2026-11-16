@@ -144,9 +144,14 @@ export function getProductImageUrl(
   existingImage?: string,
   variant: 'card' | 'hero' = 'card'
 ): string {
-  // 1. Mevcut veya yüklenen gerçek fotoğraf kontrolü (Yerel köprü aktifse doğrudan localhost:4000 üzerinden hızlı sunum)
+  // 1. Mevcut veya yüklenen gerçek fotoğraf kontrolü (Yerel köprü aktifse doğrudan localhost:4000 üzerinden hızlı sunum + Mobil boyut optimizasyonu)
   if (existingImage && (existingImage.startsWith('data:') || existingImage.startsWith('/') || existingImage.startsWith('http'))) {
-    return resolveMediaAssetUrl(existingImage) || existingImage;
+    let resolved = resolveMediaAssetUrl(existingImage) || existingImage;
+    if (resolved.includes('/api/products/erp-image/') && !resolved.includes('w=')) {
+      const targetW = variant === 'hero' ? 480 : 240;
+      resolved += (resolved.includes('?') ? '&' : '?') + `w=${targetW}`;
+    }
+    return resolved;
   }
 
   const n = normalizeTurkish(productName);
@@ -286,16 +291,19 @@ export function handleProductImageError(
     }
   }
 
-  // 2. Bulut veya tünel yoğunluğunda 1 kez otomatik yeniden dene
-  if (currentSrc.includes('/api/products/erp-image/') && !target.dataset.retried) {
-    target.dataset.retried = '1';
-    const sep = currentSrc.includes('?') ? '&' : '?';
-    const retryUrl = `${currentSrc}${sep}r=1`;
+  // 2. Bulut veya mobil ağ yoğunluğunda 2 kez kademeli olarak yeniden dene
+  const retryCount = Number(target.dataset.retryCount || '0');
+  if (currentSrc.includes('/api/products/erp-image/') && retryCount < 2) {
+    const nextRetry = retryCount + 1;
+    target.dataset.retryCount = String(nextRetry);
+    const baseClean = currentSrc.replace(/([?&])r=\d+/g, '');
+    const sep = baseClean.includes('?') ? '&' : '?';
+    const retryUrl = `${baseClean}${sep}r=${nextRetry}`;
     setTimeout(() => {
       if (target) {
         target.src = retryUrl;
       }
-    }, 350);
+    }, nextRetry * 400);
     return;
   }
 
