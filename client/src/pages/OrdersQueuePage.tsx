@@ -406,7 +406,7 @@ export const OrdersQueuePage: React.FC = () => {
               className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-3 py-2 rounded-xl shadow-xs transition active:scale-95"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-              <span>{isSyncing ? 'İletiliyor...' : 'ERP12 Senkron'}</span>
+              <span>{isSyncing ? 'İletiliyor...' : 'Merkeze Aktar'}</span>
             </button>
           )}
         </div>
@@ -1050,7 +1050,7 @@ export const OrdersQueuePage: React.FC = () => {
 
             {/* Senkron Durumu */}
             <div className="p-3 rounded-xl border text-xs flex items-center justify-between bg-slate-50 dark:bg-slate-800/60 border-slate-100 dark:border-slate-750">
-              <span className="text-slate-400 text-[10px] uppercase font-bold">ERP12 Durumu</span>
+              <span className="text-slate-400 text-[10px] uppercase font-bold">Aktarım Durumu</span>
               {inspectReturn.syncStatus === 'synced' ? (
                 <span className="text-emerald-600 dark:text-emerald-400 font-bold flex items-center gap-1">
                   <CheckCircle2 className="w-3.5 h-3.5" />

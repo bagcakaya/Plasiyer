@@ -1050,14 +1050,14 @@ export const SettingsPage: React.FC = () => {
         <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-2">
           <div className="flex items-center gap-2">
             <Server className="w-4 h-4 text-blue-600 dark:text-blue-400" />
-            <h3 className="font-bold text-sm text-slate-900 dark:text-white">ERP12 Sunucu Entegrasyonu</h3>
+            <h3 className="font-bold text-sm text-slate-900 dark:text-white">SQL Sunucu Entegrasyonu</h3>
           </div>
           <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
             !apiUrl || apiUrl === 'demo'
               ? 'bg-amber-100 dark:bg-amber-950/60 text-amber-800 dark:text-amber-300'
               : 'bg-emerald-100 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300'
           }`}>
-            {!apiUrl || apiUrl === 'demo' ? '🟢 Çevrimdışı / Demo' : '🔵 Canlı ERP12'}
+            {!apiUrl || apiUrl === 'demo' ? '🟢 Çevrimdışı / Demo' : '🔵 Canlı SQL'}
           </span>
         </div>
 
@@ -1103,7 +1103,7 @@ export const SettingsPage: React.FC = () => {
             </span>
           ) : (
             <span>
-              <strong>Canlı ERP12 & Doğrudan SQL Modu:</strong> Girilen Statik IP / Host üzerinden doğrudan ERP12 SQL Server veritabanına çift yönlü sipariş, tahsilat ve cari aktarımı yapılır.
+              <strong>Canlı Doğrudan SQL Modu:</strong> Girilen Statik IP / Host üzerinden doğrudan SQL Server veritabanına çift yönlü sipariş, tahsilat ve cari aktarımı yapılır.
             </span>
           )}
         </div>
@@ -1731,7 +1731,7 @@ export const SettingsPage: React.FC = () => {
           className="w-full bg-blue-50 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 border border-blue-200 dark:border-blue-900/60 text-blue-800 dark:text-blue-300 font-semibold py-2.5 rounded-xl flex items-center justify-center gap-1.5 transition"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
-          <span>{isSyncing ? 'Veriler Çekiliyor...' : 'ERP12 ile Şimdi Eşitle (İndir & Gönder)'}</span>
+          <span>{isSyncing ? 'Veriler Çekiliyor...' : 'Sunucu ile Şimdi Eşitle (İndir & Gönder)'}</span>
         </button>
 
         <button
@@ -1763,7 +1763,7 @@ export const SettingsPage: React.FC = () => {
       {/* Sürüm & Mimari Notu */}
       <div className="text-center text-[10px] text-slate-400 dark:text-slate-500 space-y-0.5 pt-2">
         <p>Hibrit B2B & Mobil Plasiyer Saha Satış Portalı • v4.0 Enterprise</p>
-        <p>ERP12 Bağımsız Katman & Canlı Entegratör</p>
+        <p>Polatlar Yazılım • Bağımsız Katman &amp; Canlı Entegratör</p>
       </div>
 
       {/* Çoklu Firma Modalı */}

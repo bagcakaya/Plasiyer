@@ -533,7 +533,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
       <html>
         <head>
           <meta charset="utf-8" />
-          <title>ERP12 Termal Fiş</title>
+          <title>Sipariş Bilgi Fişi</title>
           ${styleTags}
           <style>
             @page {

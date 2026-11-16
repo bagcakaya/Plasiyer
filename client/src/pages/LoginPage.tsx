@@ -192,7 +192,7 @@ export const LoginPage: React.FC = () => {
           ) : (
             <WifiOff className="w-3.5 h-3.5 text-amber-300 animate-pulse" />
           )}
-          <span className="font-semibold">{isOnline ? 'ERP12 Çevrimiçi' : 'Çevrimdışı Mod'}</span>
+          <span className="font-semibold">{isOnline ? 'Çevrimiçi' : 'Çevrimdışı Mod'}</span>
         </div>
 
         <div className="flex items-center gap-2">

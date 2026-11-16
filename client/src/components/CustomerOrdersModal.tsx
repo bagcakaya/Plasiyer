@@ -184,7 +184,7 @@ export const CustomerOrdersModal: React.FC<CustomerOrdersModalProps> = ({
                           }`}
                         >
                           {isSynced ? <CheckCircle2 className="w-2.5 h-2.5" /> : <Clock className="w-2.5 h-2.5" />}
-                          <span>{isSynced ? 'ERP12 Aktarıldı' : 'Beklemede'}</span>
+                          <span>{isSynced ? 'Merkeze Aktarıldı' : 'Beklemede'}</span>
                         </span>
                       </div>
                       <div className="text-[11px] text-slate-400 mt-1">

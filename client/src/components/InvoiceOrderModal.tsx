@@ -99,7 +99,7 @@ export const InvoiceOrderModal: React.FC<InvoiceOrderModalProps> = ({
               <FileCheck className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-bold text-sm">ERP12 Faturalaştırma</h3>
+              <h3 className="font-bold text-sm">Sipariş Faturalaştırma</h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">Siparişi Onayla & Muhasebeye Sevk Et</p>
             </div>
           </div>

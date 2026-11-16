@@ -351,7 +351,7 @@ export const CatalogPage: React.FC = () => {
           )}
         </div>
 
-        {/* Canlı ERP12 Eşitleme Butonu */}
+        {/* Canlı SQL Eşitleme Butonu */}
         <button
           type="button"
           onClick={() => triggerSync()}
@@ -361,7 +361,7 @@ export const CatalogPage: React.FC = () => {
               ? 'bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border-blue-300 dark:border-blue-700 hover:bg-blue-100'
               : 'bg-white dark:bg-slate-900 text-slate-500 border-slate-200 dark:border-slate-800'
           }`}
-          title="ERP12 ile Eşitle (Stokları Çek)"
+          title="Sunucu ile Eşitle (Stokları Çek)"
         >
           <RefreshCw className={`w-4 h-4 ${isSyncing ? 'animate-spin' : ''}`} />
         </button>
@@ -550,7 +550,7 @@ export const CatalogPage: React.FC = () => {
                         setPhotoProduct(product);
                       }}
                       className="absolute top-2 right-9 bg-black/50 hover:bg-black/80 text-white rounded-full p-1.5 backdrop-blur-xs transition shadow-sm active:scale-95"
-                      title="Fotoğraf Çek / Ekle (ERP12)"
+                      title="Fotoğraf Çek / Ekle"
                     >
                       <Camera className="w-3.5 h-3.5 text-blue-300" />
                     </button>
@@ -745,7 +745,7 @@ export const CatalogPage: React.FC = () => {
                             setPhotoProduct(product);
                           }}
                           className="text-[10px] px-1.5 py-0.5 rounded bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/60 transition inline-flex items-center gap-1 font-medium"
-                          title="Fotoğraf Çek / Ekle (ERP12)"
+                          title="Fotoğraf Çek / Ekle"
                         >
                           <Camera className="w-2.5 h-2.5" />
                           <span className="text-[9px]">Fotoğraf</span>

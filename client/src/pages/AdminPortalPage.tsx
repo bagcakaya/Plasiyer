@@ -899,7 +899,7 @@ export const AdminPortalPage: React.FC = () => {
                     {stats.liveSqlFirms}
                   </span>
                   <span className="text-[11px] font-semibold text-slate-500 dark:text-zinc-400">
-                    Statik IP / ERP12
+                    Statik IP / Canlı SQL
                   </span>
                 </div>
               </div>

@@ -1057,7 +1057,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             id: 'notif-auto-sync-' + Date.now(),
             type: 'system',
             title: '🔄 Otomatik Canlı Eşitleme',
-            message: `${res.syncedOrdersCount || 0} sipariş, ${res.syncedCollectionsCount || 0} tahsilat, ${res.syncedReturnsCount || 0} iade ERP12'ye aktarıldı.`,
+            message: `${res.syncedOrdersCount || 0} sipariş, ${res.syncedCollectionsCount || 0} tahsilat, ${res.syncedReturnsCount || 0} iade merkeze aktarıldı.`,
             timestamp: now.toISOString(),
             read: false,
           });

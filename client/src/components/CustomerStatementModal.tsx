@@ -423,7 +423,7 @@ export const CustomerStatementModal: React.FC<CustomerStatementModalProps> = ({
             <div className="py-20 text-center">
               <RefreshCw className="w-8 h-8 animate-spin mx-auto text-blue-600 dark:text-blue-400 mb-2" />
               <p className="text-sm text-slate-500 dark:text-slate-400">
-                ERP12 veritabanından cari ekstre hareketleri çekiliyor...
+                Veritabanından cari ekstre hareketleri çekiliyor...
               </p>
             </div>
           ) : error ? (

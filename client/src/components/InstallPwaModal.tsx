@@ -167,7 +167,7 @@ export const InstallPwaModal: React.FC = () => {
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
                   </div>
                   <p className="text-[11px] text-emerald-800/90 dark:text-emerald-300/90">
-                    Bilgisayarınızın masaüstüne <b>"ERP12 Saha Satış"</b> kısayolu yerleştirildi. Masaüstünüzdeki simgeye çift tıklayarak programı doğrudan tarayıcı çubuğu olmadan tam ekran başlatabilirsiniz!
+                    Bilgisayarınızın masaüstüne <b>"Mobil Plasiyer"</b> kısayolu yerleştirildi. Masaüstünüzdeki simgeye çift tıklayarak programı doğrudan tarayıcı çubuğu olmadan tam ekran başlatabilirsiniz!
                   </p>
                 </div>
               </div>
@@ -226,7 +226,7 @@ export const InstallPwaModal: React.FC = () => {
                     <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />
                   </div>
                   <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Gelen onay penceresinde <b>"Yükle"</b> butonuna basın. Birkaç saniye içinde <b>"ERP12 Plasiyer"</b> telefonunuzun ana ekranına bağımsız bir uygulama olarak eklenecektir.
+                    Gelen onay penceresinde <b>"Yükle"</b> butonuna basın. Birkaç saniye içinde <b>"Mobil Plasiyer"</b> telefonunuzun ana ekranına bağımsız bir uygulama olarak eklenecektir.
                   </p>
                 </div>
               </div>

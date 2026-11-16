@@ -69,7 +69,7 @@ export const ProductPhotoModal: React.FC<ProductPhotoModalProps> = ({
           if (res.success && res.imageUrl) {
             // Sunucu kalıcı URL'si ile IndexedDB'yi güncelle
             await db.products.update(product.id, { image: res.imageUrl });
-            erpSyncNote = ' & ERP12 senkronize edildi';
+            erpSyncNote = ' & sunucu ile senkronize edildi';
           }
         } catch (apiErr: any) {
           console.warn('Sunucuya görsel yüklenemedi (çevrimdışı):', apiErr.message);
@@ -148,7 +148,7 @@ export const ProductPhotoModal: React.FC<ProductPhotoModalProps> = ({
                 Ürün Fotoğrafı Yönetimi
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Kamera ile çekin veya galeriden yükleyin (ERP12 Entegre)
+                Kamera ile çekin veya galeriden yükleyin
               </p>
             </div>
           </div>
@@ -254,7 +254,7 @@ export const ProductPhotoModal: React.FC<ProductPhotoModalProps> = ({
           <div className="flex items-center justify-between text-[11px] text-slate-500 dark:text-slate-400 px-1 pt-1">
             <span className="flex items-center gap-1">
               <UploadCloud className="w-3.5 h-3.5 text-blue-500" />
-              ERP12 (C:\ERP12\URUN_RESIM) & Bulut Senkron
+              SQL Veritabanı &amp; Bulut Senkron
             </span>
             {hasCustomImage && (
               <button

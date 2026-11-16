@@ -158,7 +158,7 @@ export const DesktopSidebar: React.FC = () => {
                 POLATLAR YAZILIM
               </div>
               <h1 className="font-extrabold text-sm tracking-tight text-white leading-none">
-                ERP12 Saha Satış
+                Mobil Plasiyer
               </h1>
             </div>
           </div>

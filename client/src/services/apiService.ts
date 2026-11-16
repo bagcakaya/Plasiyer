@@ -138,7 +138,7 @@ export const apiService = {
     if (isDemoMode(config)) {
       return {
         success: true,
-        message: 'Demo / Çevrimdışı Mod Aktif: ERP12 bağlantısı simüle edilmektedir. Yerel veritabanında (IndexedDB) anlık ve sorunsuz çalışır.',
+        message: 'Demo / Çevrimdışı Mod Aktif: Sunucu bağlantısı simüle edilmektedir. Yerel veritabanında (IndexedDB) anlık ve sorunsuz çalışır.',
       };
     }
 
@@ -159,7 +159,7 @@ export const apiService = {
       clearTimeout(timeoutId);
 
       if (response.ok) {
-        return { success: true, message: 'ERP12 API sunucusuna başarıyla bağlanıldı.' };
+        return { success: true, message: 'API sunucusuna başarıyla bağlanıldı.' };
       }
       return { success: false, message: `Sunucu yanıt verdi ancak durum kodu: ${response.status}` };
     } catch (err: any) {
@@ -216,7 +216,7 @@ export const apiService = {
       if (response.ok) {
         return {
           success: true,
-          message: `SQL Server Bağlantısı Aktif (${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'} -> ${config.sqlDatabase || 'ERP12_DB'}).`,
+          message: `SQL Server Bağlantısı Aktif (${config.sqlHost || 'localhost'}:${config.sqlPort || '1433'} -> ${config.sqlDatabase || 'SQL_DB'}).`,
         };
       }
       return { success: false, message: `Sunucu yanıt verdi ancak durum kodu: ${response.status}` };

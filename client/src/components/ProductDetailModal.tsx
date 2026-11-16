@@ -180,7 +180,7 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             type="button"
             onClick={() => setIsPhotoModalOpen(true)}
             className="absolute top-[calc(env(safe-area-inset-top,0px)+0.625rem)] sm:top-3 right-14 py-1.5 px-3 rounded-full bg-black/60 hover:bg-black/85 text-white backdrop-blur-md transition flex items-center gap-1.5 text-xs font-semibold shadow-md active:scale-95"
-            title="Ürün Fotoğrafı Çek / Yükle (ERP12 Entegre)"
+            title="Ürün Fotoğrafı Çek / Yükle"
           >
             <Camera className="w-3.5 h-3.5 text-blue-400" />
             <span>Fotoğraf {localImage ? 'Değiştir' : 'Ekle'}</span>

@@ -261,7 +261,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                   Firma & Statik IP Profilleri
                 </h2>
                 <p className="text-xs text-slate-500 dark:text-slate-400">
-                  ERP12 Şube ve Sunucu Bağlantı Yöneticisi
+                  Şube ve Sunucu Bağlantı Yöneticisi
                 </p>
               </div>
             </div>
@@ -393,7 +393,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
               {/* Hızlı Bilgisayar / Yerel SQL Doldurma Butonu */}
               <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 p-2.5 rounded-2xl bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-xs">
                 <span className="text-blue-800 dark:text-blue-300 font-semibold text-[11px]">
-                  💡 Bu bilgisayardaki ERP12 veritabanına bağlanmak için:
+                  💡 Bu bilgisayardaki yerel SQL veritabanına bağlanmak için:
                 </span>
                 <button
                   type="button"
@@ -480,7 +480,7 @@ export const CompanyProfileModal: React.FC<CompanyProfileModalProps> = ({
                     />
                   </div>
                   <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1 leading-snug">
-                    ERP12 SQL Portu: <span className="text-pink-600 dark:text-pink-400 font-mono font-bold">1434</span> (Standart SQL: 1433)
+                    SQL Portu: <span className="text-pink-600 dark:text-pink-400 font-mono font-bold">1434</span> (Standart SQL: 1433)
                   </p>
                 </div>
               </div>
