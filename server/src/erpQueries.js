@@ -893,7 +893,7 @@ export const erpQueries = {
     }
   },
 
-  // 3. MOBİLDEN GELEN SİPARİŞİ ERP12'YE YAZMA
+  // 3. MOBİLDEN GELEN SİPARİŞİ ERP12'YE YAZMA (RAP_SIPARIS_LISTESI & BELGE_DONUSUM & FIS_ICIN_SIPARIS_SEC %100 UYUMLU)
   async createOrder({ order }) {
     erpQueries.invalidateCustomerCache();
     erpQueries.invalidateProductCache();
@@ -903,43 +903,74 @@ export const erpQueries = {
     const docNo = `${datePart}-${timePart}`;
 
     const safeNotes = (order.notes || '').replace(/'/g, "''");
-    const safeCustCode = (order.customerCode || '').replace(/'/g, "''");
+    const safeCustId = String(order.customerId || '').trim().replace(/'/g, "''");
+    const safeCustCode = (order.customerCode || '').trim().replace(/'/g, "''");
+    const safeCustName = (order.customerName || '').trim().replace(/'/g, "''");
     const safeTempId = (order.tempId || '').replace(/'/g, "''");
     const campaignNotes = (order.appliedCampaigns && order.appliedCampaigns.length > 0)
       ? (' [Kampanya: ' + order.appliedCampaigns.map(c => c.campaignTitle).join(', ') + ']')
       : '';
     const safeCampaignNotes = campaignNotes.replace(/'/g, "''");
 
+    const subtotalNum = Number(order.subtotal || 0);
+    const totalDiscountNum = Number(order.totalDiscount || 0);
+    const totalVatNum = Number(order.totalVat || 0);
+    const grandTotalNum = Number(order.grandTotal || 0);
+
     const sqlScript = `
       BEGIN TRANSACTION;
       BEGIN TRY
         DECLARE @cariId bigint;
-        SELECT TOP 1 @cariId = ID FROM CARI WHERE KOD = '${safeCustCode}';
-        IF @cariId IS NULL SELECT TOP 1 @cariId = ID FROM CARI WHERE AKTIF = 1 ORDER BY ID ASC;
+        IF TRY_CAST('${safeCustId}' AS bigint) IS NOT NULL
+          SELECT TOP 1 @cariId = ID FROM CARI WITH(NOLOCK) WHERE ID = TRY_CAST('${safeCustId}' AS bigint);
+        IF @cariId IS NULL AND '${safeCustCode}' <> ''
+          SELECT TOP 1 @cariId = ID FROM CARI WITH(NOLOCK) WHERE LTRIM(RTRIM(KOD)) = '${safeCustCode}';
+        IF @cariId IS NULL AND '${safeCustName}' <> ''
+          SELECT TOP 1 @cariId = ID FROM CARI WITH(NOLOCK) WHERE LTRIM(RTRIM(AD)) = '${safeCustName}';
+        IF @cariId IS NULL SELECT TOP 1 @cariId = ID FROM CARI WITH(NOLOCK) WHERE AKTIF = 1 ORDER BY ID ASC;
+
+        DECLARE @cariAdresId bigint;
+        SELECT TOP 1 @cariAdresId = ID FROM CARI_ADRES WITH(NOLOCK) WHERE CARI = @cariId ORDER BY ID ASC;
 
         DECLARE @lokId bigint;
-        SELECT TOP 1 @lokId = ID FROM LOKASYON WHERE ID = 75919;
-        IF @lokId IS NULL SELECT TOP 1 @lokId = ID FROM LOKASYON ORDER BY ID ASC;
+        SELECT TOP 1 @lokId = ID FROM LOKASYON WITH(NOLOCK) WHERE ID = 75919;
+        IF @lokId IS NULL SELECT TOP 1 @lokId = ID FROM LOKASYON WITH(NOLOCK) ORDER BY ID ASC;
+
+        DECLARE @projeId bigint;
+        SELECT TOP 1 @projeId = ID FROM PROJE WITH(NOLOCK) WHERE ID = 75916;
+        IF @projeId IS NULL SELECT TOP 1 @projeId = ID FROM PROJE WITH(NOLOCK) ORDER BY ID ASC;
+
+        DECLARE @dovizId bigint;
+        SELECT TOP 1 @dovizId = ID FROM DOVIZ_AD WITH(NOLOCK) WHERE ID = 1;
+        IF @dovizId IS NULL SELECT TOP 1 @dovizId = ID FROM DOVIZ_AD WITH(NOLOCK) ORDER BY ID ASC;
 
         DECLARE @orderId bigint;
         SELECT @orderId = ISNULL((
           SELECT MAX(v) FROM (VALUES
-            (ISNULL((SELECT MAX(ID) FROM SEQUNCES), 0)),
-            (ISNULL((SELECT MAX(ID) FROM SIPARIS), 3893110)),
-            (ISNULL((SELECT MAX(ID) FROM SIPARIS_DETAY), 3893110))
+            (ISNULL((SELECT MAX(ID) FROM SEQUNCES WITH(NOLOCK)), 0)),
+            (ISNULL((SELECT MAX(ID) FROM SIPARIS WITH(NOLOCK)), 3893110)),
+            (ISNULL((SELECT MAX(ID) FROM SIPARIS_DETAY WITH(NOLOCK)), 3893110))
           ) AS T(v)
         ), 3893110) + 1;
 
         INSERT INTO SIPARIS (
-          ID, SIPARIS_TURU, LOKASYON, CARI, BELGENO, 
-          SIPARIS_TARIHI, TERMIN_TARIHI, ISLEM_TARIHI, 
-          SATIR_TOPLAM, SATIR_ISKONTO_TOPLAM, KDV_TOPLAM, GENELTOPLAM, 
-          ACIKLAMA, AKTIF, MOBIL_MI, ONAYLI
+          ID, SIPARIS_TURU, LOKASYON, CARI, CARI_ADRES, GONDERIM_ADRESI, PROJE,
+          BELGENO, SIPARIS_TARIHI, TERMIN_TARIHI, ISLEM_TARIHI, VADE_TARIHI,
+          DOVIZ_AD, DOVIZ_KUR, CARI_PERSONEL,
+          SATIR_TOPLAM, SATIR_ISKONTO_TOPLAM, SIPARIS_ISKONTO_ORAN, SIPARIS_ISKONTO_TOPLAM,
+          YUVARLAMA, KDV_TOPLAM, OTV_TOPLAM, TEFKIFAT_TOPLAM, GENELTOPLAM,
+          ACIKLAMA, FIS, AKTIF, MOBIL_MI, ONAYLI,
+          BELGE_YETKILISI, YAZILDI, EMAIL_GONDERILDI, NAKLIYE_ODEME_TIPI, SEVK_SEKLI,
+          KARSI_SIPARIS_NO, FIS_ODEME_TIPI_ISKONTOLARI, FIS_ALT_TIPI
         ) VALUES (
-          @orderId, 2, @lokId, @cariId, '${docNo}', 
-          GETDATE(), GETDATE(), GETDATE(), 
-          ${order.subtotal || 0}, ${order.totalDiscount || 0}, ${order.totalVat || 0}, ${order.grandTotal || 0}, 
-          '[Mobil Plasiyer - ${safeTempId}] ${safeNotes}${safeCampaignNotes}', 1, 1, 0
+          @orderId, 2, @lokId, @cariId, @cariAdresId, @cariAdresId, @projeId,
+          '${docNo}', GETDATE(), CAST(GETDATE() AS DATE), GETDATE(), CAST(GETDATE() AS DATE),
+          @dovizId, 1, 0,
+          ${subtotalNum}, ${totalDiscountNum}, '0', 0,
+          0, ${totalVatNum}, 0, 0, ${grandTotalNum},
+          '[Mobil Plasiyer - ${safeTempId}] ${safeNotes}${safeCampaignNotes}', 0, 1, 1, 1,
+          0, 0, 0, 0, 0,
+          '', 1, 1
         );
         IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @orderId)
           INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@orderId, 'SIPARIS', 0);
@@ -949,29 +980,61 @@ export const erpQueries = {
         ${order.items.map((item, idx) => {
           const sCode = (item.productCode || '').replace(/'/g, "''");
           const isGift = Boolean(item.isGift);
-          const price = isGift ? 0 : (item.unitPrice || 0);
-          const iskonto = isGift ? '100' : String(item.discountPercent || 0);
-          const netTutar = isGift ? 0 : (item.netTotal || 0);
-          const dahilTutar = isGift ? 0 : (item.grandTotal || 0);
+          const qty = Number(item.quantity || 1);
+          const vatRate = Number(item.vatRate ?? 1);
+          const price = isGift ? 0 : Number(item.unitPrice || 0);
+          const discNum = isGift ? 100 : Number(item.discountPercent || 0);
+          const iskonto = String(discNum);
+          const rawNet = Number(item.totalAmount ?? item.netTotal ?? (price * qty * (1 - discNum / 100)));
+          const netTutar = isGift ? 0 : Number(rawNet.toFixed(2));
+          const rawVat = Number(item.vatAmount ?? (netTutar * (vatRate / 100)));
+          const kdvTutar = isGift ? 0 : Number(rawVat.toFixed(2));
+          const rawGrand = Number(item.grandTotal ?? (netTutar + kdvTutar));
+          const dahilTutar = isGift ? 0 : Number(rawGrand.toFixed(2));
+          const dahilFiyat = isGift ? 0 : Number((price * (1 + vatRate / 100)).toFixed(4));
+          const satirIskontoTutar = isGift ? 0 : Number((price * qty - netTutar).toFixed(2));
           return `
             SET @detId = @detId + 1;
             DECLARE @stokId_${idx} bigint;
             DECLARE @birimId_${idx} bigint;
-            SELECT TOP 1 @stokId_${idx} = S.ID, @birimId_${idx} = ISNULL(SSB.STOK_BIRIM, 1)
-            FROM STOK S 
-            LEFT JOIN STOK_STOK_BIRIM SSB ON SSB.STOK = S.ID AND SSB.VARSAYILAN = 1
+            DECLARE @stokCinsi_${idx} bigint;
+            DECLARE @barkod_${idx} nvarchar(60);
+            SELECT TOP 1
+              @stokId_${idx} = S.ID,
+              @birimId_${idx} = ISNULL(SSB.STOK_BIRIM, 1012),
+              @stokCinsi_${idx} = ISNULL(S.STOK_CINSI, 1),
+              @barkod_${idx} = ISNULL(B.BARKOD, S.KOD)
+            FROM STOK S WITH(NOLOCK)
+            LEFT JOIN STOK_STOK_BIRIM SSB WITH(NOLOCK) ON SSB.STOK = S.ID AND SSB.VARSAYILAN = 1
+            OUTER APPLY (
+              SELECT TOP 1 BARKOD FROM STOK_BARKOD WITH(NOLOCK)
+              WHERE STOK_STOK_BIRIM = SSB.ID AND AKTIF = 1
+              ORDER BY ID ASC
+            ) B
             WHERE S.KOD = '${sCode}';
 
             IF @stokId_${idx} IS NOT NULL
             BEGIN
               INSERT INTO SIPARIS_DETAY (
-                ID, SIPARIS, LOKASYON, STOK, STOK_BIRIM, 
-                MIKTAR_FIS, FIYAT, TUTAR, DAHIL_TUTAR, 
-                KDV_TOPTAN, ISKONTO
+                ID, SIPARIS, LOKASYON, STOK, STOK_CINSI, STOK_BIRIM,
+                BARKOD, KOLI_BARKODU, KOD, DOVIZ_AD, KUR, CARPAN, KAB,
+                MIKTAR_FIS, MIKTAR_BEDELSIZ, ANLASMA_FIYAT,
+                FIYAT, DAHIL_FIYAT, TUTAR, DAHIL_TUTAR,
+                ISKONTO, ISKONTO_HESAP, OTV_ORAN, OTV_TUTAR, KDV_TOPTAN, TEVKIF,
+                FIYAT_FARKI, SERINO_ZORUNLU,
+                TOPLAM_SATIR_ISKONTOSU, TOPLAM_FIS_ISKONTOSU, TOPLAM_OTV,
+                TOPLAM_KDV_MATRAHI, TOPLAM_KDV, TOPLAM_TEVKIF, HESAPLANAN_FIYAT,
+                ACIKLAMA, AMBALAJ_BIRIM, AMBALAJ_MIKTAR, AMBALAJ_CARPAN
               ) VALUES (
-                @detId, @orderId, @lokId, @stokId_${idx}, @birimId_${idx}, 
-                ${item.quantity || 1}, ${price}, ${netTutar}, ${dahilTutar}, 
-                ${item.vatRate || 1}, '${iskonto}'
+                @detId, @orderId, @lokId, @stokId_${idx}, @stokCinsi_${idx}, @birimId_${idx},
+                @barkod_${idx}, '', '${sCode}', @dovizId, 1, 1, 0,
+                ${qty}, 0, 0,
+                ${price}, ${dahilFiyat}, ${netTutar}, ${dahilTutar},
+                '${iskonto}', ${discNum}, 0, 0, ${vatRate}, 0,
+                0, 0,
+                ${satirIskontoTutar}, 0, 0,
+                ${netTutar}, ${kdvTutar}, 0, 0,
+                '', @birimId_${idx}, ${qty}, 1
               );
               IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @detId)
                 INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@detId, 'SIPARIS_DETAY', 0);
