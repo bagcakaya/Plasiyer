@@ -26,9 +26,12 @@ import { CustomerInvoicesModal } from '../components/CustomerInvoicesModal';
 import { CustomerOrdersModal } from '../components/CustomerOrdersModal';
 import { CustomerStatementModal } from '../components/CustomerStatementModal';
 import { CustomerHistoryModal } from '../components/CustomerHistoryModal';
+import { filterCustomersForPlasiyer, getCustomerRegionCode } from '../utils/plasiyerScope';
 
 export const CustomersPage: React.FC = () => {
   const { 
+    currentUser,
+    isCompanyManager,
     selectedCustomer, 
     selectCustomer,
     setActiveTab,
@@ -38,6 +41,7 @@ export const CustomersPage: React.FC = () => {
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedRegion, setSelectedRegion] = useState<string>('ALL');
   const [activeIndex, setActiveIndex] = useState(0);
   const CUSTOMERS_PAGE_SIZE = 30;
   const [visibleCustomerCount, setVisibleCustomerCount] = useState<number>(CUSTOMERS_PAGE_SIZE);
@@ -51,31 +55,59 @@ export const CustomersPage: React.FC = () => {
 
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // IndexedDB'den canlı carileri çek
-  const customers = useLiveQuery(() => db.customers.toArray(), []) || [];
+  // IndexedDB'den canlı carileri çek ve plasiyerin tanımlı Rut Bölgeleri yetkisine göre filtrele
+  const rawCustomers = useLiveQuery(() => db.customers.toArray(), []) || [];
+  const customers = useMemo(
+    () => filterCustomersForPlasiyer(rawCustomers, currentUser, isCompanyManager),
+    [rawCustomers, currentUser, isCompanyManager]
+  );
 
-  // Arama filtreleme
+  // Mevcut görünür carilerdeki Rut Bölgeleri listesi
+  const availableRegions = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const c of customers) {
+      const reg = getCustomerRegionCode(c);
+      if (!reg || reg === 'GENEL') continue;
+      counts.set(reg, (counts.get(reg) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .sort((a, b) => a[0].localeCompare(b[0], 'tr-TR'))
+      .map(([name, count]) => ({ name, count }));
+  }, [customers]);
+
+  useEffect(() => {
+    if (selectedRegion !== 'ALL' && !availableRegions.some((r) => r.name === selectedRegion)) {
+      setSelectedRegion('ALL');
+    }
+  }, [availableRegions, selectedRegion]);
+
+  // Arama ve Rut Bölgesi filtreleme
   const filteredCustomers = useMemo(() => {
-    if (!searchTerm.trim()) return customers;
+    let base = customers;
+    if (selectedRegion !== 'ALL') {
+      base = base.filter((c) => getCustomerRegionCode(c) === selectedRegion);
+    }
+    if (!searchTerm.trim()) return base;
     const q = searchTerm.toLowerCase();
-    return customers.filter(
+    return base.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
         c.code.toLowerCase().includes(q) ||
         c.city.toLowerCase().includes(q) ||
         c.district.toLowerCase().includes(q) ||
+        (c.regionCode && c.regionCode.toLowerCase().includes(q)) ||
         (c.taxNumber && c.taxNumber.includes(q))
     );
-  }, [customers, searchTerm]);
+  }, [customers, searchTerm, selectedRegion]);
 
-  // Arama değiştiğinde başa sar
+  // Arama veya bölge değiştiğinde başa sar
   useEffect(() => {
     setActiveIndex(0);
     setVisibleCustomerCount(CUSTOMERS_PAGE_SIZE);
     if (containerRef.current) {
       containerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
-  }, [searchTerm]);
+  }, [searchTerm, selectedRegion]);
 
   const visibleCustomers = useMemo(
     () => filteredCustomers.slice(0, visibleCustomerCount),
@@ -225,6 +257,50 @@ export const CustomersPage: React.FC = () => {
             </span>
           )}
         </div>
+
+        {/* Rut Bölgesi Hızlı Filtre Çubuğu */}
+        {availableRegions.length > 0 && (
+          <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pt-1.5 pb-0.5">
+            <button
+              type="button"
+              onClick={() => setSelectedRegion('ALL')}
+              className={`shrink-0 px-2.5 py-1 rounded-xl text-[11px] font-extrabold border transition ${
+                selectedRegion === 'ALL'
+                  ? 'bg-blue-600 border-blue-600 text-white shadow-2xs'
+                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-blue-400'
+              }`}
+            >
+              Tüm Rutlar ({customers.length})
+            </button>
+            {availableRegions.map((reg) => {
+              const active = selectedRegion === reg.name;
+              return (
+                <button
+                  key={reg.name}
+                  type="button"
+                  onClick={() => setSelectedRegion(active ? 'ALL' : reg.name)}
+                  className={`shrink-0 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition flex items-center gap-1 ${
+                    active
+                      ? 'bg-blue-600 border-blue-600 text-white shadow-2xs'
+                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-blue-400'
+                  }`}
+                >
+                  <MapPin className={`w-3 h-3 ${active ? 'text-white' : 'text-blue-500'}`} />
+                  <span>{reg.name}</span>
+                  <span
+                    className={`text-[10px] px-1 rounded ${
+                      active
+                        ? 'bg-white/20 text-white'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                    }`}
+                  >
+                    {reg.count}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* 2. Instagram Reels Tarzı Kaydırmalı Cari Kartları */}

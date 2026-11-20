@@ -242,7 +242,16 @@ export const plasiyerAuthService = {
     password: string;
     accountRole?: FirmAccountRole;
     isErpSynced?: boolean;
+    erpCariId?: string;
+    erpCariCode?: string;
     locationName?: string;
+    viewAllRoutes?: boolean;
+    allowedRouteRegions?: string[];
+    erpAssignedRegions?: string[];
+    viewAllStocks?: boolean;
+    allowedStockGroups?: string[];
+    erpAssignedStockGroups?: string[];
+    erpForbiddenStockGroups?: string[];
     updatedAt?: string;
   }): PlasiyerAccount {
     const companyCode = input.companyCode.trim().toUpperCase();
@@ -278,7 +287,22 @@ export const plasiyerAuthService = {
       accountRole: resolvedRole,
       isDefaultSeed: false,
       isErpSynced: input.isErpSynced ?? existing?.isErpSynced,
+      erpCariId: input.erpCariId ?? existing?.erpCariId,
+      erpCariCode: input.erpCariCode ?? existing?.erpCariCode,
       locationName: input.locationName ?? existing?.locationName,
+      viewAllRoutes: input.viewAllRoutes ?? existing?.viewAllRoutes ?? false,
+      allowedRouteRegions:
+        input.allowedRouteRegions !== undefined
+          ? input.allowedRouteRegions
+          : existing?.allowedRouteRegions,
+      erpAssignedRegions: input.erpAssignedRegions ?? existing?.erpAssignedRegions,
+      viewAllStocks: input.viewAllStocks ?? existing?.viewAllStocks ?? false,
+      allowedStockGroups:
+        input.allowedStockGroups !== undefined
+          ? input.allowedStockGroups
+          : existing?.allowedStockGroups,
+      erpAssignedStockGroups: input.erpAssignedStockGroups ?? existing?.erpAssignedStockGroups,
+      erpForbiddenStockGroups: input.erpForbiddenStockGroups ?? existing?.erpForbiddenStockGroups,
       updatedAt: input.updatedAt || new Date().toISOString(),
     };
 
@@ -303,6 +327,10 @@ export const plasiyerAuthService = {
       lastName: string;
       password: string;
       accountRole?: FirmAccountRole;
+      viewAllRoutes?: boolean;
+      allowedRouteRegions?: string[];
+      viewAllStocks?: boolean;
+      allowedStockGroups?: string[];
     },
     serverConfig?: ServerConfig
   ): Promise<PlasiyerAccount> {
@@ -315,6 +343,10 @@ export const plasiyerAuthService = {
       lastName: savedLocal.lastName,
       password: savedLocal.password,
       accountRole: savedLocal.accountRole || 'plasiyer',
+      viewAllRoutes: Boolean(savedLocal.viewAllRoutes),
+      allowedRouteRegions: savedLocal.allowedRouteRegions,
+      viewAllStocks: Boolean(savedLocal.viewAllStocks),
+      allowedStockGroups: savedLocal.allowedStockGroups,
     };
 
     // 1. Merkezi bulut kaydına (ve buluttan erişilebiliyorsa SQL'e) yaz
@@ -444,7 +476,9 @@ export const plasiyerAuthService = {
       for (const remote of data.accounts as PlasiyerAccount[]) {
         if (!remote.companyCode || !remote.repCode || !remote.password) continue;
         const key = makeAccountKey(remote.companyCode, remote.repCode);
+        const prev = map.get(key);
         map.set(key, {
+          ...prev,
           id: `acc-${remote.companyCode.toUpperCase()}-${remote.repCode.toUpperCase()}`,
           companyCode: remote.companyCode.toUpperCase(),
           repCode: remote.repCode.toUpperCase(),
@@ -453,6 +487,17 @@ export const plasiyerAuthService = {
           password: remote.password,
           accountRole: remote.accountRole === 'manager' ? 'manager' : 'plasiyer',
           isDefaultSeed: false,
+          isErpSynced: remote.isErpSynced ?? prev?.isErpSynced,
+          erpCariId: remote.erpCariId ?? prev?.erpCariId,
+          erpCariCode: remote.erpCariCode ?? prev?.erpCariCode,
+          locationName: remote.locationName ?? prev?.locationName,
+          viewAllRoutes: Boolean(remote.viewAllRoutes ?? prev?.viewAllRoutes),
+          allowedRouteRegions: remote.allowedRouteRegions ?? prev?.allowedRouteRegions,
+          erpAssignedRegions: remote.erpAssignedRegions ?? prev?.erpAssignedRegions,
+          viewAllStocks: Boolean(remote.viewAllStocks ?? prev?.viewAllStocks),
+          allowedStockGroups: remote.allowedStockGroups ?? prev?.allowedStockGroups,
+          erpAssignedStockGroups: remote.erpAssignedStockGroups ?? prev?.erpAssignedStockGroups,
+          erpForbiddenStockGroups: remote.erpForbiddenStockGroups ?? prev?.erpForbiddenStockGroups,
           updatedAt: remote.updatedAt || new Date().toISOString(),
         });
       }
@@ -1094,7 +1139,16 @@ export const plasiyerAuthService = {
               password: pwd,
               accountRole: cloudData.account.accountRole === 'manager' ? 'manager' : 'plasiyer',
               isErpSynced: Boolean(cloudData.account.isErpSynced),
+              erpCariId: cloudData.account.erpCariId,
+              erpCariCode: cloudData.account.erpCariCode,
               locationName: cloudData.account.locationName,
+              viewAllRoutes: Boolean(cloudData.account.viewAllRoutes),
+              allowedRouteRegions: cloudData.account.allowedRouteRegions,
+              erpAssignedRegions: cloudData.account.erpAssignedRegions,
+              viewAllStocks: Boolean(cloudData.account.viewAllStocks),
+              allowedStockGroups: cloudData.account.allowedStockGroups,
+              erpAssignedStockGroups: cloudData.account.erpAssignedStockGroups,
+              erpForbiddenStockGroups: cloudData.account.erpForbiddenStockGroups,
               updatedAt: cloudData.account.updatedAt,
             });
 
@@ -1173,7 +1227,16 @@ export const plasiyerAuthService = {
               password: pwd,
               accountRole: data.account.accountRole === 'manager' ? 'manager' : 'plasiyer',
               isErpSynced: Boolean(data.account.isErpSynced),
+              erpCariId: data.account.erpCariId,
+              erpCariCode: data.account.erpCariCode,
               locationName: data.account.locationName,
+              viewAllRoutes: Boolean(data.account.viewAllRoutes),
+              allowedRouteRegions: data.account.allowedRouteRegions,
+              erpAssignedRegions: data.account.erpAssignedRegions,
+              viewAllStocks: Boolean(data.account.viewAllStocks),
+              allowedStockGroups: data.account.allowedStockGroups,
+              erpAssignedStockGroups: data.account.erpAssignedStockGroups,
+              erpForbiddenStockGroups: data.account.erpForbiddenStockGroups,
             });
             return {
               success: true,

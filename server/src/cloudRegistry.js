@@ -109,6 +109,17 @@ function isPlaceholderAccount(a) {
   return false;
 }
 
+function normalizeStringArray(arr) {
+  if (!Array.isArray(arr)) return undefined;
+  return Array.from(
+    new Set(
+      arr
+        .map((x) => String(x || '').trim())
+        .filter(Boolean)
+    )
+  );
+}
+
 function normalizeAccount(a) {
   const companyCode = String(a.companyCode || '').trim().toUpperCase();
   const repCode = String(a.repCode || '').trim().toUpperCase();
@@ -123,7 +134,16 @@ function normalizeAccount(a) {
     accountRole,
     isDefaultSeed: false,
     isErpSynced: Boolean(a.isErpSynced),
+    erpCariId: a.erpCariId ? String(a.erpCariId).trim() : undefined,
+    erpCariCode: a.erpCariCode ? String(a.erpCariCode).trim() : undefined,
     locationName: a.locationName ? String(a.locationName).trim() : undefined,
+    viewAllRoutes: Boolean(a.viewAllRoutes),
+    allowedRouteRegions: normalizeStringArray(a.allowedRouteRegions),
+    erpAssignedRegions: normalizeStringArray(a.erpAssignedRegions),
+    viewAllStocks: Boolean(a.viewAllStocks),
+    allowedStockGroups: normalizeStringArray(a.allowedStockGroups),
+    erpAssignedStockGroups: normalizeStringArray(a.erpAssignedStockGroups),
+    erpForbiddenStockGroups: normalizeStringArray(a.erpForbiddenStockGroups),
     updatedAt: a.updatedAt || new Date().toISOString(),
   };
 }
@@ -431,8 +451,25 @@ export const cloudRegistry = {
           : 'plasiyer';
 
       const norm = normalizeAccount({
+        ...existing,
         ...rawAccount,
         accountRole: resolvedRole,
+        viewAllRoutes:
+          typeof rawAccount?.viewAllRoutes === 'boolean'
+            ? rawAccount.viewAllRoutes
+            : Boolean(existing?.viewAllRoutes),
+        allowedRouteRegions:
+          rawAccount?.allowedRouteRegions !== undefined
+            ? rawAccount.allowedRouteRegions
+            : existing?.allowedRouteRegions,
+        viewAllStocks:
+          typeof rawAccount?.viewAllStocks === 'boolean'
+            ? rawAccount.viewAllStocks
+            : Boolean(existing?.viewAllStocks),
+        allowedStockGroups:
+          rawAccount?.allowedStockGroups !== undefined
+            ? rawAccount.allowedStockGroups
+            : existing?.allowedStockGroups,
         updatedAt: new Date().toISOString(),
       });
       delete store.deletedAccounts[key];
@@ -512,6 +549,7 @@ export const cloudRegistry = {
         );
         const existing = idx >= 0 ? store.accounts[idx] : null;
         const norm = normalizeAccount({
+          ...existing,
           companyCode: targetCompany,
           repCode: rUpper,
           firstName: rawErp.firstName || '',
@@ -519,18 +557,23 @@ export const cloudRegistry = {
           password: String(rawErp.password).trim(),
           accountRole: existing?.accountRole === 'manager' ? 'manager' : 'plasiyer',
           isErpSynced: true,
+          erpCariId: rawErp.erpCariId || existing?.erpCariId,
+          erpCariCode: rawErp.erpCariCode || existing?.erpCariCode,
           locationName: rawErp.locationName || existing?.locationName,
+          viewAllRoutes: existing ? Boolean(existing.viewAllRoutes) : false,
+          allowedRouteRegions: existing?.allowedRouteRegions,
+          erpAssignedRegions: rawErp.erpAssignedRegions || existing?.erpAssignedRegions,
+          viewAllStocks: existing ? Boolean(existing.viewAllStocks) : false,
+          allowedStockGroups: existing?.allowedStockGroups,
+          erpAssignedStockGroups: rawErp.erpAssignedStockGroups || existing?.erpAssignedStockGroups,
+          erpForbiddenStockGroups: rawErp.erpForbiddenStockGroups || existing?.erpForbiddenStockGroups,
           updatedAt: nowIso,
         });
 
         if (idx >= 0) {
-          if (
-            existing.firstName !== norm.firstName ||
-            existing.lastName !== norm.lastName ||
-            existing.password !== norm.password ||
-            !existing.isErpSynced ||
-            existing.locationName !== norm.locationName
-          ) {
+          const prevJson = JSON.stringify({ ...existing, updatedAt: '' });
+          const nextJson = JSON.stringify({ ...norm, updatedAt: '' });
+          if (prevJson !== nextJson) {
             store.accounts[idx] = norm;
             dirty = true;
           }

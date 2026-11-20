@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { useApp } from '../context/AppContext';
 import type { VisitRecord, Customer, NoOrderReason, GeoLocationState } from '../types';
+import { filterCustomersForPlasiyer } from '../utils/plasiyerScope';
 import { 
   Navigation, Calendar, CheckCircle2, Clock, Play, Check, 
   MapPin, Phone, ShoppingCart, Banknote, FileText, AlertTriangle, 
@@ -40,6 +41,8 @@ const REASON_LABELS: Record<NoOrderReason, string> = {
 
 export const RoutePlanPage: React.FC = () => {
   const { 
+    currentUser,
+    isCompanyManager,
     salesRep, 
     selectCustomer, 
     setActiveTab, 
@@ -225,15 +228,62 @@ export const RoutePlanPage: React.FC = () => {
     }
   };
 
-  // Canlı veriler (Dexie)
-  const visits = useLiveQuery(
+  // Canlı veriler (Dexie) - Plasiyerin sadece kendine tanımlı Rut Bölgelerindeki carileri göster
+  const rawVisits = useLiveQuery(
     () => db.visits.where('dayOfWeek').equals(selectedDay).toArray(),
     [selectedDay]
   ) || [];
 
-  const customers = useLiveQuery(() => db.customers.toArray(), []) || [];
-  const customerMap = new Map<string, Customer>();
-  customers.forEach(c => customerMap.set(c.id, c));
+  const rawCustomers = useLiveQuery(() => db.customers.toArray(), []) || [];
+  const customers = useMemo(
+    () => filterCustomersForPlasiyer(rawCustomers, currentUser, isCompanyManager),
+    [rawCustomers, currentUser, isCompanyManager]
+  );
+  const customerMap = useMemo(() => {
+    const m = new Map<string, Customer>();
+    customers.forEach((c) => m.set(c.id, c));
+    return m;
+  }, [customers]);
+
+  const visits = useMemo(
+    () => rawVisits.filter((v) => customerMap.has(v.customerId)),
+    [rawVisits, customerMap]
+  );
+
+  // Eğer canlı ERP12 carileri yüklendiyse ve bu güne ait ziyaret planı henüz yerel tabloda yoksa,
+  // plasiyere tanımlı Rut Bölgesi carilerinden günlere dengeli şekilde otomatik rut oluştur
+  useEffect(() => {
+    if (customers.length === 0 || visits.length > 0) return;
+    const todayIso = new Date().toISOString().slice(0, 10);
+    const dayCustomers = customers
+      .filter((_, idx) => (idx % 6) + 1 === selectedDay)
+      .slice(0, 25);
+    if (dayCustomers.length === 0) return;
+
+    const toSeed: VisitRecord[] = dayCustomers.map((c, idx) => ({
+      customerId: c.id,
+      customerCode: c.code,
+      customerName: c.name,
+      salesRepCode: salesRep.code,
+      visitDate: todayIso,
+      dayOfWeek: selectedDay,
+      status: 'pending',
+      synced: true,
+      routeOrder: idx + 1,
+    }));
+
+    db.visits
+      .where('dayOfWeek')
+      .equals(selectedDay)
+      .toArray()
+      .then((existing) => {
+        const hasValid = existing.some((v) => customerMap.has(v.customerId));
+        if (!hasValid) {
+          db.visits.bulkAdd(toSeed).catch(() => {});
+        }
+      })
+      .catch(() => {});
+  }, [customers, visits.length, selectedDay, salesRep.code, customerMap]);
 
   // AŞAMA 9: Geofence Kontrollü Ziyaret Başlatma (Check-in)
   const handleCheckIn = async (visit: VisitRecord, bypassGeofence = false) => {

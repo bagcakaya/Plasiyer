@@ -3,6 +3,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { useApp } from '../context/AppContext';
 import type { Customer } from '../types';
+import { filterCustomersForPlasiyer } from '../utils/plasiyerScope';
 import {
   Search,
   X,
@@ -29,6 +30,8 @@ const normalizeTr = (text: string) =>
 
 export const CustomerSelectModal: React.FC = () => {
   const {
+    currentUser,
+    isCompanyManager,
     isCustomerSelectModalOpen,
     closeCustomerSelectModal,
     selectedCustomer,
@@ -38,7 +41,11 @@ export const CustomerSelectModal: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const searchInputRef = useRef<HTMLInputElement | null>(null);
 
-  const allCustomers = useLiveQuery(() => db.customers.toArray()) || [];
+  const rawCustomers = useLiveQuery(() => db.customers.toArray()) || [];
+  const allCustomers = useMemo(
+    () => filterCustomersForPlasiyer(rawCustomers, currentUser, isCompanyManager),
+    [rawCustomers, currentUser, isCompanyManager]
+  );
 
   useEffect(() => {
     if (isCustomerSelectModalOpen) {

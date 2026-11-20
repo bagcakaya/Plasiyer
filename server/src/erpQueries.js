@@ -26,6 +26,62 @@ function extractDbBasePrefix(dbName = '') {
   return stripped.length >= 3 ? stripped : clean.slice(0, Math.min(clean.length, 6));
 }
 
+export function normalizeRegionLabel(val = '') {
+  return String(val || '')
+    .trim()
+    .replace(/\s*-\s*/g, '-')
+    .replace(/\s+/g, ' ')
+    .toLocaleUpperCase('tr-TR');
+}
+
+export function extractCustomerRegionCode(code = '', groupName = '', rootName = '') {
+  const cleanRoot = normalizeRegionLabel(rootName);
+  if (cleanRoot) return cleanRoot;
+
+  const cleanCode = normalizeRegionLabel(code);
+  if (cleanCode) {
+    // Örn: "ERZ-OLT-37" -> "ERZ-OLT", "KARS-20" -> "KARS", "ARTVİN-YUSUFELİ-04" -> "ARTVİN-YUSUFELİ"
+    const match = cleanCode.match(/^(.+?)[-_ ]+\d+[A-Z]?$/);
+    if (match && match[1]) {
+      const prefix = normalizeRegionLabel(match[1].replace(/[-_ ]+$/, ''));
+      if (
+        prefix.length >= 2 &&
+        !/^(CR|C|M|MUS|CARI|ALICI|SATICI|0+|120|320)$/i.test(prefix) &&
+        !/^\d+$/.test(prefix)
+      ) {
+        return prefix;
+      }
+    }
+  }
+
+  const cleanGroup = normalizeRegionLabel(groupName);
+  if (cleanGroup && !['GENEL', 'ALICI', 'SATICI', 'MÜŞTERİ', 'MUSTERI'].includes(cleanGroup)) {
+    return cleanGroup;
+  }
+
+  return 'GENEL';
+}
+
+function parseJsonStringArray(raw) {
+  if (Array.isArray(raw)) {
+    return raw.map((x) => String(x || '').trim()).filter(Boolean);
+  }
+  if (typeof raw === 'string' && raw.trim()) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        return parsed.map((x) => String(x || '').trim()).filter(Boolean);
+      }
+    } catch {
+      return raw
+        .split(',')
+        .map((x) => x.trim())
+        .filter(Boolean);
+    }
+  }
+  return undefined;
+}
+
 function getActiveHostKey() {
   const cfg = getActiveSqlConfig();
   if (!cfg) return 'DEFAULT_HOST';
@@ -311,7 +367,7 @@ export const erpQueries = {
       SELECT TOP 1 @p3 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 449803;
       IF @p3 IS NULL SELECT TOP 1 @p3 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID NOT IN (ISNULL(@p1, -1), ISNULL(@p2, -1)) ORDER BY ID ASC;
 
-      SELECT TOP 2000
+      SELECT TOP 2500
         C.ID AS id,
         C.KOD AS code,
         C.AD AS name,
@@ -320,6 +376,8 @@ export const erpQueries = {
         ISNULL(C.VERGI_DAIRESI, '') AS taxOffice,
         ISNULL(C.VERGI_NUMARASI, ISNULL(C.KIMLIK_NO, '')) AS taxNumber,
         ISNULL(CAST(C.TEMSILCI AS varchar(50)), '0') AS salesRepCode,
+        ISNULL(CG.AD, '') AS groupName,
+        ISNULL(CR_INFO.rootName, '') AS rootName,
         CASE 
           WHEN C.STOK_FIYAT_AD = @p2 THEN 2
           WHEN C.STOK_FIYAT_AD IN (@p3, 449802, 449803) THEN 3
@@ -336,7 +394,14 @@ export const erpQueries = {
       FROM CARI C WITH(NOLOCK)
       LEFT JOIN CARI_BAKIYELER B WITH(NOLOCK) ON B.ID = C.ID
       LEFT JOIN CARI_ADRES A WITH(NOLOCK) ON A.CARI = C.ID AND A.VARSAYILAN = 1
-      WHERE C.AKTIF = 1
+      LEFT JOIN CARI_GRUP CG WITH(NOLOCK) ON CG.ID = C.CARI_GRUP
+      OUTER APPLY (
+        SELECT TOP 1 LTRIM(RTRIM(CR.AD)) AS rootName
+        FROM CARI_ROOT_CARI CRC WITH(NOLOCK)
+        INNER JOIN CARI_ROOT CR WITH(NOLOCK) ON CR.ID = CRC.CARI_ROOT
+        WHERE CRC.CARI = C.ID AND LTRIM(RTRIM(ISNULL(CR.AD, ''))) <> ''
+      ) CR_INFO
+      WHERE C.AKTIF = 1 AND ISNULL(C.CARI_TUR, 1) <> 2
       ORDER BY C.AD ASC
     `;
 
@@ -346,7 +411,7 @@ export const erpQueries = {
     } catch (err) {
       // CARI_BAKIYELER view veya opsiyonel tablo farklılığı varsa FINANS_DETAY üzerinden hesapla
       const fallbackQuery = `
-        SELECT TOP 2000
+        SELECT TOP 2500
           C.ID AS id,
           C.KOD AS code,
           C.AD AS name,
@@ -355,6 +420,8 @@ export const erpQueries = {
           ISNULL(C.VERGI_DAIRESI, '') AS taxOffice,
           ISNULL(C.VERGI_NUMARASI, ISNULL(C.KIMLIK_NO, '')) AS taxNumber,
           ISNULL(CAST(C.TEMSILCI AS varchar(50)), '0') AS salesRepCode,
+          '' AS groupName,
+          '' AS rootName,
           1 AS priceList,
           CASE
             WHEN ISNUMERIC(REPLACE(ISNULL(CAST(C.ISKONTO AS varchar(50)), ''), ',', '.')) = 1
@@ -372,25 +439,72 @@ export const erpQueries = {
             SELECT KART_ALACAKLI AS KART_ID, CAST(0 AS float) AS BORC, TUTAR AS ALACAK FROM FINANS_DETAY WITH(NOLOCK) WHERE KART_ALACAKLI IS NOT NULL
           ) X GROUP BY KART_ID
         ) FB ON FB.KART_ID = C.ID
-        WHERE C.AKTIF = 1
+        WHERE C.AKTIF = 1 AND ISNULL(C.CARI_TUR, 1) <> 2
         ORDER BY C.AD ASC
       `;
       rows = await executeJsonQuery(fallbackQuery);
     }
+
+    // Her carinin hangi plasiyer(ler) ile ilişkili olduğunu (CARI.TEMSILCI, CARI_ROOT_CARI, SIPARIS, FIS) hızlıca eşleştir
+    const repByCariId = new Map();
+    try {
+      const repLinks = await executeJsonQuery(`
+        SELECT DISTINCT X.cariId, CAST(CP.PERSONEL_NO AS varchar(50)) AS repCode
+        FROM (
+          SELECT C.ID AS cariId, C.TEMSILCI AS personelCariId
+          FROM CARI C WITH(NOLOCK)
+          WHERE C.AKTIF = 1 AND C.TEMSILCI IS NOT NULL AND C.TEMSILCI > 0
+          UNION
+          SELECT CRC.CARI AS cariId, CR.CARI AS personelCariId
+          FROM CARI_ROOT_CARI CRC WITH(NOLOCK)
+          INNER JOIN CARI_ROOT CR WITH(NOLOCK) ON CR.ID = CRC.CARI_ROOT
+          WHERE CR.CARI IS NOT NULL AND CR.CARI > 0
+          UNION
+          SELECT S.CARI AS cariId, S.CARI_PERSONEL AS personelCariId
+          FROM SIPARIS S WITH(NOLOCK)
+          WHERE S.AKTIF = 1 AND S.CARI_PERSONEL IS NOT NULL AND S.CARI_PERSONEL > 0
+          UNION
+          SELECT F.CARI AS cariId, F.CARI_PERSONEL AS personelCariId
+          FROM FIS F WITH(NOLOCK)
+          WHERE F.AKTIF = 1 AND F.CARI_PERSONEL IS NOT NULL AND F.CARI_PERSONEL > 0
+        ) X
+        INNER JOIN CARI_PERSONEL CP WITH(NOLOCK) ON CP.CARI = X.personelCariId
+        WHERE CP.PERSONEL_NO IS NOT NULL
+      `);
+      if (Array.isArray(repLinks)) {
+        for (const rl of repLinks) {
+          const cid = String(rl.cariId || '').trim();
+          const rc = String(rl.repCode || '').trim().toUpperCase();
+          if (!cid || !rc) continue;
+          if (!repByCariId.has(cid)) repByCariId.set(cid, []);
+          const arr = repByCariId.get(cid);
+          if (!arr.includes(rc)) arr.push(rc);
+        }
+      }
+    } catch {
+      // Eski veya farklı şemalı veritabanlarında CARI_ROOT_CARI yoksa güvenli şekilde devam et
+    }
+
     const result = rows.map((row) => {
       const rawDisc = Number(row.specialDiscount || 0);
       const safeDisc = rawDisc > 0 && rawDisc < 100 ? rawDisc : 0;
+      const cid = String(row.id);
+      const codeStr = String(row.code || '').trim();
+      const regionCode = extractCustomerRegionCode(codeStr, row.groupName, row.rootName);
+      const assignedRepCodes = repByCariId.get(cid) || [];
       return {
-        id: String(row.id),
-        code: String(row.code),
+        id: cid,
+        code: codeStr,
         name: String(row.name),
         city: 'Erzurum',
-        district: 'Merkez',
+        district: regionCode && regionCode !== 'GENEL' ? regionCode : 'Merkez',
+        regionCode,
+        assignedRepCodes,
         address: String(row.address || ''),
         phone: String(row.phone || ''),
         taxOffice: String(row.taxOffice || ''),
         taxNumber: String(row.taxNumber || ''),
-        salesRepCode: String(row.salesRepCode || ''),
+        salesRepCode: assignedRepCodes[0] || String(row.salesRepCode || ''),
         priceList: Number(row.priceList) || 1,
         specialDiscount: safeDisc,
         riskLimit: Number(row.riskLimit || 0),
@@ -613,6 +727,87 @@ export const erpQueries = {
       }
     }
 
+    // Ürünlerin lokasyon bazlı stoklarını (STOK_MIKTAR / STOK_LOKASYON_BULUNURLUK),
+    // rut stoklarını (CARI_ROOT_STOK) ve plasiyer satılamaz kısıtlarını (CARI_SATILAMAZ_*) paralel çek
+    const [locStockRows, routeStockRows, forbiddenProdRows] = await Promise.all([
+      executeJsonQuery(`
+        SELECT
+          X.stokId,
+          X.locationName,
+          SUM(X.qty) AS qty
+        FROM (
+          SELECT
+            SM.STOK AS stokId,
+            LTRIM(RTRIM(L.AD)) AS locationName,
+            ISNULL(SM.MIKTAR, 0) AS qty
+          FROM STOK_MIKTAR SM WITH(NOLOCK)
+          INNER JOIN LOKASYON L WITH(NOLOCK) ON L.ID = SM.LOKASYON
+          WHERE L.AKTIF = 1 AND LTRIM(RTRIM(ISNULL(L.AD, ''))) <> ''
+          UNION ALL
+          SELECT
+            SLB.STOK AS stokId,
+            LTRIM(RTRIM(L.AD)) AS locationName,
+            CAST(0 AS float) AS qty
+          FROM STOK_LOKASYON_BULUNURLUK SLB WITH(NOLOCK)
+          INNER JOIN LOKASYON L WITH(NOLOCK) ON L.ID = SLB.LOKASYON
+          WHERE L.AKTIF = 1 AND ISNULL(SLB.BULUNUR_MU, 1) = 1 AND LTRIM(RTRIM(ISNULL(L.AD, ''))) <> ''
+        ) X
+        GROUP BY X.stokId, X.locationName
+      `).catch(() => []),
+      executeJsonQuery(`
+        SELECT DISTINCT
+          CRS.STOK AS stokId,
+          CAST(CP.PERSONEL_NO AS varchar(50)) AS repCode
+        FROM CARI_ROOT_STOK CRS WITH(NOLOCK)
+        INNER JOIN CARI_ROOT CR WITH(NOLOCK) ON CR.ID = CRS.CARI_ROOT
+        INNER JOIN CARI_PERSONEL CP WITH(NOLOCK) ON CP.CARI = CR.CARI
+        WHERE CP.PERSONEL_NO IS NOT NULL
+      `).catch(() => []),
+      executeJsonQuery(`
+        SELECT DISTINCT
+          CSU.STOK AS stokId,
+          CAST(CP.PERSONEL_NO AS varchar(50)) AS repCode
+        FROM CARI_SATILAMAZ_URUNLER CSU WITH(NOLOCK)
+        INNER JOIN CARI_PERSONEL CP WITH(NOLOCK) ON CP.CARI = CSU.CARI
+        WHERE CP.PERSONEL_NO IS NOT NULL
+      `).catch(() => []),
+    ]);
+
+    const locStocksByStokId = new Map();
+    if (Array.isArray(locStockRows)) {
+      for (const lr of locStockRows) {
+        const sid = String(lr.stokId || '').trim();
+        const locName = String(lr.locationName || '').trim();
+        if (!sid || !locName) continue;
+        if (!locStocksByStokId.has(sid)) locStocksByStokId.set(sid, {});
+        locStocksByStokId.get(sid)[locName] = Number(lr.qty || 0);
+      }
+    }
+
+    const routeRepsByStokId = new Map();
+    if (Array.isArray(routeStockRows)) {
+      for (const rr of routeStockRows) {
+        const sid = String(rr.stokId || '').trim();
+        const rc = String(rr.repCode || '').trim().toUpperCase();
+        if (!sid || !rc) continue;
+        if (!routeRepsByStokId.has(sid)) routeRepsByStokId.set(sid, []);
+        const arr = routeRepsByStokId.get(sid);
+        if (!arr.includes(rc)) arr.push(rc);
+      }
+    }
+
+    const forbiddenRepsByStokId = new Map();
+    if (Array.isArray(forbiddenProdRows)) {
+      for (const fr of forbiddenProdRows) {
+        const sid = String(fr.stokId || '').trim();
+        const rc = String(fr.repCode || '').trim().toUpperCase();
+        if (!sid || !rc) continue;
+        if (!forbiddenRepsByStokId.has(sid)) forbiddenRepsByStokId.set(sid, []);
+        const arr = forbiddenRepsByStokId.get(sid);
+        if (!arr.includes(rc)) arr.push(rc);
+      }
+    }
+
     const result = rows.map((row) => {
       const code = String(row.code || '').trim();
       const id = String(row.id || '').trim();
@@ -664,6 +859,11 @@ export const erpQueries = {
         erpResimUrl ||
         undefined;
 
+      const locationStocks = locStocksByStokId.get(id);
+      const locationNames = locationStocks ? Object.keys(locationStocks) : undefined;
+      const routeRepCodes = routeRepsByStokId.get(id);
+      const forbiddenRepCodes = forbiddenRepsByStokId.get(id);
+
       return {
         id,
         code,
@@ -677,6 +877,9 @@ export const erpQueries = {
         price3: Number(row.price3 || row.price1 || 0),
         stockQuantity: Number(row.stockQuantity || 0),
         image: matchedImage,
+        ...(locationNames && locationNames.length > 0 ? { locationNames, locationStocks } : {}),
+        ...(routeRepCodes && routeRepCodes.length > 0 ? { routeRepCodes } : {}),
+        ...(forbiddenRepCodes && forbiddenRepCodes.length > 0 ? { forbiddenRepCodes } : {}),
       };
     });
 
@@ -1639,21 +1842,33 @@ export const erpQueries = {
           SOYAD nvarchar(100) NOT NULL,
           SIFRE nvarchar(100) NOT NULL,
           YETKI_ROLU nvarchar(20) NOT NULL DEFAULT 'plasiyer',
+          TUM_RUTLARI_GORUR bit NOT NULL DEFAULT 0,
+          IZINLI_RUT_BOLGELERI nvarchar(max) NULL,
+          TUM_STOKLARI_GORUR bit NOT NULL DEFAULT 0,
+          IZINLI_STOK_GRUPLARI nvarchar(max) NULL,
           AKTIF bit NOT NULL DEFAULT 1,
           GUNCELLEME_TARIHI datetime NOT NULL DEFAULT GETDATE()
         );
       END
-      ELSE IF COL_LENGTH('dbo.ERP12_MOBIL_PLASIYER', 'YETKI_ROLU') IS NULL
+      ELSE
       BEGIN
-        ALTER TABLE dbo.ERP12_MOBIL_PLASIYER
-        ADD YETKI_ROLU nvarchar(20) NOT NULL CONSTRAINT DF_ERP12_MOBIL_PLASIYER_ROL DEFAULT 'plasiyer';
+        IF COL_LENGTH('dbo.ERP12_MOBIL_PLASIYER', 'YETKI_ROLU') IS NULL
+          ALTER TABLE dbo.ERP12_MOBIL_PLASIYER ADD YETKI_ROLU nvarchar(20) NOT NULL CONSTRAINT DF_ERP12_MOBIL_PLASIYER_ROL DEFAULT 'plasiyer';
+        IF COL_LENGTH('dbo.ERP12_MOBIL_PLASIYER', 'TUM_RUTLARI_GORUR') IS NULL
+          ALTER TABLE dbo.ERP12_MOBIL_PLASIYER ADD TUM_RUTLARI_GORUR bit NOT NULL CONSTRAINT DF_ERP12_MOBIL_PLASIYER_TUMRUT DEFAULT 0;
+        IF COL_LENGTH('dbo.ERP12_MOBIL_PLASIYER', 'IZINLI_RUT_BOLGELERI') IS NULL
+          ALTER TABLE dbo.ERP12_MOBIL_PLASIYER ADD IZINLI_RUT_BOLGELERI nvarchar(max) NULL;
+        IF COL_LENGTH('dbo.ERP12_MOBIL_PLASIYER', 'TUM_STOKLARI_GORUR') IS NULL
+          ALTER TABLE dbo.ERP12_MOBIL_PLASIYER ADD TUM_STOKLARI_GORUR bit NOT NULL CONSTRAINT DF_ERP12_MOBIL_PLASIYER_TUMSTOK DEFAULT 0;
+        IF COL_LENGTH('dbo.ERP12_MOBIL_PLASIYER', 'IZINLI_STOK_GRUPLARI') IS NULL
+          ALTER TABLE dbo.ERP12_MOBIL_PLASIYER ADD IZINLI_STOK_GRUPLARI nvarchar(max) NULL;
       END
       SELECT 1 AS ok;
     `;
     await executeJsonQuery(ddl);
   },
 
-  // 8.1 ERP12 PERSONEL TANITIM KARTI (CARI_TUR = 2 -> ***) ÜZERİNDEN OTOMATİK PLASİYER OKUMA (PERSONEL_NO = KULLANICI ADI, SIFRE = ŞİFRE)
+  // 8.1 ERP12 PERSONEL TANITIM KARTI (CARI_TUR = 2 -> ***) ÜZERİNDEN OTOMATİK PLASİYER, RUT BÖLGELERİ VE LOKASYON STOK KAPSAMI OKUMA
   async getErpNativePlasiyers(companyCode = '') {
     try {
       const cCode = String(companyCode || '').trim().toUpperCase();
@@ -1667,6 +1882,7 @@ export const erpQueries = {
           LTRIM(RTRIM(ISNULL(CP.SIFRE, ''))) AS [password],
           ISNULL(CP.CARI_PERSONEL_TUR, 0) AS personelTurId,
           LTRIM(RTRIM(ISNULL(CPT.AD, ''))) AS personelTurName,
+          ISNULL(CP.LOKASYON, 0) AS locationId,
           LTRIM(RTRIM(ISNULL(L.AD, ''))) AS locationName
         FROM CARI C WITH(NOLOCK)
         INNER JOIN CARI_PERSONEL CP WITH(NOLOCK) ON CP.CARI = C.ID
@@ -1698,6 +1914,134 @@ export const erpQueries = {
               return !upName.includes('SİSTEM YÖNETİCİ') && !upName.includes('SISTEM YONETICI');
             });
 
+      // Plasiyerlerin ERP12'deki tanımlı Rut Bölgelerini, Lokasyon Stok Gruplarını ve Satılamaz Gruplarını paralel keşfet
+      const [repCustomerRows, explicitRootRows, locGroupRows, rootGroupRows, forbiddenGroupRows] =
+        await Promise.all([
+          executeJsonQuery(`
+            SELECT DISTINCT
+              X.personelCariId,
+              C.KOD AS code,
+              ISNULL(CG.AD, '') AS groupName,
+              ISNULL(CR_INFO.rootName, '') AS rootName
+            FROM (
+              SELECT C1.ID AS cariId, C1.TEMSILCI AS personelCariId
+              FROM CARI C1 WITH(NOLOCK)
+              WHERE C1.AKTIF = 1 AND C1.TEMSILCI IS NOT NULL AND C1.TEMSILCI > 0
+              UNION
+              SELECT CRC.CARI AS cariId, CR.CARI AS personelCariId
+              FROM CARI_ROOT_CARI CRC WITH(NOLOCK)
+              INNER JOIN CARI_ROOT CR WITH(NOLOCK) ON CR.ID = CRC.CARI_ROOT
+              WHERE CR.CARI IS NOT NULL AND CR.CARI > 0
+              UNION
+              SELECT S.CARI AS cariId, S.CARI_PERSONEL AS personelCariId
+              FROM SIPARIS S WITH(NOLOCK)
+              WHERE S.AKTIF = 1 AND S.CARI_PERSONEL IS NOT NULL AND S.CARI_PERSONEL > 0
+              UNION
+              SELECT F.CARI AS cariId, F.CARI_PERSONEL AS personelCariId
+              FROM FIS F WITH(NOLOCK)
+              WHERE F.AKTIF = 1 AND F.CARI_PERSONEL IS NOT NULL AND F.CARI_PERSONEL > 0
+            ) X
+            INNER JOIN CARI C WITH(NOLOCK) ON C.ID = X.cariId
+            LEFT JOIN CARI_GRUP CG WITH(NOLOCK) ON CG.ID = C.CARI_GRUP
+            OUTER APPLY (
+              SELECT TOP 1 LTRIM(RTRIM(CR2.AD)) AS rootName
+              FROM CARI_ROOT_CARI CRC2 WITH(NOLOCK)
+              INNER JOIN CARI_ROOT CR2 WITH(NOLOCK) ON CR2.ID = CRC2.CARI_ROOT
+              WHERE CRC2.CARI = C.ID AND LTRIM(RTRIM(ISNULL(CR2.AD, ''))) <> ''
+            ) CR_INFO
+            WHERE C.AKTIF = 1 AND ISNULL(C.CARI_TUR, 1) <> 2
+          `).catch(() => []),
+          executeJsonQuery(`
+            SELECT DISTINCT
+              CR.CARI AS personelCariId,
+              LTRIM(RTRIM(CR.AD)) AS rootName
+            FROM CARI_ROOT CR WITH(NOLOCK)
+            WHERE CR.CARI IS NOT NULL AND LTRIM(RTRIM(ISNULL(CR.AD, ''))) <> ''
+          `).catch(() => []),
+          executeJsonQuery(`
+            SELECT DISTINCT
+              SM.LOKASYON AS locationId,
+              LTRIM(RTRIM(G.AD)) AS groupName
+            FROM STOK_MIKTAR SM WITH(NOLOCK)
+            INNER JOIN STOK S WITH(NOLOCK) ON S.ID = SM.STOK
+            INNER JOIN STOK_GRUP G WITH(NOLOCK) ON G.ID = S.STOK_GRUP
+            WHERE S.AKTIF = 1
+              AND LTRIM(RTRIM(ISNULL(G.AD, ''))) <> ''
+              AND ISNULL(G.AD, '') NOT LIKE '%MASRAF%'
+          `).catch(() => []),
+          executeJsonQuery(`
+            SELECT DISTINCT
+              CR.CARI AS personelCariId,
+              LTRIM(RTRIM(G.AD)) AS groupName
+            FROM CARI_ROOT_STOK_GRUP CRSG WITH(NOLOCK)
+            INNER JOIN CARI_ROOT CR WITH(NOLOCK) ON CR.ID = CRSG.CARI_ROOT
+            INNER JOIN STOK_GRUP G WITH(NOLOCK) ON G.ID = CRSG.TR_STOK_GRUP
+            WHERE LTRIM(RTRIM(ISNULL(G.AD, ''))) <> ''
+          `).catch(() => []),
+          executeJsonQuery(`
+            SELECT DISTINCT
+              CSG.CARI AS personelCariId,
+              LTRIM(RTRIM(G.AD)) AS groupName
+            FROM CARI_SATILAMAZ_GRUPLAR CSG WITH(NOLOCK)
+            INNER JOIN STOK_GRUP G WITH(NOLOCK) ON G.ID = CSG.STOK_GRUP
+            WHERE LTRIM(RTRIM(ISNULL(G.AD, ''))) <> ''
+          `).catch(() => []),
+        ]);
+
+      const regionsByPersonelCari = new Map();
+      if (Array.isArray(explicitRootRows)) {
+        for (const er of explicitRootRows) {
+          const pid = String(er.personelCariId || '').trim();
+          const rName = normalizeRegionLabel(er.rootName);
+          if (!pid || !rName) continue;
+          if (!regionsByPersonelCari.has(pid)) regionsByPersonelCari.set(pid, new Set());
+          regionsByPersonelCari.get(pid).add(rName);
+        }
+      }
+      if (Array.isArray(repCustomerRows)) {
+        for (const rcr of repCustomerRows) {
+          const pid = String(rcr.personelCariId || '').trim();
+          if (!pid) continue;
+          const reg = extractCustomerRegionCode(rcr.code, rcr.groupName, rcr.rootName);
+          if (!reg || reg === 'GENEL') continue;
+          if (!regionsByPersonelCari.has(pid)) regionsByPersonelCari.set(pid, new Set());
+          regionsByPersonelCari.get(pid).add(reg);
+        }
+      }
+
+      const forbiddenGroupsByPersonelCari = new Map();
+      if (Array.isArray(forbiddenGroupRows)) {
+        for (const fgr of forbiddenGroupRows) {
+          const pid = String(fgr.personelCariId || '').trim();
+          const gName = String(fgr.groupName || '').trim();
+          if (!pid || !gName) continue;
+          if (!forbiddenGroupsByPersonelCari.has(pid)) forbiddenGroupsByPersonelCari.set(pid, new Set());
+          forbiddenGroupsByPersonelCari.get(pid).add(gName);
+        }
+      }
+
+      const rootGroupsByPersonelCari = new Map();
+      if (Array.isArray(rootGroupRows)) {
+        for (const rgr of rootGroupRows) {
+          const pid = String(rgr.personelCariId || '').trim();
+          const gName = String(rgr.groupName || '').trim();
+          if (!pid || !gName) continue;
+          if (!rootGroupsByPersonelCari.has(pid)) rootGroupsByPersonelCari.set(pid, new Set());
+          rootGroupsByPersonelCari.get(pid).add(gName);
+        }
+      }
+
+      const groupsByLocationId = new Map();
+      if (Array.isArray(locGroupRows)) {
+        for (const lgr of locGroupRows) {
+          const lid = String(lgr.locationId || '').trim();
+          const gName = String(lgr.groupName || '').trim();
+          if (!lid || !gName) continue;
+          if (!groupsByLocationId.has(lid)) groupsByLocationId.set(lid, new Set());
+          groupsByLocationId.get(lid).add(gName);
+        }
+      }
+
       const splitName = (full) => {
         const cleaned = String(full || '').trim().replace(/\s+/g, ' ');
         if (!cleaned) return { firstName: 'Plasiyer', lastName: '' };
@@ -1712,7 +2056,24 @@ export const erpQueries = {
       const nowIso = new Date().toISOString();
       return targetRows.map((r) => {
         const repCode = String(r.repCode || '').trim().toUpperCase();
+        const pid = String(r.cariId || '').trim();
+        const lid = String(r.locationId || '').trim();
         const { firstName, lastName } = splitName(r.fullName);
+
+        const erpAssignedRegions = Array.from(regionsByPersonelCari.get(pid) || []).sort((a, b) =>
+          a.localeCompare(b, 'tr-TR')
+        );
+        const forbiddenSet = forbiddenGroupsByPersonelCari.get(pid) || new Set();
+        const erpForbiddenStockGroups = Array.from(forbiddenSet);
+
+        const rawGroupsSet =
+          rootGroupsByPersonelCari.get(pid) ||
+          groupsByLocationId.get(lid) ||
+          new Set();
+        const erpAssignedStockGroups = Array.from(rawGroupsSet)
+          .filter((g) => !forbiddenSet.has(g))
+          .sort((a, b) => a.localeCompare(b, 'tr-TR'));
+
         return {
           id: `acc-${cCode || 'ERP'}-${repCode}`,
           companyCode: cCode,
@@ -1722,9 +2083,14 @@ export const erpQueries = {
           password: String(r.password || '').trim(),
           accountRole: 'plasiyer',
           isErpSynced: true,
-          erpCariId: String(r.cariId || ''),
+          erpCariId: pid,
           erpCariCode: String(r.cariCode || ''),
           locationName: String(r.locationName || ''),
+          viewAllRoutes: false,
+          erpAssignedRegions,
+          viewAllStocks: false,
+          erpAssignedStockGroups,
+          erpForbiddenStockGroups,
           updatedAt: nowIso,
         };
       });
@@ -1753,6 +2119,10 @@ export const erpQueries = {
           SOYAD AS lastName,
           SIFRE AS [password],
           ISNULL(YETKI_ROLU, 'plasiyer') AS accountRole,
+          ISNULL(TUM_RUTLARI_GORUR, 0) AS viewAllRoutes,
+          IZINLI_RUT_BOLGELERI AS allowedRouteRegionsJson,
+          ISNULL(TUM_STOKLARI_GORUR, 0) AS viewAllStocks,
+          IZINLI_STOK_GRUPLARI AS allowedStockGroupsJson,
           CONVERT(varchar(19), GUNCELLEME_TARIHI, 120) AS updatedAt
         FROM dbo.ERP12_MOBIL_PLASIYER WITH(NOLOCK)
         WHERE AKTIF = 1 ${filterSql}
@@ -1775,6 +2145,10 @@ export const erpQueries = {
             lastName: String(r.lastName || ''),
             password: String(r.password || ''),
             accountRole: String(r.accountRole || '').toLowerCase() === 'manager' ? 'manager' : 'plasiyer',
+            viewAllRoutes: Boolean(r.viewAllRoutes),
+            allowedRouteRegions: parseJsonStringArray(r.allowedRouteRegionsJson),
+            viewAllStocks: Boolean(r.viewAllStocks),
+            allowedStockGroups: parseJsonStringArray(r.allowedStockGroupsJson),
             updatedAt: String(r.updatedAt || ''),
           }));
       }
@@ -1787,15 +2161,36 @@ export const erpQueries = {
       if (!acc.repCode) continue;
       merged.set(acc.repCode.toUpperCase(), acc);
     }
-    // ERP12 Personel Tanıtım Kartı (*** -> Personel No & Şifre) kayıtları her zaman birincil kaynaktır
+    // ERP12 Personel Tanıtım Kartı (*** -> Personel No & Şifre) kayıtları birincil kaynaktır;
+    // ancak Yöneticinin Ayarlardan bu plasiyer için kaydettiği Rut & Stok yetki tercihlerini (customAcc) korur!
     for (const nativeAcc of nativeList) {
       if (!nativeAcc.repCode) continue;
-      merged.set(nativeAcc.repCode.toUpperCase(), nativeAcc);
+      const rKey = nativeAcc.repCode.toUpperCase();
+      const customAcc = merged.get(rKey);
+      merged.set(rKey, {
+        ...nativeAcc,
+        accountRole: customAcc?.accountRole === 'manager' ? 'manager' : nativeAcc.accountRole,
+        viewAllRoutes: customAcc ? Boolean(customAcc.viewAllRoutes) : false,
+        allowedRouteRegions: customAcc?.allowedRouteRegions ?? undefined,
+        viewAllStocks: customAcc ? Boolean(customAcc.viewAllStocks) : false,
+        allowedStockGroups: customAcc?.allowedStockGroups ?? undefined,
+      });
     }
     return Array.from(merged.values());
   },
 
-  async upsertPlasiyerAccount({ companyCode, repCode, firstName, lastName, password, accountRole }) {
+  async upsertPlasiyerAccount({
+    companyCode,
+    repCode,
+    firstName,
+    lastName,
+    password,
+    accountRole,
+    viewAllRoutes,
+    allowedRouteRegions,
+    viewAllStocks,
+    allowedStockGroups,
+  }) {
     const esc = (v) => String(v ?? '').replace(/'/g, "''").trim();
     const cCode = esc(companyCode).toUpperCase();
     const rCode = esc(repCode).toUpperCase();
@@ -1804,6 +2199,22 @@ export const erpQueries = {
     const pwd = String(password ?? '').replace(/'/g, "''");
     const hasExplicitRole = accountRole === 'manager' || accountRole === 'plasiyer';
     const roleVal = accountRole === 'manager' ? 'manager' : 'plasiyer';
+
+    const hasViewAllRoutes = typeof viewAllRoutes === 'boolean';
+    const viewAllRoutesBit = viewAllRoutes ? 1 : 0;
+    const hasAllowedRoutes = allowedRouteRegions !== undefined;
+    const allowedRoutesSql =
+      Array.isArray(allowedRouteRegions)
+        ? `N'${esc(JSON.stringify(allowedRouteRegions))}'`
+        : 'NULL';
+
+    const hasViewAllStocks = typeof viewAllStocks === 'boolean';
+    const viewAllStocksBit = viewAllStocks ? 1 : 0;
+    const hasAllowedStocks = allowedStockGroups !== undefined;
+    const allowedStocksSql =
+      Array.isArray(allowedStockGroups)
+        ? `N'${esc(JSON.stringify(allowedStockGroups))}'`
+        : 'NULL';
 
     await this.ensurePlasiyerAccountsTable();
     await executeJsonQuery(`
@@ -1817,14 +2228,26 @@ export const erpQueries = {
             SOYAD = N'${lName}',
             SIFRE = N'${pwd}',
             ${hasExplicitRole ? `YETKI_ROLU = N'${roleVal}',` : ''}
+            ${hasViewAllRoutes ? `TUM_RUTLARI_GORUR = ${viewAllRoutesBit},` : ''}
+            ${hasAllowedRoutes ? `IZINLI_RUT_BOLGELERI = ${allowedRoutesSql},` : ''}
+            ${hasViewAllStocks ? `TUM_STOKLARI_GORUR = ${viewAllStocksBit},` : ''}
+            ${hasAllowedStocks ? `IZINLI_STOK_GRUPLARI = ${allowedStocksSql},` : ''}
             AKTIF = 1,
             GUNCELLEME_TARIHI = GETDATE()
         WHERE UPPER(FIRMA_KODU) = N'${cCode}' AND UPPER(PLASIYER_KODU) = N'${rCode}';
       END
       ELSE
       BEGIN
-        INSERT INTO dbo.ERP12_MOBIL_PLASIYER (FIRMA_KODU, PLASIYER_KODU, AD, SOYAD, SIFRE, YETKI_ROLU, AKTIF, GUNCELLEME_TARIHI)
-        VALUES (N'${cCode}', N'${rCode}', N'${fName}', N'${lName}', N'${pwd}', N'${roleVal}', 1, GETDATE());
+        INSERT INTO dbo.ERP12_MOBIL_PLASIYER (
+          FIRMA_KODU, PLASIYER_KODU, AD, SOYAD, SIFRE, YETKI_ROLU,
+          TUM_RUTLARI_GORUR, IZINLI_RUT_BOLGELERI, TUM_STOKLARI_GORUR, IZINLI_STOK_GRUPLARI,
+          AKTIF, GUNCELLEME_TARIHI
+        )
+        VALUES (
+          N'${cCode}', N'${rCode}', N'${fName}', N'${lName}', N'${pwd}', N'${roleVal}',
+          ${viewAllRoutesBit}, ${allowedRoutesSql}, ${viewAllStocksBit}, ${allowedStocksSql},
+          1, GETDATE()
+        );
       END
       SELECT 1 AS ok;
     `);
@@ -1837,6 +2260,10 @@ export const erpQueries = {
       lastName: lName,
       password: String(password ?? ''),
       accountRole: roleVal,
+      viewAllRoutes: Boolean(viewAllRoutes),
+      allowedRouteRegions: Array.isArray(allowedRouteRegions) ? allowedRouteRegions : undefined,
+      viewAllStocks: Boolean(viewAllStocks),
+      allowedStockGroups: Array.isArray(allowedStockGroups) ? allowedStockGroups : undefined,
     };
   },
 
@@ -1861,52 +2288,22 @@ export const erpQueries = {
 
     // 1. ÖNCE ERP12 PERSONEL TANITIM KARTI (CARI_TUR = 2 -> CARI_PERSONEL: PERSONEL_NO = KULLANICI ADI, SIFRE = ŞİFRE) ÜZERİNDEN DOĞRULA
     try {
-      const nativeRows = await executeJsonQuery(`
-        SELECT TOP 1
-          C.ID AS cariId,
-          LTRIM(RTRIM(ISNULL(C.AD, ''))) AS fullName,
-          CAST(CP.PERSONEL_NO AS nvarchar(50)) AS repCode,
-          LTRIM(RTRIM(ISNULL(CP.SIFRE, ''))) AS [password],
-          ISNULL(CP.CARI_PERSONEL_TUR, 0) AS personelTurId,
-          LTRIM(RTRIM(ISNULL(L.AD, ''))) AS locationName
-        FROM CARI C WITH(NOLOCK)
-        INNER JOIN CARI_PERSONEL CP WITH(NOLOCK) ON CP.CARI = C.ID
-        LEFT JOIN LOKASYON L WITH(NOLOCK) ON L.ID = CP.LOKASYON
-        WHERE C.CARI_TUR = 2
-          AND C.AKTIF = 1
-          AND CP.PERSONEL_NO IS NOT NULL
-          AND UPPER(LTRIM(RTRIM(CAST(CP.PERSONEL_NO AS nvarchar(50))))) = N'${rCode}';
-      `);
-
-      if (Array.isArray(nativeRows) && nativeRows.length > 0) {
-        const nr = nativeRows[0];
-        if (String(nr.password || '').trim() !== String(password ?? '').trim()) {
+      const allAccounts = await this.getPlasiyerAccounts(cCode);
+      const nativeMatch = allAccounts.find(
+        (a) => a.isErpSynced && a.repCode.toUpperCase() === rCode
+      );
+      if (nativeMatch) {
+        if (String(nativeMatch.password || '').trim() !== String(password ?? '').trim()) {
           return {
             found: true,
             authenticated: false,
             error: 'Giriş şifresi hatalı! Lütfen ERP12 Personel Tanıtım Kartındaki şifrenizi kontrol ediniz.',
           };
         }
-
-        const cleanedName = String(nr.fullName || '').trim().replace(/\s+/g, ' ');
-        const parts = cleanedName ? cleanedName.split(' ') : ['Plasiyer'];
-        const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0];
-        const lastName = parts.length > 1 ? parts[parts.length - 1] : '';
-
         return {
           found: true,
           authenticated: true,
-          account: {
-            id: `acc-${cCode}-${String(nr.repCode).trim().toUpperCase()}`,
-            companyCode: cCode,
-            repCode: String(nr.repCode).trim().toUpperCase(),
-            firstName,
-            lastName,
-            password: String(nr.password || '').trim(),
-            accountRole: 'plasiyer',
-            isErpSynced: true,
-            locationName: String(nr.locationName || ''),
-          },
+          account: nativeMatch,
         };
       }
     } catch (nativeErr) {
@@ -1923,7 +2320,11 @@ export const erpQueries = {
           AD AS firstName,
           SOYAD AS lastName,
           SIFRE AS [password],
-          ISNULL(YETKI_ROLU, 'plasiyer') AS accountRole
+          ISNULL(YETKI_ROLU, 'plasiyer') AS accountRole,
+          ISNULL(TUM_RUTLARI_GORUR, 0) AS viewAllRoutes,
+          IZINLI_RUT_BOLGELERI AS allowedRouteRegionsJson,
+          ISNULL(TUM_STOKLARI_GORUR, 0) AS viewAllStocks,
+          IZINLI_STOK_GRUPLARI AS allowedStockGroupsJson
         FROM dbo.ERP12_MOBIL_PLASIYER WITH(NOLOCK)
         WHERE AKTIF = 1
           AND UPPER(FIRMA_KODU) = N'${cCode}'
@@ -1954,6 +2355,10 @@ export const erpQueries = {
           lastName: String(row.lastName || ''),
           password: String(row.password || ''),
           accountRole: String(row.accountRole || '').toLowerCase() === 'manager' ? 'manager' : 'plasiyer',
+          viewAllRoutes: Boolean(row.viewAllRoutes),
+          allowedRouteRegions: parseJsonStringArray(row.allowedRouteRegionsJson),
+          viewAllStocks: Boolean(row.viewAllStocks),
+          allowedStockGroups: parseJsonStringArray(row.allowedStockGroupsJson),
         },
       };
     } catch (err) {

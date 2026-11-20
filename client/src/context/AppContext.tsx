@@ -744,6 +744,43 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // ignore
         }
         logout();
+        return;
+      }
+
+      // Aktif plasiyerin Rut Bölgesi ve Stok yetkilerini sunucuyla eşitle (Yönetici Ayarlardan değiştirdiyse anında yansısın)
+      try {
+        const activeCfg = remoteCfg && remoteCfg.sqlHost ? remoteCfg : serverConfig;
+        const syncedAccounts = await plasiyerAuthService.syncAccountsFromSql(activeCfg);
+        if (cancelled) return;
+        const rCode = (currentUser.salesRepCode || currentUser.code || '').trim().toUpperCase();
+        const cCode = (currentUser.companyCode || activeCfg.companyCode || '').trim().toUpperCase();
+        const myAcc = syncedAccounts.find(
+          (a) => a.companyCode.toUpperCase() === cCode && a.repCode.toUpperCase() === rCode
+        );
+        if (myAcc) {
+          setCurrentUser((prev) => {
+            if (!prev) return prev;
+            const nextUser: AuthUser = {
+              ...prev,
+              accountRole: myAcc.accountRole === 'manager' ? 'manager' : 'plasiyer',
+              locationName: myAcc.locationName ?? prev.locationName,
+              viewAllRoutes: Boolean(myAcc.viewAllRoutes),
+              allowedRouteRegions: myAcc.allowedRouteRegions,
+              erpAssignedRegions: myAcc.erpAssignedRegions ?? prev.erpAssignedRegions,
+              viewAllStocks: Boolean(myAcc.viewAllStocks),
+              allowedStockGroups: myAcc.allowedStockGroups,
+              erpAssignedStockGroups: myAcc.erpAssignedStockGroups ?? prev.erpAssignedStockGroups,
+              erpForbiddenStockGroups: myAcc.erpForbiddenStockGroups ?? prev.erpForbiddenStockGroups,
+            };
+            const prevJson = JSON.stringify(prev);
+            const nextJson = JSON.stringify(nextUser);
+            if (prevJson === nextJson) return prev;
+            localStorage.setItem('plasiyer_auth_user', nextJson);
+            return nextUser;
+          });
+        }
+      } catch {
+        // ignore offline account refresh error
       }
     };
 

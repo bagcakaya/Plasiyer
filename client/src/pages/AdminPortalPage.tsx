@@ -32,6 +32,8 @@ import {
   Sparkles,
   Clock,
   Ban,
+  MapPin,
+  Package,
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import type { CompanyProfile, FirmAccountRole, PlasiyerAccount, ServerConfig } from '../types';
@@ -42,6 +44,7 @@ import {
 } from '../services/plasiyerAuthService';
 import { apiService } from '../services/apiService';
 import { SettingsPage } from './SettingsPage';
+import { PlasiyerScopeModal } from '../components/PlasiyerScopeModal';
 
 type AdminTab = 'companies' | 'add_company' | 'accounts' | 'settings';
 
@@ -180,6 +183,7 @@ export const AdminPortalPage: React.FC = () => {
   );
 
   const [isSyncingCloud, setIsSyncingCloud] = useState<boolean>(false);
+  const [scopeTargetAccount, setScopeTargetAccount] = useState<PlasiyerAccount | null>(null);
 
   // Sekme değiştiğinde veya serverConfig güncellendiğinde yerel listeyi tazele
   const refreshData = () => {
@@ -1445,10 +1449,20 @@ export const AdminPortalPage: React.FC = () => {
                                           {formatFullName(acc.firstName, acc.lastName) || acc.repCode}
                                         </span>
                                       </div>
-                                      <div className="flex items-center gap-2">
+                                      <div className="flex items-center gap-2 flex-wrap">
                                         <span className="font-mono text-slate-400">
                                           Şifre: {acc.password}
                                         </span>
+                                        {!isMgr && (
+                                          <button
+                                            type="button"
+                                            onClick={() => setScopeTargetAccount(acc)}
+                                            className="px-2 py-0.5 rounded bg-blue-600 hover:bg-blue-500 text-[10px] font-bold text-white flex items-center gap-1 transition"
+                                          >
+                                            <ShieldCheck className="w-3 h-3" />
+                                            <span>Rut &amp; Stok Yetkisi</span>
+                                          </button>
+                                        )}
                                         <button
                                           type="button"
                                           onClick={() =>
@@ -2324,31 +2338,76 @@ export const AdminPortalPage: React.FC = () => {
                         key={acc.id}
                         className="p-3 rounded-2xl bg-slate-50 dark:bg-zinc-950/70 border border-slate-200 dark:border-zinc-800 flex flex-wrap items-center justify-between gap-2"
                       >
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-mono text-[11px] font-black px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
-                            {acc.companyCode}
-                          </span>
-                          <span
-                            className={`text-[10px] font-extrabold px-2 py-0.5 rounded-lg ${
-                              isMgr
-                                ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
-                                : 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
-                            }`}
-                          >
-                            {isMgr ? 'Firma Yetkilisi' : 'Plasiyer'}
-                          </span>
-                          <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-lg bg-slate-200/70 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200">
-                            {acc.repCode}
-                          </span>
-                          <span className="font-bold text-slate-900 dark:text-white">
-                            {formatFullName(acc.firstName, acc.lastName) || acc.repCode}
-                          </span>
-                          <span className="font-mono text-[11px] text-slate-400">
-                            • Şifre: {acc.password}
-                          </span>
+                        <div className="space-y-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono text-[11px] font-black px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-700 dark:text-emerald-300">
+                              {acc.companyCode}
+                            </span>
+                            <span
+                              className={`text-[10px] font-extrabold px-2 py-0.5 rounded-lg ${
+                                isMgr
+                                  ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                                  : 'bg-sky-500/15 text-sky-700 dark:text-sky-300'
+                              }`}
+                            >
+                              {isMgr ? 'Firma Yetkilisi' : 'Plasiyer'}
+                            </span>
+                            <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-lg bg-slate-200/70 dark:bg-zinc-800 text-slate-800 dark:text-zinc-200">
+                              {acc.repCode}
+                            </span>
+                            <span className="font-bold text-slate-900 dark:text-white">
+                              {formatFullName(acc.firstName, acc.lastName) || acc.repCode}
+                            </span>
+                            <span className="font-mono text-[11px] text-slate-400">
+                              • Şifre: {acc.password}
+                            </span>
+                          </div>
+
+                          {!isMgr && (
+                            <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold ${
+                                  acc.viewAllRoutes
+                                    ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                    : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                }`}
+                              >
+                                <MapPin className="w-3 h-3" />
+                                <span>
+                                  {acc.viewAllRoutes ? 'Tüm Rut Bölgeleri' : 'Sadece Kendi Rutları'}
+                                </span>
+                              </span>
+
+                              <span
+                                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold ${
+                                  acc.viewAllStocks
+                                    ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
+                                    : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+                                }`}
+                              >
+                                <Package className="w-3 h-3" />
+                                <span>
+                                  {acc.viewAllStocks
+                                    ? 'Tüm Stoklar'
+                                    : `Kendi Stokları${acc.locationName ? ` (${acc.locationName})` : ''}`}
+                                </span>
+                              </span>
+                            </div>
+                          )}
                         </div>
 
                         <div className="flex items-center gap-1.5 flex-wrap">
+                          {!isMgr && (
+                            <button
+                              type="button"
+                              onClick={() => setScopeTargetAccount(acc)}
+                              className="px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-500 font-extrabold text-[11px] text-white flex items-center gap-1 transition"
+                            >
+                              <ShieldCheck className="w-3.5 h-3.5" />
+                              <span>Rut &amp; Stok Yetkisi</span>
+                            </button>
+                          )}
+
                           <button
                             type="button"
                             onClick={() =>
@@ -2423,6 +2482,14 @@ export const AdminPortalPage: React.FC = () => {
 
         {/* SEKME 4: MEVCUT AYARLAR SAYFASI (ADMİNDE BİREBİR OLDUĞU GİBİ KORUNUR) */}
         {activeAdminTab === 'settings' && <SettingsPage />}
+
+        <PlasiyerScopeModal
+          account={scopeTargetAccount}
+          isOpen={Boolean(scopeTargetAccount)}
+          onClose={() => setScopeTargetAccount(null)}
+          serverConfig={serverConfig}
+          onSaved={(updated) => setAccounts(updated)}
+        />
       </main>
     </div>
   );

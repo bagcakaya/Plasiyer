@@ -29,11 +29,15 @@ import {
   EyeOff,
   UserPlus,
   Share2,
-  Check
+  Check,
+  ShieldCheck,
+  MapPin,
+  Package
 } from 'lucide-react';
 import type { PlasiyerAccount, ServerConfig } from '../types';
 import { CustomerStatementModal } from '../components/CustomerStatementModal';
 import { CompanyProfileModal } from '../components/CompanyProfileModal';
+import { PlasiyerScopeModal } from '../components/PlasiyerScopeModal';
 import {
   formatFullName,
   plasiyerAuthService,
@@ -62,6 +66,7 @@ export const SettingsPage: React.FC = () => {
 
   const [isStatementModalOpen, setIsStatementModalOpen] = useState(false);
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
+  const [scopeTargetAccount, setScopeTargetAccount] = useState<PlasiyerAccount | null>(null);
 
   const [apiUrl, setApiUrl] = useState(serverConfig.apiUrl);
   const [companyCode, setCompanyCode] = useState(serverConfig.companyCode || '01');
@@ -780,6 +785,7 @@ export const SettingsPage: React.FC = () => {
                 {firmPlasiyerAccounts.map((acc) => {
                   const isEditingThis = acc.repCode.toUpperCase() === repCode.trim().toUpperCase();
                   const fullName = formatFullName(acc.firstName, acc.lastName) || acc.repCode;
+                  const routeCount = (acc.allowedRouteRegions || acc.erpAssignedRegions || []).length;
 
                   return (
                     <div
@@ -791,13 +797,13 @@ export const SettingsPage: React.FC = () => {
                         setRepPassword(acc.password);
                         setRepNotice(null);
                       }}
-                      className={`p-3 rounded-xl border flex items-center justify-between gap-2 cursor-pointer transition ${
+                      className={`p-3 rounded-xl border flex flex-wrap items-center justify-between gap-2 cursor-pointer transition ${
                         isEditingThis
                           ? 'bg-blue-50/70 dark:bg-blue-950/30 border-blue-400/70 dark:border-blue-700'
                           : 'bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
                       }`}
                     >
-                      <div className="min-w-0 flex-1">
+                      <div className="min-w-0 flex-1 space-y-1.5">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-mono text-[11px] font-bold px-2 py-0.5 rounded-lg bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300">
                             {acc.repCode}
@@ -808,10 +814,57 @@ export const SettingsPage: React.FC = () => {
                           <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-200/70 dark:bg-slate-800 text-slate-600 dark:text-slate-400">
                             Plasiyer
                           </span>
+                          {acc.locationName && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/70 text-indigo-700 dark:text-indigo-300 border border-indigo-200/60 dark:border-indigo-800/60">
+                              Lokasyon: {acc.locationName}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold ${
+                              acc.viewAllRoutes
+                                ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300'
+                                : 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300'
+                            }`}
+                          >
+                            <MapPin className="w-3 h-3" />
+                            <span>
+                              {acc.viewAllRoutes
+                                ? 'Tüm Rut Bölgeleri'
+                                : `Sadece Kendi Rutları (${routeCount > 0 ? `${routeCount} Bölge` : 'Tanımlı'})`}
+                            </span>
+                          </span>
+
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md font-bold ${
+                              acc.viewAllStocks
+                                ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300'
+                                : 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300'
+                            }`}
+                          >
+                            <Package className="w-3 h-3" />
+                            <span>
+                              {acc.viewAllStocks
+                                ? 'Tüm Stoklar'
+                                : `Sadece Kendi Stokları${acc.locationName ? ` (${acc.locationName})` : ''}`}
+                            </span>
+                          </span>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-1.5 shrink-0" onClick={(e) => e.stopPropagation()}>
+                      <div className="flex items-center gap-1.5 shrink-0 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          type="button"
+                          onClick={() => setScopeTargetAccount(acc)}
+                          className="px-2.5 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-extrabold flex items-center gap-1 shadow-2xs transition active:scale-95"
+                          title="Plasiyerin görebileceği Rut Bölgelerini ve Stokları düzenle"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          <span>Rut &amp; Stok Yetkileri</span>
+                        </button>
+
                         <button
                           type="button"
                           onClick={() => handleCopyInviteLink(acc)}
@@ -930,6 +983,14 @@ export const SettingsPage: React.FC = () => {
           <LogOut className="w-4 h-4" />
           <span>Oturumu Kapat (Giriş Ekranına Dön)</span>
         </button>
+
+        <PlasiyerScopeModal
+          account={scopeTargetAccount}
+          isOpen={Boolean(scopeTargetAccount)}
+          onClose={() => setScopeTargetAccount(null)}
+          serverConfig={serverConfig}
+          onSaved={(updated) => setPlasiyerAccounts(updated)}
+        />
       </div>
     );
   }
@@ -1641,7 +1702,7 @@ export const SettingsPage: React.FC = () => {
                         : 'bg-slate-50/70 dark:bg-slate-800/40 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
                     }`}
                   >
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 space-y-1">
                       <div className="flex items-center gap-1.5 flex-wrap">
                         <span className="font-mono text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300">
                           {acc.companyCode}
@@ -1662,9 +1723,52 @@ export const SettingsPage: React.FC = () => {
                           {fullName}
                         </span>
                       </div>
+
+                      {acc.accountRole !== 'manager' && (
+                        <div className="flex items-center gap-1.5 flex-wrap text-[10px]">
+                          <span
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded font-bold ${
+                              acc.viewAllRoutes
+                                ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300'
+                                : 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300'
+                            }`}
+                          >
+                            <MapPin className="w-2.5 h-2.5" />
+                            <span>
+                              {acc.viewAllRoutes ? 'Tüm Rutlar' : 'Sadece Kendi Rutları'}
+                            </span>
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 px-1.5 py-0.2 rounded font-bold ${
+                              acc.viewAllStocks
+                                ? 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300'
+                                : 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300'
+                            }`}
+                          >
+                            <Package className="w-2.5 h-2.5" />
+                            <span>
+                              {acc.viewAllStocks
+                                ? 'Tüm Stoklar'
+                                : `Kendi Stokları${acc.locationName ? ` (${acc.locationName})` : ''}`}
+                            </span>
+                          </span>
+                        </div>
+                      )}
                     </div>
 
-                    <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-1 shrink-0 flex-wrap" onClick={(e) => e.stopPropagation()}>
+                      {acc.accountRole !== 'manager' && (
+                        <button
+                          type="button"
+                          onClick={() => setScopeTargetAccount(acc)}
+                          className="px-2 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-extrabold flex items-center gap-1 transition"
+                          title="Plasiyerin görebileceği Rut Bölgelerini ve Stokları düzenle"
+                        >
+                          <ShieldCheck className="w-3 h-3" />
+                          <span>Rut &amp; Stok Yetkisi</span>
+                        </button>
+                      )}
+
                       <button
                         type="button"
                         onClick={() => handleCopyInviteLink(acc)}
@@ -1801,6 +1905,14 @@ export const SettingsPage: React.FC = () => {
             triggerSync(nextCfg);
           }
         }}
+      />
+
+      <PlasiyerScopeModal
+        account={scopeTargetAccount}
+        isOpen={Boolean(scopeTargetAccount)}
+        onClose={() => setScopeTargetAccount(null)}
+        serverConfig={serverConfig}
+        onSaved={(updated) => setPlasiyerAccounts(updated)}
       />
     </div>
   );

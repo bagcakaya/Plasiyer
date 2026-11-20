@@ -960,7 +960,7 @@ app.get('/api/plasiyers', async (req, res) => {
     const companyCode = String(req.query.companyCode || '').trim().toUpperCase();
     const authCheck = await verifyFirmOrAdminAuth(req, companyCode || undefined);
 
-    if (!authCheck.authorized || (!authCheck.isAdmin && !authCheck.isCompanyManager)) {
+    if (!authCheck.authorized) {
       return res.json({ success: true, accounts: [] });
     }
 
@@ -998,10 +998,29 @@ app.get('/api/plasiyers', async (req, res) => {
     const mergedMap = new Map();
     for (const acc of [...sqlAccounts, ...cloudAccounts]) {
       if (!acc?.companyCode || !acc?.repCode) continue;
-      mergedMap.set(`${acc.companyCode.toUpperCase()}::${acc.repCode.toUpperCase()}`, acc);
+      const key = `${acc.companyCode.toUpperCase()}::${acc.repCode.toUpperCase()}`;
+      const prev = mergedMap.get(key);
+      mergedMap.set(key, {
+        ...prev,
+        ...acc,
+        erpAssignedRegions: acc.erpAssignedRegions || prev?.erpAssignedRegions,
+        erpAssignedStockGroups: acc.erpAssignedStockGroups || prev?.erpAssignedStockGroups,
+        erpForbiddenStockGroups: acc.erpForbiddenStockGroups || prev?.erpForbiddenStockGroups,
+        locationName: acc.locationName || prev?.locationName,
+        viewAllRoutes: Boolean(acc.viewAllRoutes ?? prev?.viewAllRoutes),
+        allowedRouteRegions: acc.allowedRouteRegions ?? prev?.allowedRouteRegions,
+        viewAllStocks: Boolean(acc.viewAllStocks ?? prev?.viewAllStocks),
+        allowedStockGroups: acc.allowedStockGroups ?? prev?.allowedStockGroups,
+      });
     }
 
-    res.json({ success: true, accounts: Array.from(mergedMap.values()) });
+    const allMerged = Array.from(mergedMap.values());
+    const visibleAccounts =
+      authCheck.isAdmin || authCheck.isCompanyManager
+        ? allMerged
+        : allMerged.filter((a) => a.repCode.toUpperCase() === authCheck.repCode);
+
+    res.json({ success: true, accounts: visibleAccounts });
   } catch (err) {
     res.json({ success: true, accounts: [], warning: err.message });
   }
@@ -1084,7 +1103,18 @@ app.post('/api/plasiyers/sync-erp', async (req, res) => {
 
 app.post('/api/plasiyers', async (req, res) => {
   try {
-    const { companyCode, repCode, firstName, lastName, password, accountRole } = req.body || {};
+    const {
+      companyCode,
+      repCode,
+      firstName,
+      lastName,
+      password,
+      accountRole,
+      viewAllRoutes,
+      allowedRouteRegions,
+      viewAllStocks,
+      allowedStockGroups,
+    } = req.body || {};
     if (!companyCode || !repCode || !password) {
       return res.status(400).json({
         success: false,
@@ -1118,19 +1148,35 @@ app.post('/api/plasiyers', async (req, res) => {
       lastName: lastName || '',
       password,
       accountRole: effectiveRole,
+      viewAllRoutes,
+      allowedRouteRegions,
+      viewAllStocks,
+      allowedStockGroups,
     });
     const cloudSaved = regRes.account;
 
     let sqlSaved = null;
     try {
-      sqlSaved = await erpQueries.upsertPlasiyerAccount({
-        companyCode,
-        repCode,
-        firstName: firstName || '',
-        lastName: lastName || '',
-        password,
-        accountRole: cloudSaved?.accountRole || effectiveRole,
-      });
+      const targetCompany = String(companyCode).trim().toUpperCase();
+      const companySqlCfg =
+        (await cloudRegistry.findCompanyServerConfig(targetCompany)) || sqlContext.getStore();
+      const runSqlUpsert = () =>
+        erpQueries.upsertPlasiyerAccount({
+          companyCode,
+          repCode,
+          firstName: firstName || '',
+          lastName: lastName || '',
+          password,
+          accountRole: cloudSaved?.accountRole || effectiveRole,
+          viewAllRoutes: cloudSaved?.viewAllRoutes,
+          allowedRouteRegions: cloudSaved?.allowedRouteRegions,
+          viewAllStocks: cloudSaved?.viewAllStocks,
+          allowedStockGroups: cloudSaved?.allowedStockGroups,
+        });
+      sqlSaved =
+        companySqlCfg && companySqlCfg.sqlHost
+          ? await sqlContext.run(companySqlCfg, runSqlUpsert)
+          : await runSqlUpsert();
     } catch (sqlErr) {
       console.warn('Plasiyer SQL kayıt uyarısı:', sqlErr.message);
     }

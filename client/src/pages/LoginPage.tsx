@@ -165,6 +165,13 @@ export const LoginPage: React.FC = () => {
         companyCode: acc.companyCode,
         salesRepCode: acc.repCode,
         locationName: acc.locationName,
+        viewAllRoutes: Boolean(acc.viewAllRoutes),
+        allowedRouteRegions: acc.allowedRouteRegions,
+        erpAssignedRegions: acc.erpAssignedRegions,
+        viewAllStocks: Boolean(acc.viewAllStocks),
+        allowedStockGroups: acc.allowedStockGroups,
+        erpAssignedStockGroups: acc.erpAssignedStockGroups,
+        erpForbiddenStockGroups: acc.erpForbiddenStockGroups,
       };
 
       login(authUser);

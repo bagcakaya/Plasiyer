@@ -4,6 +4,7 @@ import { db } from '../db';
 import { useApp } from '../context/AppContext';
 import { Layers, ChevronLeft, ChevronRight } from 'lucide-react';
 import { resolveMediaAssetUrl } from '../services/apiService';
+import { filterProductsForPlasiyer } from '../utils/plasiyerScope';
 
 export interface CategoryItem {
   id: string;
@@ -29,7 +30,7 @@ const GRADIENT_PALETTE = [
 ];
 
 export const CategoryStoriesBar: React.FC = () => {
-  const { selectedCategory, setSelectedCategory, setActiveTab, activeTab } = useApp();
+  const { selectedCategory, setSelectedCategory, setActiveTab, activeTab, currentUser, isCompanyManager } = useApp();
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const [showLeftArrow, setShowLeftArrow] = useState(false);
@@ -43,8 +44,12 @@ export const CategoryStoriesBar: React.FC = () => {
   const [scrollLeftStart, setScrollLeftStart] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
 
-  // IndexedDB'deki güncel ERP12 ürünlerini çek
-  const products = useLiveQuery(() => db.products.toArray(), []) || [];
+  // IndexedDB'deki güncel ERP12 ürünlerini çek ve plasiyer stok yetkisine göre filtrele
+  const rawProducts = useLiveQuery(() => db.products.toArray(), []) || [];
+  const products = useMemo(
+    () => filterProductsForPlasiyer(rawProducts, currentUser, isCompanyManager),
+    [rawProducts, currentUser, isCompanyManager]
+  );
 
   // ERP12 STOK_GRUP verilerini derle (Masraf Kartları hariç)
   const categories: CategoryItem[] = useMemo(() => {

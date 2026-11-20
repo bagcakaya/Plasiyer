@@ -42,6 +42,9 @@ export interface Customer {
   latitude?: number;
   longitude?: number;
   geofenceRadiusMeters?: number; // Örn. 150m (ziyaret doğrulama toleransı)
+  // AŞAMA 11: Plasiyer Rut Bölgesi & Temsilci Kapsamı
+  regionCode?: string; // Rut Bölgesi (Örn: KARS, ERZ-OLT, ERZ-YAKUTİYE)
+  assignedRepCodes?: string[]; // ERP12'de bu cariye tanımlı plasiyer personel numaraları
 }
 
 export interface Product {
@@ -59,6 +62,11 @@ export interface Product {
   image?: string;
   b2bCategoryId?: string;
   isFeatured?: boolean;
+  // AŞAMA 11: Plasiyer Lokasyon & Rut Stok Kapsamı
+  locationNames?: string[]; // Ürünün tanımlı olduğu ERP12 lokasyon adları (Örn: ["25 ADY 050", "Merkez"])
+  locationStocks?: Record<string, number>; // Lokasyon bazlı stok miktarları
+  routeRepCodes?: string[]; // CARI_ROOT_STOK üzerinden plasiyere özel tanımlıysa
+  forbiddenRepCodes?: string[]; // CARI_SATILAMAZ_GRUPLAR / CARI_SATILAMAZ_URUNLER üzerinden yasaklı plasiyerler
 }
 
 export interface OrderItem {
@@ -131,7 +139,17 @@ export interface PlasiyerAccount {
   accountRole?: FirmAccountRole;
   isDefaultSeed?: boolean;
   isErpSynced?: boolean;
+  erpCariId?: string;
+  erpCariCode?: string;
   locationName?: string;
+  // Varsayılan: false (Sadece kendine tanımlı Rut bölgelerini ve Stokları görür; Yönetici Ayarlardan true yapabilir)
+  viewAllRoutes?: boolean;
+  allowedRouteRegions?: string[];
+  erpAssignedRegions?: string[];
+  viewAllStocks?: boolean;
+  allowedStockGroups?: string[];
+  erpAssignedStockGroups?: string[];
+  erpForbiddenStockGroups?: string[];
   updatedAt?: string;
 }
 
@@ -314,6 +332,13 @@ export interface AuthUser {
   customerId?: string;
   customerCode?: string;
   locationName?: string;
+  viewAllRoutes?: boolean;
+  allowedRouteRegions?: string[];
+  erpAssignedRegions?: string[];
+  viewAllStocks?: boolean;
+  allowedStockGroups?: string[];
+  erpAssignedStockGroups?: string[];
+  erpForbiddenStockGroups?: string[];
   token?: string;
 }
 

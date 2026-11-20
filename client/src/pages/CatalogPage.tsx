@@ -31,6 +31,7 @@ import { ProductDetailModal } from '../components/ProductDetailModal';
 import { ProductPhotoModal } from '../components/ProductPhotoModal';
 import { CategoryStoriesBar } from '../components/CategoryStoriesBar';
 import { getProductImageUrl, handleProductImageError } from '../utils/productImages';
+import { filterProductsForPlasiyer } from '../utils/plasiyerScope';
 
 const PAGE_SIZE_OPTIONS = [20, 30, 50, 100] as const;
 const PAGE_SIZE_STORAGE_KEY = 'plasiyer_catalog_page_size';
@@ -38,6 +39,8 @@ const PAGE_SIZE_STORAGE_KEY = 'plasiyer_catalog_page_size';
 export const CatalogPage: React.FC = () => {
   const { 
     userRole,
+    currentUser,
+    isCompanyManager,
     currentCustomerUser,
     selectedCustomer, 
     openCustomerSelectModal,
@@ -87,8 +90,12 @@ export const CatalogPage: React.FC = () => {
     localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(nextSize));
   };
 
-  // IndexedDB'den ürünleri çek
-  const products = useLiveQuery(() => db.products.toArray(), []);
+  // IndexedDB'den ürünleri çek ve plasiyere tanımlı stok/lokasyon yetkisine göre filtrele
+  const rawProducts = useLiveQuery(() => db.products.toArray(), []);
+  const products = useMemo(() => {
+    if (!rawProducts) return undefined;
+    return filterProductsForPlasiyer(rawProducts, currentUser, isCompanyManager);
+  }, [rawProducts, currentUser, isCompanyManager]);
 
   const activeCustomer = userRole === 'customer' ? currentCustomerUser : selectedCustomer;
 
