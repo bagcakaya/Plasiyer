@@ -51,7 +51,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
   vanAuditData,
   customerPreviousBalance = 0,
 }) => {
-  const { companyIssuer, serverConfig } = useApp();
+  const { companyIssuer, serverConfig, currentUser, salesRep } = useApp();
   const [paperWidth, setPaperWidth] = useState<'58mm' | '80mm'>('80mm');
   const [copiedAlert, setCopiedAlert] = useState<boolean>(false);
   const [isPrinting, setIsPrinting] = useState<boolean>(false);
@@ -245,7 +245,14 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         label: 'İSKONTO ORANI:',
         value: `%${orderDiscountRate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}`,
       });
-      metaRows.push({ label: 'PLASİYER:', value: orderData.salesRepCode || '-' });
+      const orderRepLabel =
+        orderData.salesRepName?.trim() ||
+        (orderData.salesRepCode && orderData.salesRepCode !== '0'
+          ? currentUser?.code === orderData.salesRepCode && currentUser?.name
+            ? `${currentUser.name} (${orderData.salesRepCode})`
+            : orderData.salesRepCode
+          : currentUser?.name || salesRep.name || '-');
+      metaRows.push({ label: 'PLASİYER:', value: orderRepLabel });
 
       table = {
         columns: [
@@ -976,7 +983,14 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
                   </div>
                   <div className="flex justify-between gap-2">
                     <span className="font-bold text-black shrink-0">PLASİYER:</span>
-                    <span className="font-bold text-black text-right">{orderData.salesRepCode}</span>
+                    <span className="font-bold text-black text-right">
+                      {orderData.salesRepName?.trim() ||
+                        (orderData.salesRepCode && orderData.salesRepCode !== '0'
+                          ? currentUser?.code === orderData.salesRepCode && currentUser?.name
+                            ? `${currentUser.name} (${orderData.salesRepCode})`
+                            : orderData.salesRepCode
+                          : currentUser?.name || salesRep.name || '-')}
+                    </span>
                   </div>
                 </>
               )}

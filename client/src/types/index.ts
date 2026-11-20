@@ -103,6 +103,7 @@ export interface Order {
   customerCode: string;
   customerName: string;
   salesRepCode: string;
+  salesRepName?: string;
   orderDate: string; // ISO
   deliveryDate?: string;
   notes?: string;

@@ -1609,12 +1609,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         await vanStockService.recordHotSaleDeduction(selectedCartItems, vanPlate);
       }
 
+      const activeRepCode =
+        (currentUser?.salesRepCode || currentUser?.code || salesRep.code || '').trim() ||
+        (activeCust.salesRepCode && activeCust.salesRepCode !== '0' ? activeCust.salesRepCode : '');
+      const activeRepName = (currentUser?.name || salesRep.name || '').trim();
+
       const newOrder: Order = {
         tempId,
         customerId: activeCust.id,
         customerCode: activeCust.code,
         customerName: activeCust.name,
-        salesRepCode: activeCust.salesRepCode || salesRep.code,
+        salesRepCode: activeRepCode,
+        salesRepName: activeRepName || undefined,
         orderDate: now.toISOString(),
         deliveryDate: deliveryDate || new Date(Date.now() + 86400000).toISOString().slice(0, 10),
         notes: notes || '',

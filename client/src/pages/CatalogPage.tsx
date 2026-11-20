@@ -82,7 +82,7 @@ export const CatalogPage: React.FC = () => {
     return PAGE_SIZE_OPTIONS.includes(saved as (typeof PAGE_SIZE_OPTIONS)[number]) ? saved : 20;
   });
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [onlyInStock, setOnlyInStock] = useState<boolean>(false);
+  const [onlyInStock, setOnlyInStock] = useState<boolean>(true);
 
   const handlePageSizeChange = (nextSize: number) => {
     setPageSize(nextSize);

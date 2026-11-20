@@ -1077,16 +1077,18 @@ export const erpQueries = {
     const timePart = now.toTimeString().slice(0, 8).replace(/:/g, '');
     const docNo = `${datePart}-${timePart}`;
 
-    const safeNotes = (order.notes || '').replace(/'/g, "''");
+    const safeNotes = (order.notes || '').trim().replace(/'/g, "''");
     const safeCustId = String(order.customerId || '').trim().replace(/'/g, "''");
     const safeCustCode = (order.customerCode || '').trim().replace(/'/g, "''");
     const safeCustName = (order.customerName || '').trim().replace(/'/g, "''");
     const safeTempId = (order.tempId || '').replace(/'/g, "''");
     const safeSalesRepCode = String(order.salesRepCode || '').trim().replace(/'/g, "''");
+    const safeSalesRepName = String(order.salesRepName || '').trim().replace(/'/g, "''");
     const campaignNotes = (order.appliedCampaigns && order.appliedCampaigns.length > 0)
       ? (' [Kampanya: ' + order.appliedCampaigns.map(c => c.campaignTitle).join(', ') + ']')
       : '';
-    const safeCampaignNotes = campaignNotes.replace(/'/g, "''");
+    const safeCampaignNotes = campaignNotes.trim().replace(/'/g, "''");
+    const combinedExtraNotes = [safeNotes, safeCampaignNotes].filter(Boolean).join(' ');
 
     // ERP12'de STOK_VARSAYILAN_FIYAT (katalog fiyatları) KDV_DAHILMI = 1 (KDV Dahil) olduğundan,
     // her kalemin DAHIL_FIYAT'ı katalog birim fiyatıdır; KDV hariç FIYAT = DAHIL_FIYAT / (1 + KDV/100) olarak ayrıştırılır.
@@ -1158,14 +1160,56 @@ export const erpQueries = {
         IF @dovizId IS NULL SELECT TOP 1 @dovizId = ID FROM DOVIZ_AD WITH(NOLOCK) ORDER BY ID ASC;
 
         DECLARE @cariPersonelId bigint;
+        DECLARE @personelAdSoyad nvarchar(200);
         SET @cariPersonelId = 0;
-        IF '${safeSalesRepCode}' <> '' AND '${safeSalesRepCode}' <> '0'
+        SET @personelAdSoyad = N'';
+
+        IF N'${safeSalesRepCode}' <> N'' AND N'${safeSalesRepCode}' <> N'0'
         BEGIN
-          SELECT TOP 1 @cariPersonelId = C.ID
+          SELECT TOP 1
+            @cariPersonelId = C.ID,
+            @personelAdSoyad = LTRIM(RTRIM(ISNULL(C.AD, N'')))
           FROM CARI C WITH(NOLOCK)
           INNER JOIN CARI_PERSONEL CP WITH(NOLOCK) ON CP.CARI = C.ID
           WHERE C.CARI_TUR = 2
-            AND (CAST(CP.PERSONEL_NO AS nvarchar(50)) = '${safeSalesRepCode}' OR LTRIM(RTRIM(C.KOD)) = '${safeSalesRepCode}');
+            AND (
+              CAST(CP.PERSONEL_NO AS nvarchar(50)) = N'${safeSalesRepCode}'
+              OR LTRIM(RTRIM(C.KOD)) = N'${safeSalesRepCode}'
+              OR CAST(C.ID AS nvarchar(50)) = N'${safeSalesRepCode}'
+            );
+        END;
+
+        IF (@cariPersonelId IS NULL OR @cariPersonelId = 0) AND N'${safeSalesRepName}' <> N''
+        BEGIN
+          SELECT TOP 1
+            @cariPersonelId = C.ID,
+            @personelAdSoyad = LTRIM(RTRIM(ISNULL(C.AD, N'')))
+          FROM CARI C WITH(NOLOCK)
+          WHERE C.CARI_TUR = 2
+            AND LTRIM(RTRIM(C.AD)) = N'${safeSalesRepName}';
+        END;
+
+        IF (@personelAdSoyad IS NULL OR @personelAdSoyad = N'') AND OBJECT_ID('dbo.ERP12_MOBIL_PLASIYER', 'U') IS NOT NULL AND N'${safeSalesRepCode}' <> N''
+        BEGIN
+          SELECT TOP 1
+            @personelAdSoyad = LTRIM(RTRIM(ISNULL(AD, N'') + N' ' + ISNULL(SOYAD, N'')))
+          FROM dbo.ERP12_MOBIL_PLASIYER WITH(NOLOCK)
+          WHERE AKTIF = 1 AND UPPER(PLASIYER_KODU) = UPPER(N'${safeSalesRepCode}');
+        END;
+
+        IF @personelAdSoyad IS NULL OR @personelAdSoyad = N''
+          SET @personelAdSoyad = CASE
+            WHEN N'${safeSalesRepName}' <> N'' THEN N'${safeSalesRepName}'
+            WHEN N'${safeSalesRepCode}' <> N'' AND N'${safeSalesRepCode}' <> N'0' THEN N'${safeSalesRepCode}'
+            ELSE N''
+          END;
+
+        DECLARE @aciklamaText nvarchar(500);
+        SET @aciklamaText = CASE
+          WHEN @personelAdSoyad <> N'' AND N'${combinedExtraNotes}' <> N'' THEN @personelAdSoyad + N' - ' + N'${combinedExtraNotes}'
+          WHEN @personelAdSoyad <> N'' THEN @personelAdSoyad
+          WHEN N'${combinedExtraNotes}' <> N'' THEN N'${combinedExtraNotes}'
+          ELSE N''
         END;
 
         DECLARE @orderId bigint;
@@ -1192,7 +1236,7 @@ export const erpQueries = {
           @dovizId, 1, ISNULL(@cariPersonelId, 0),
           ${subtotalNum}, ${totalDiscountNum}, '0', 0,
           0, ${totalVatNum}, 0, 0, ${grandTotalNum},
-          '[Mobil Plasiyer - ${safeTempId}] ${safeNotes}${safeCampaignNotes}', 0, 1, 1, 1,
+          @aciklamaText, 0, 1, 1, 1,
           0, 0, 0, 0, 0,
           '', 1, 1
         );
