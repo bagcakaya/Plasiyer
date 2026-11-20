@@ -48,15 +48,23 @@ export const CategoryStoriesBar: React.FC = () => {
 
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(true);
+  const [showSubLeftArrow, setShowSubLeftArrow] = useState(false);
+  const [showSubRightArrow, setShowSubRightArrow] = useState(false);
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerActiveMainId, setDrawerActiveMainId] = useState<string>('');
 
-  // PC Mouse ile sürükleyerek kaydırma state'leri
+  // Ana Kategoriler PC Mouse ile sürükleyerek kaydırma state'leri
   const [isMouseDown, setIsMouseDown] = useState(false);
   const [startX, setStartX] = useState(0);
   const [scrollLeftStart, setScrollLeftStart] = useState(0);
   const [isDragging, setIsDragging] = useState(false);
+
+  // Alt Kategoriler PC Mouse ile sürükleyerek kaydırma state'leri
+  const [isSubMouseDown, setIsSubMouseDown] = useState(false);
+  const [subStartX, setSubStartX] = useState(0);
+  const [subScrollLeftStart, setSubScrollLeftStart] = useState(0);
+  const [isSubDragging, setIsSubDragging] = useState(false);
 
   // IndexedDB'deki güncel ERP12 ürünlerini çek ve plasiyer stok yetkisine göre filtrele
   const rawProducts = useLiveQuery(() => db.products.toArray(), []) || [];
@@ -122,6 +130,13 @@ export const CategoryStoriesBar: React.FC = () => {
     setShowRightArrow(scrollLeft < scrollWidth - clientWidth - 10);
   };
 
+  const updateSubScrollArrows = () => {
+    if (!subScrollRef.current) return;
+    const { scrollLeft, scrollWidth, clientWidth } = subScrollRef.current;
+    setShowSubLeftArrow(scrollLeft > 6);
+    setShowSubRightArrow(scrollLeft < scrollWidth - clientWidth - 6);
+  };
+
   useEffect(() => {
     const el = mainScrollRef.current;
     if (!el) return;
@@ -136,11 +151,40 @@ export const CategoryStoriesBar: React.FC = () => {
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
+  useEffect(() => {
+    const el = subScrollRef.current;
+    if (!el) return;
+    updateSubScrollArrows();
+    const timer = setTimeout(updateSubScrollArrows, 80);
+
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY !== 0 || e.deltaX !== 0) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY !== 0 ? e.deltaY : e.deltaX;
+        updateSubScrollArrows();
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    window.addEventListener('resize', updateSubScrollArrows);
+    return () => {
+      clearTimeout(timer);
+      el.removeEventListener('wheel', onWheel);
+      window.removeEventListener('resize', updateSubScrollArrows);
+    };
+  }, [activeMainCategoryNode?.id]);
+
   const handleScrollByButton = (direction: 'left' | 'right') => {
     if (!mainScrollRef.current) return;
     const offset = direction === 'left' ? -320 : 320;
     mainScrollRef.current.scrollBy({ left: offset, behavior: 'smooth' });
     setTimeout(updateScrollArrows, 300);
+  };
+
+  const handleSubScrollByButton = (direction: 'left' | 'right') => {
+    if (!subScrollRef.current) return;
+    const offset = direction === 'left' ? -240 : 240;
+    subScrollRef.current.scrollBy({ left: offset, behavior: 'smooth' });
+    setTimeout(updateSubScrollArrows, 280);
   };
 
   const handleMouseDown = (e: React.MouseEvent) => {
@@ -167,6 +211,31 @@ export const CategoryStoriesBar: React.FC = () => {
     setTimeout(() => setIsDragging(false), 50);
   };
 
+  const handleSubMouseDown = (e: React.MouseEvent) => {
+    if (!subScrollRef.current) return;
+    setIsSubMouseDown(true);
+    setIsSubDragging(false);
+    setSubStartX(e.pageX - subScrollRef.current.getBoundingClientRect().left);
+    setSubScrollLeftStart(subScrollRef.current.scrollLeft);
+  };
+
+  const handleSubMouseMove = (e: React.MouseEvent) => {
+    if (!isSubMouseDown || !subScrollRef.current) return;
+    e.preventDefault();
+    const x = e.pageX - subScrollRef.current.getBoundingClientRect().left;
+    const distance = x - subStartX;
+    if (Math.abs(distance) > 5) {
+      setIsSubDragging(true);
+    }
+    subScrollRef.current.scrollLeft = subScrollLeftStart - distance;
+    updateSubScrollArrows();
+  };
+
+  const handleSubMouseUpOrLeave = () => {
+    setIsSubMouseDown(false);
+    setTimeout(() => setIsSubDragging(false), 60);
+  };
+
   const handleSelectMainCategory = (mainId: string) => {
     if (isDragging) return;
     if (mainId === 'all') {
@@ -185,7 +254,10 @@ export const CategoryStoriesBar: React.FC = () => {
       setSelectedSubCategory('all');
       // Alt kategori bandını başa kaydır
       setTimeout(() => {
-        subScrollRef.current?.scrollTo({ left: 0, behavior: 'smooth' });
+        if (subScrollRef.current) {
+          subScrollRef.current.scrollTo({ left: 0, behavior: 'smooth' });
+          updateSubScrollArrows();
+        }
       }, 40);
     }
     if (activeTab !== 'catalog') {
@@ -193,7 +265,12 @@ export const CategoryStoriesBar: React.FC = () => {
     }
   };
 
-  const handleSelectSubCategory = (mainId: string, sub: SubCategoryNode | 'all') => {
+  const handleSelectSubCategory = (
+    mainId: string,
+    sub: SubCategoryNode | 'all',
+    buttonEl?: HTMLElement | null
+  ) => {
+    if (isSubDragging) return;
     if (activeMainCategoryNode?.id !== mainId) {
       setSelectedCategory(mainId);
     }
@@ -203,6 +280,12 @@ export const CategoryStoriesBar: React.FC = () => {
       setSelectedSubCategory('all');
     } else {
       setSelectedSubCategory(sub.id);
+    }
+    if (buttonEl) {
+      setTimeout(() => {
+        buttonEl.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' });
+        setTimeout(updateSubScrollArrows, 300);
+      }, 30);
     }
     if (activeTab !== 'catalog') {
       setActiveTab('catalog');
@@ -266,8 +349,8 @@ export const CategoryStoriesBar: React.FC = () => {
             onMouseMove={handleMouseMove}
             onMouseUp={handleMouseUpOrLeave}
             onMouseLeave={handleMouseUpOrLeave}
-            className={`flex-1 flex items-start gap-2 sm:gap-2.5 overflow-x-auto no-scrollbar px-2.5 py-2.5 scroll-smooth ${
-              isMouseDown ? 'cursor-grabbing' : 'cursor-grab'
+            className={`flex-1 flex items-start gap-2 sm:gap-2.5 overflow-x-auto no-scrollbar px-2.5 py-2.5 touch-pan-x ${
+              isMouseDown ? 'cursor-grabbing' : 'cursor-grab scroll-smooth'
             }`}
           >
             {/* "Tüm Ürünler" Kartı */}
@@ -425,98 +508,170 @@ export const CategoryStoriesBar: React.FC = () => {
                 )}
               </div>
 
-              <button
-                type="button"
-                onClick={() => handleSelectMainCategory('all')}
-                className="shrink-0 text-[11px] font-bold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/80 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700"
-              >
-                <X className="w-3 h-3" />
-                <span>Kapat</span>
-              </button>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {/* Alt Kategoriler Sol/Sağ Kaydırma Tuşları */}
+                {activeMainCategoryNode.subCategories.length > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSubScrollByButton('left')}
+                      disabled={!showSubLeftArrow}
+                      title="Alt Kategorileri Sola Kaydır"
+                      className={`w-6 h-6 rounded-lg border flex items-center justify-center transition ${
+                        showSubLeftArrow
+                          ? 'bg-white dark:bg-slate-800 border-orange-300 dark:border-slate-700 text-[#FF6000] dark:text-orange-400 hover:bg-orange-50 active:scale-95 shadow-2xs cursor-pointer'
+                          : 'bg-white/40 dark:bg-slate-900/40 border-slate-200/60 dark:border-slate-800 text-slate-300 dark:text-slate-700 cursor-not-allowed'
+                      }`}
+                    >
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleSubScrollByButton('right')}
+                      disabled={!showSubRightArrow}
+                      title="Alt Kategorileri Sağa Kaydır"
+                      className={`w-6 h-6 rounded-lg border flex items-center justify-center transition ${
+                        showSubRightArrow
+                          ? 'bg-white dark:bg-slate-800 border-orange-300 dark:border-slate-700 text-[#FF6000] dark:text-orange-400 hover:bg-orange-50 active:scale-95 shadow-2xs cursor-pointer'
+                          : 'bg-white/40 dark:bg-slate-900/40 border-slate-200/60 dark:border-slate-800 text-slate-300 dark:text-slate-700 cursor-not-allowed'
+                      }`}
+                    >
+                      <ChevronRight className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => handleSelectMainCategory('all')}
+                  className="shrink-0 text-[11px] font-bold text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 flex items-center gap-1 px-2 py-0.5 rounded-lg bg-white/80 dark:bg-slate-800/80 border border-slate-200/80 dark:border-slate-700"
+                >
+                  <X className="w-3 h-3" />
+                  <span>Kapat</span>
+                </button>
+              </div>
             </div>
 
             {/* Alt Kategoriler Yatay Görsel Kartları (Hepsiburada Mobil Alt Kategori Seçici) */}
             {activeMainCategoryNode.subCategories.length > 0 ? (
-              <div
-                ref={subScrollRef}
-                className="flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5 scroll-smooth"
-              >
-                {/* Ana Kategorinin Tüm Ürünleri Chip'i */}
-                <button
-                  type="button"
-                  onClick={() => handleSelectSubCategory(activeMainCategoryNode.id, 'all')}
-                  className={`shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-extrabold transition active:scale-95 ${
-                    selectedSubCategory === 'all'
-                      ? 'bg-[#FF6000] border-[#FF6000] text-white shadow-sm shadow-orange-500/25'
-                      : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:border-orange-400'
+              <div className="relative flex items-center">
+                {/* Sol Yüzen Kaydırma Ok Butonu */}
+                {showSubLeftArrow && (
+                  <button
+                    type="button"
+                    onClick={() => handleSubScrollByButton('left')}
+                    className="absolute left-0 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-white/95 dark:bg-slate-800/95 hover:bg-orange-50 border border-orange-300 dark:border-slate-600 shadow-md text-[#FF6000] dark:text-orange-400 flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer"
+                    title="Sola Kaydır"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </button>
+                )}
+
+                {/* Sağ Yüzen Kaydırma Ok Butonu */}
+                {showSubRightArrow && (
+                  <button
+                    type="button"
+                    onClick={() => handleSubScrollByButton('right')}
+                    className="absolute right-0 top-1/2 -translate-y-1/2 z-20 w-7 h-7 rounded-full bg-white/95 dark:bg-slate-800/95 hover:bg-orange-50 border border-orange-300 dark:border-slate-600 shadow-md text-[#FF6000] dark:text-orange-400 flex items-center justify-center transition-all hover:scale-110 active:scale-95 cursor-pointer"
+                    title="Sağa Kaydır"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </button>
+                )}
+
+                <div
+                  ref={subScrollRef}
+                  onScroll={updateSubScrollArrows}
+                  onMouseDown={handleSubMouseDown}
+                  onMouseMove={handleSubMouseMove}
+                  onMouseUp={handleSubMouseUpOrLeave}
+                  onMouseLeave={handleSubMouseUpOrLeave}
+                  className={`flex-1 flex items-center gap-2 overflow-x-auto no-scrollbar pb-0.5 pr-4 touch-pan-x ${
+                    isSubMouseDown ? 'cursor-grabbing' : 'cursor-grab scroll-smooth'
                   }`}
                 >
-                  <span>Tümü</span>
-                  <span
-                    className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                  {/* Ana Kategorinin Tüm Ürünleri Chip'i */}
+                  <button
+                    type="button"
+                    onClick={(e) =>
+                      handleSelectSubCategory(activeMainCategoryNode.id, 'all', e.currentTarget)
+                    }
+                    className={`shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-extrabold transition active:scale-95 ${
                       selectedSubCategory === 'all'
-                        ? 'bg-white/25 text-white'
-                        : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                        ? 'bg-[#FF6000] border-[#FF6000] text-white shadow-sm shadow-orange-500/25'
+                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:border-orange-400'
                     }`}
                   >
-                    {activeMainCategoryNode.count}
-                  </span>
-                </button>
-
-                {/* Alt Kategori Kartları */}
-                {activeMainCategoryNode.subCategories.map((sub) => {
-                  const isSubActive = selectedSubCategory === sub.id;
-                  const hasSubImg = Boolean(sub.image && !failedImages[`sub-${sub.id}`]);
-
-                  return (
-                    <button
-                      key={sub.id}
-                      type="button"
-                      onClick={() => handleSelectSubCategory(activeMainCategoryNode.id, sub)}
-                      className={`shrink-0 flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-xl border text-left transition active:scale-95 ${
-                        isSubActive
-                          ? 'bg-[#FF6000] border-[#FF6000] text-white shadow-sm shadow-orange-500/25'
-                          : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 hover:border-orange-400'
+                    <span>Tümü</span>
+                    <span
+                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
+                        selectedSubCategory === 'all'
+                          ? 'bg-white/25 text-white'
+                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
                       }`}
                     >
-                      <div className="w-8 h-8 rounded-lg bg-white overflow-hidden shrink-0 border border-slate-100 dark:border-slate-700 flex items-center justify-center">
-                        {hasSubImg ? (
-                          <img
-                            src={resolveMediaAssetUrl(sub.image)}
-                            alt={sub.name}
-                            loading="lazy"
-                            onError={() =>
-                              setFailedImages((prev) => ({
-                                ...prev,
-                                [`sub-${sub.id}`]: true,
-                              }))
-                            }
-                            className="w-full h-full object-contain p-0.5 bg-white"
-                          />
-                        ) : (
-                          <span className="text-[11px] font-black text-[#FF6000]">
-                            {sub.name.charAt(0)}
-                          </span>
-                        )}
-                      </div>
+                      {activeMainCategoryNode.count}
+                    </span>
+                  </button>
 
-                      <div className="min-w-0">
-                        <div className="text-[11px] font-extrabold leading-tight whitespace-nowrap">
-                          {sub.name}
+                  {/* Alt Kategori Kartları */}
+                  {activeMainCategoryNode.subCategories.map((sub) => {
+                    const isSubActive = selectedSubCategory === sub.id;
+                    const hasSubImg = Boolean(sub.image && !failedImages[`sub-${sub.id}`]);
+
+                    return (
+                      <button
+                        key={sub.id}
+                        type="button"
+                        onClick={(e) =>
+                          handleSelectSubCategory(activeMainCategoryNode.id, sub, e.currentTarget)
+                        }
+                        className={`shrink-0 flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-xl border text-left transition active:scale-95 ${
+                          isSubActive
+                            ? 'bg-[#FF6000] border-[#FF6000] text-white shadow-sm shadow-orange-500/25'
+                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 hover:border-orange-400'
+                        }`}
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-white overflow-hidden shrink-0 border border-slate-100 dark:border-slate-700 flex items-center justify-center">
+                          {hasSubImg ? (
+                            <img
+                              src={resolveMediaAssetUrl(sub.image)}
+                              alt={sub.name}
+                              loading="lazy"
+                              draggable={false}
+                              onError={() =>
+                                setFailedImages((prev) => ({
+                                  ...prev,
+                                  [`sub-${sub.id}`]: true,
+                                }))
+                              }
+                              className="w-full h-full object-contain p-0.5 bg-white pointer-events-none"
+                            />
+                          ) : (
+                            <span className="text-[11px] font-black text-[#FF6000]">
+                              {sub.name.charAt(0)}
+                            </span>
+                          )}
                         </div>
-                        <div
-                          className={`text-[10px] font-semibold leading-tight ${
-                            isSubActive
-                              ? 'text-orange-100'
-                              : 'text-slate-400 dark:text-slate-500'
-                          }`}
-                        >
-                          {sub.count} Ürün
+
+                        <div className="min-w-0">
+                          <div className="text-[11px] font-extrabold leading-tight whitespace-nowrap">
+                            {sub.name}
+                          </div>
+                          <div
+                            className={`text-[10px] font-semibold leading-tight ${
+                              isSubActive
+                                ? 'text-orange-100'
+                                : 'text-slate-400 dark:text-slate-500'
+                            }`}
+                          >
+                            {sub.count} Ürün
+                          </div>
                         </div>
-                      </div>
-                    </button>
-                  );
-                })}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             ) : (
               <div className="text-[11px] text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
