@@ -879,6 +879,7 @@ export const erpQueries = {
     const safeCustCode = (order.customerCode || '').trim().replace(/'/g, "''");
     const safeCustName = (order.customerName || '').trim().replace(/'/g, "''");
     const safeTempId = (order.tempId || '').replace(/'/g, "''");
+    const safeSalesRepCode = String(order.salesRepCode || '').trim().replace(/'/g, "''");
     const campaignNotes = (order.appliedCampaigns && order.appliedCampaigns.length > 0)
       ? (' [Kampanya: ' + order.appliedCampaigns.map(c => c.campaignTitle).join(', ') + ']')
       : '';
@@ -953,6 +954,17 @@ export const erpQueries = {
         SELECT TOP 1 @dovizId = ID FROM DOVIZ_AD WITH(NOLOCK) WHERE ID = 1;
         IF @dovizId IS NULL SELECT TOP 1 @dovizId = ID FROM DOVIZ_AD WITH(NOLOCK) ORDER BY ID ASC;
 
+        DECLARE @cariPersonelId bigint;
+        SET @cariPersonelId = 0;
+        IF '${safeSalesRepCode}' <> '' AND '${safeSalesRepCode}' <> '0'
+        BEGIN
+          SELECT TOP 1 @cariPersonelId = C.ID
+          FROM CARI C WITH(NOLOCK)
+          INNER JOIN CARI_PERSONEL CP WITH(NOLOCK) ON CP.CARI = C.ID
+          WHERE C.CARI_TUR = 2
+            AND (CAST(CP.PERSONEL_NO AS nvarchar(50)) = '${safeSalesRepCode}' OR LTRIM(RTRIM(C.KOD)) = '${safeSalesRepCode}');
+        END;
+
         DECLARE @orderId bigint;
         SELECT @orderId = ISNULL((
           SELECT MAX(v) FROM (VALUES
@@ -974,7 +986,7 @@ export const erpQueries = {
         ) VALUES (
           @orderId, 2, @lokId, @cariId, @cariAdresId, @cariAdresId, @projeId,
           '${docNo}', GETDATE(), CAST(GETDATE() AS DATE), GETDATE(), CAST(GETDATE() AS DATE),
-          @dovizId, 1, 0,
+          @dovizId, 1, ISNULL(@cariPersonelId, 0),
           ${subtotalNum}, ${totalDiscountNum}, '0', 0,
           0, ${totalVatNum}, 0, 0, ${grandTotalNum},
           '[Mobil Plasiyer - ${safeTempId}] ${safeNotes}${safeCampaignNotes}', 0, 1, 1, 1,
@@ -1641,12 +1653,96 @@ export const erpQueries = {
     await executeJsonQuery(ddl);
   },
 
+  // 8.1 ERP12 PERSONEL TANITIM KARTI (CARI_TUR = 2 -> ***) ÜZERİNDEN OTOMATİK PLASİYER OKUMA (PERSONEL_NO = KULLANICI ADI, SIFRE = ŞİFRE)
+  async getErpNativePlasiyers(companyCode = '') {
+    try {
+      const cCode = String(companyCode || '').trim().toUpperCase();
+      const rows = await executeJsonQuery(`
+        SELECT
+          C.ID AS cariId,
+          LTRIM(RTRIM(ISNULL(C.KOD, ''))) AS cariCode,
+          LTRIM(RTRIM(ISNULL(C.AD, ''))) AS fullName,
+          CP.ID AS personelId,
+          CAST(CP.PERSONEL_NO AS nvarchar(50)) AS repCode,
+          LTRIM(RTRIM(ISNULL(CP.SIFRE, ''))) AS [password],
+          ISNULL(CP.CARI_PERSONEL_TUR, 0) AS personelTurId,
+          LTRIM(RTRIM(ISNULL(CPT.AD, ''))) AS personelTurName,
+          LTRIM(RTRIM(ISNULL(L.AD, ''))) AS locationName
+        FROM CARI C WITH(NOLOCK)
+        INNER JOIN CARI_PERSONEL CP WITH(NOLOCK) ON CP.CARI = C.ID
+        LEFT JOIN CARI_PERSONEL_TUR CPT WITH(NOLOCK) ON CPT.ID = CP.CARI_PERSONEL_TUR
+        LEFT JOIN LOKASYON L WITH(NOLOCK) ON L.ID = CP.LOKASYON
+        WHERE C.CARI_TUR = 2
+          AND C.AKTIF = 1
+          AND CP.PERSONEL_NO IS NOT NULL
+          AND LTRIM(RTRIM(ISNULL(CP.SIFRE, ''))) <> ''
+        ORDER BY CP.PERSONEL_NO ASC, C.AD ASC;
+      `);
+
+      if (!Array.isArray(rows) || rows.length === 0) return [];
+
+      // Öncelikle Personel Türü = Plasiyer (CARI_PERSONEL_TUR = 5 veya AD LIKE '%Plasiyer%') olan aktif personelleri filtrele
+      const plasiyerTyped = rows.filter(
+        (r) =>
+          Number(r.personelTurId) === 5 ||
+          String(r.personelTurName || '').toLocaleUpperCase('tr-TR').includes('PLAS')
+      );
+
+      // Eğer ilgili firmada henüz Personel Türü 'Plasiyer' olarak seçilmemiş ama Personel Kartında (CARI_TUR = 2)
+      // Personel No ve Şifre girilmiş kayıtlar varsa, sistem kullanıcıları hariç onları da dahil et
+      const targetRows =
+        plasiyerTyped.length > 0
+          ? plasiyerTyped
+          : rows.filter((r) => {
+              const upName = String(r.fullName || '').toLocaleUpperCase('tr-TR');
+              return !upName.includes('SİSTEM YÖNETİCİ') && !upName.includes('SISTEM YONETICI');
+            });
+
+      const splitName = (full) => {
+        const cleaned = String(full || '').trim().replace(/\s+/g, ' ');
+        if (!cleaned) return { firstName: 'Plasiyer', lastName: '' };
+        const parts = cleaned.split(' ');
+        if (parts.length === 1) return { firstName: parts[0], lastName: '' };
+        return {
+          firstName: parts.slice(0, -1).join(' '),
+          lastName: parts[parts.length - 1],
+        };
+      };
+
+      const nowIso = new Date().toISOString();
+      return targetRows.map((r) => {
+        const repCode = String(r.repCode || '').trim().toUpperCase();
+        const { firstName, lastName } = splitName(r.fullName);
+        return {
+          id: `acc-${cCode || 'ERP'}-${repCode}`,
+          companyCode: cCode,
+          repCode,
+          firstName,
+          lastName,
+          password: String(r.password || '').trim(),
+          accountRole: 'plasiyer',
+          isErpSynced: true,
+          erpCariId: String(r.cariId || ''),
+          erpCariCode: String(r.cariCode || ''),
+          locationName: String(r.locationName || ''),
+          updatedAt: nowIso,
+        };
+      });
+    } catch (err) {
+      console.warn('ERP12 CARI_PERSONEL plasiyer okuma uyarısı:', err.message);
+      return [];
+    }
+  },
+
   async getPlasiyerAccounts(companyCode = '') {
+    const cCode = String(companyCode || '').trim().toUpperCase();
+    const nativeList = await this.getErpNativePlasiyers(cCode);
+    let customList = [];
     try {
       await this.ensurePlasiyerAccountsTable();
       const esc = (v) => String(v ?? '').replace(/'/g, "''").trim();
-      const filterSql = companyCode
-        ? `AND UPPER(FIRMA_KODU) = UPPER(N'${esc(companyCode)}')`
+      const filterSql = cCode
+        ? `AND UPPER(FIRMA_KODU) = UPPER(N'${esc(cCode)}')`
         : '';
       const rows = await executeJsonQuery(`
         SELECT
@@ -1662,22 +1758,41 @@ export const erpQueries = {
         WHERE AKTIF = 1 ${filterSql}
         ORDER BY FIRMA_KODU ASC, PLASIYER_KODU ASC;
       `);
-      return Array.isArray(rows)
-        ? rows.map((r) => ({
+      if (Array.isArray(rows)) {
+        customList = rows
+          .filter(
+            (r) =>
+              !(
+                String(r.repCode || '').toUpperCase() === 'PLS01' &&
+                String(r.firstName || '').toLowerCase() === 'ahmet'
+              )
+          )
+          .map((r) => ({
             id: `sql-${r.companyCode}-${r.repCode}`,
-            companyCode: String(r.companyCode || '').toUpperCase(),
+            companyCode: String(r.companyCode || cCode).toUpperCase(),
             repCode: String(r.repCode || '').toUpperCase(),
             firstName: String(r.firstName || ''),
             lastName: String(r.lastName || ''),
             password: String(r.password || ''),
             accountRole: String(r.accountRole || '').toLowerCase() === 'manager' ? 'manager' : 'plasiyer',
             updatedAt: String(r.updatedAt || ''),
-          }))
-        : [];
+          }));
+      }
     } catch (err) {
       console.warn('Plasiyer tablosu okuma uyarısı:', err.message);
-      return [];
     }
+
+    const merged = new Map();
+    for (const acc of customList) {
+      if (!acc.repCode) continue;
+      merged.set(acc.repCode.toUpperCase(), acc);
+    }
+    // ERP12 Personel Tanıtım Kartı (*** -> Personel No & Şifre) kayıtları her zaman birincil kaynaktır
+    for (const nativeAcc of nativeList) {
+      if (!nativeAcc.repCode) continue;
+      merged.set(nativeAcc.repCode.toUpperCase(), nativeAcc);
+    }
+    return Array.from(merged.values());
   },
 
   async upsertPlasiyerAccount({ companyCode, repCode, firstName, lastName, password, accountRole }) {
@@ -1740,13 +1855,67 @@ export const erpQueries = {
   },
 
   async authenticatePlasiyer({ companyCode, repCode, password }) {
+    const esc = (v) => String(v ?? '').replace(/'/g, "''").trim();
+    const cCode = esc(companyCode).toUpperCase();
+    const rCode = esc(repCode).toUpperCase();
+
+    // 1. ÖNCE ERP12 PERSONEL TANITIM KARTI (CARI_TUR = 2 -> CARI_PERSONEL: PERSONEL_NO = KULLANICI ADI, SIFRE = ŞİFRE) ÜZERİNDEN DOĞRULA
+    try {
+      const nativeRows = await executeJsonQuery(`
+        SELECT TOP 1
+          C.ID AS cariId,
+          LTRIM(RTRIM(ISNULL(C.AD, ''))) AS fullName,
+          CAST(CP.PERSONEL_NO AS nvarchar(50)) AS repCode,
+          LTRIM(RTRIM(ISNULL(CP.SIFRE, ''))) AS [password],
+          ISNULL(CP.CARI_PERSONEL_TUR, 0) AS personelTurId,
+          LTRIM(RTRIM(ISNULL(L.AD, ''))) AS locationName
+        FROM CARI C WITH(NOLOCK)
+        INNER JOIN CARI_PERSONEL CP WITH(NOLOCK) ON CP.CARI = C.ID
+        LEFT JOIN LOKASYON L WITH(NOLOCK) ON L.ID = CP.LOKASYON
+        WHERE C.CARI_TUR = 2
+          AND C.AKTIF = 1
+          AND CP.PERSONEL_NO IS NOT NULL
+          AND UPPER(LTRIM(RTRIM(CAST(CP.PERSONEL_NO AS nvarchar(50))))) = N'${rCode}';
+      `);
+
+      if (Array.isArray(nativeRows) && nativeRows.length > 0) {
+        const nr = nativeRows[0];
+        if (String(nr.password || '').trim() !== String(password ?? '').trim()) {
+          return {
+            found: true,
+            authenticated: false,
+            error: 'Giriş şifresi hatalı! Lütfen ERP12 Personel Tanıtım Kartındaki şifrenizi kontrol ediniz.',
+          };
+        }
+
+        const cleanedName = String(nr.fullName || '').trim().replace(/\s+/g, ' ');
+        const parts = cleanedName ? cleanedName.split(' ') : ['Plasiyer'];
+        const firstName = parts.length > 1 ? parts.slice(0, -1).join(' ') : parts[0];
+        const lastName = parts.length > 1 ? parts[parts.length - 1] : '';
+
+        return {
+          found: true,
+          authenticated: true,
+          account: {
+            id: `acc-${cCode}-${String(nr.repCode).trim().toUpperCase()}`,
+            companyCode: cCode,
+            repCode: String(nr.repCode).trim().toUpperCase(),
+            firstName,
+            lastName,
+            password: String(nr.password || '').trim(),
+            accountRole: 'plasiyer',
+            isErpSynced: true,
+            locationName: String(nr.locationName || ''),
+          },
+        };
+      }
+    } catch (nativeErr) {
+      console.warn('ERP12 CARI_PERSONEL giriş doğrulama uyarısı:', nativeErr.message);
+    }
+
+    // 2. YEDEK OLARAK ÖZEL YÖNETİCİ / EK PLASİYER TABLOSUNDAN (ERP12_MOBIL_PLASIYER) DOĞRULA
     try {
       await this.ensurePlasiyerAccountsTable();
-      const esc = (v) => String(v ?? '').replace(/'/g, "''").trim();
-      const cCode = esc(companyCode).toUpperCase();
-      const rCode = esc(repCode).toUpperCase();
-      const pwd = String(password ?? '').replace(/'/g, "''");
-
       const rows = await executeJsonQuery(`
         SELECT TOP 1
           FIRMA_KODU AS companyCode,

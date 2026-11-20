@@ -164,6 +164,7 @@ export const LoginPage: React.FC = () => {
         lastName: acc.lastName,
         companyCode: acc.companyCode,
         salesRepCode: acc.repCode,
+        locationName: acc.locationName,
       };
 
       login(authUser);

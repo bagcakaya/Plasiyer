@@ -672,6 +672,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSalesRep(rep);
         localStorage.setItem('plasiyer_rep', JSON.stringify(rep));
       }
+      if (user.locationName && user.locationName.trim().toUpperCase() !== 'MERKEZ') {
+        setVanPlate(user.locationName.trim());
+      }
     }
   };
 

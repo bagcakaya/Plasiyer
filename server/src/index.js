@@ -219,15 +219,27 @@ app.post('/api/sql/test', async (req, res) => {
 
     if (result?.success) {
       try {
-        const companyInfo = await sqlContext.run(cfg, () => erpQueries.getCompanyInfo());
+        const [companyInfo, erpPlasiyers] = await sqlContext.run(cfg, () =>
+          Promise.all([
+            erpQueries.getCompanyInfo().catch(() => null),
+            erpQueries.getErpNativePlasiyers(cfg.companyCode || '').catch(() => []),
+          ])
+        );
         if (companyInfo) {
           result.companyInfo = companyInfo;
           if (sqlCloudMirror.isRemoteMirrorable(cfg)) {
             sqlCloudMirror.saveCompanyInfo(cfg, companyInfo).catch(() => {});
           }
         }
+        if (Array.isArray(erpPlasiyers)) {
+          result.erpPlasiyers = erpPlasiyers;
+          const cleanFirmCode = String(cfg.companyCode || '').trim().toUpperCase();
+          if (cleanFirmCode && cleanFirmCode !== '01' && cleanFirmCode !== 'POLATLAR') {
+            await cloudRegistry.syncCompanyErpPlasiyers(cleanFirmCode, erpPlasiyers).catch(() => {});
+          }
+        }
       } catch {
-        // ignore optional companyInfo fetch error during test
+        // ignore optional companyInfo/plasiyer fetch error during test
       }
     }
 
@@ -953,11 +965,32 @@ app.get('/api/plasiyers', async (req, res) => {
     }
 
     const targetCompany = authCheck.isAdmin ? companyCode : authCheck.companyCode;
+    const companySqlCfg = targetCompany
+      ? await cloudRegistry.findCompanyServerConfig(targetCompany)
+      : sqlContext.getStore();
+
+    try {
+      const runCtx = companySqlCfg && companySqlCfg.sqlHost ? companySqlCfg : sqlContext.getStore();
+      if (runCtx && runCtx.sqlHost && targetCompany) {
+        const nativePlasiyers = await sqlContext.run(runCtx, () =>
+          erpQueries.getErpNativePlasiyers(targetCompany)
+        );
+        if (Array.isArray(nativePlasiyers) && nativePlasiyers.length > 0) {
+          await cloudRegistry.syncCompanyErpPlasiyers(targetCompany, nativePlasiyers);
+        }
+      }
+    } catch {
+      // ignore live SQL sync warning
+    }
+
     const cloudAccounts = await cloudRegistry.getAccountsByCompany(targetCompany);
 
     let sqlAccounts = [];
     try {
-      sqlAccounts = await erpQueries.getPlasiyerAccounts(targetCompany);
+      const runCtx = companySqlCfg && companySqlCfg.sqlHost ? companySqlCfg : sqlContext.getStore();
+      sqlAccounts = runCtx && runCtx.sqlHost
+        ? await sqlContext.run(runCtx, () => erpQueries.getPlasiyerAccounts(targetCompany))
+        : await erpQueries.getPlasiyerAccounts(targetCompany);
     } catch {
       // SQL erişimi yoksa bulut kayıtlarıyla devam et
     }
@@ -971,6 +1004,81 @@ app.get('/api/plasiyers', async (req, res) => {
     res.json({ success: true, accounts: Array.from(mergedMap.values()) });
   } catch (err) {
     res.json({ success: true, accounts: [], warning: err.message });
+  }
+});
+
+// 8.1 FİRMANIN ERP12 PERSONEL TANITIM KARTI (*** -> PERSONEL NO & ŞİFRE) KAYITLARINI BULUTA EŞİTLE
+async function syncAllCompaniesErpPlasiyers() {
+  try {
+    const reg = await cloudRegistry.getFullRegistry();
+    for (const p of reg.profiles || []) {
+      if (!p?.code || !p?.sqlHost || p.serverUrl === 'demo') continue;
+      const cfg = {
+        sqlHost: p.sqlHost,
+        sqlPort: p.sqlPort || '1433',
+        sqlDatabase: p.sqlDatabase,
+        sqlUser: p.sqlUser || '',
+        sqlPassword: p.sqlPassword || '',
+      };
+      try {
+        const erpPlasiyers = await sqlContext.run(cfg, () =>
+          erpQueries.getErpNativePlasiyers(p.code)
+        );
+        await cloudRegistry.syncCompanyErpPlasiyers(p.code, erpPlasiyers);
+      } catch {
+        // ignore single company SQL connection warning
+      }
+    }
+  } catch {
+    // ignore
+  }
+}
+
+app.post('/api/plasiyers/sync-erp', async (req, res) => {
+  try {
+    const companyCode = String(req.body?.companyCode || req.query?.companyCode || '').trim().toUpperCase();
+    const authCheck = await verifyFirmOrAdminAuth(req, companyCode);
+    if (!authCheck.authorized || (!authCheck.isAdmin && !authCheck.isCompanyManager)) {
+      return res.status(403).json({
+        success: false,
+        error: 'Bu işlem yalnızca Yetkili Kurum veya Firma Yetkilisi tarafından yapılabilir.',
+      });
+    }
+
+    if (!companyCode) {
+      await syncAllCompaniesErpPlasiyers();
+      const full = await cloudRegistry.getFullRegistry();
+      return res.json({ success: true, accounts: full.accounts, profiles: full.profiles });
+    }
+
+    const sqlCfg =
+      (req.body?.sqlConfig && req.body.sqlConfig.sqlHost ? req.body.sqlConfig : null) ||
+      (await cloudRegistry.findCompanyServerConfig(companyCode)) ||
+      sqlContext.getStore();
+
+    if (!sqlCfg || !sqlCfg.sqlHost || sqlCfg.apiUrl === 'demo') {
+      return res.status(400).json({
+        success: false,
+        error: 'İlgili firma için canlı SQL bağlantısı tanımlı değil.',
+      });
+    }
+
+    const erpPlasiyers = await sqlContext.run(sqlCfg, () =>
+      erpQueries.getErpNativePlasiyers(companyCode)
+    );
+    const synced = await cloudRegistry.syncCompanyErpPlasiyers(companyCode, erpPlasiyers);
+    return res.json({
+      success: true,
+      syncedCount: synced.syncedCount,
+      erpPlasiyers,
+      companyAccounts: synced.companyAccounts,
+      accounts: synced.accounts,
+    });
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: err.message || 'ERP12 Personel kartlarından plasiyerler çekilemedi.',
+    });
   }
 });
 
@@ -1104,6 +1212,7 @@ app.get('/api/registry', async (req, res) => {
     return res.status(401).json({ success: false, error: 'Yetkisiz erişim.' });
   }
   try {
+    await syncAllCompaniesErpPlasiyers();
     const data = await cloudRegistry.getFullRegistry();
     res.json({ success: true, ...data });
   } catch (err) {
@@ -1117,11 +1226,13 @@ app.post('/api/registry/sync', async (req, res) => {
   }
   try {
     const { profiles, accounts } = req.body || {};
-    const synced = await cloudRegistry.syncFromAdmin({
+    await cloudRegistry.syncFromAdmin({
       profiles: Array.isArray(profiles) ? profiles : [],
       accounts: Array.isArray(accounts) ? accounts : [],
     });
-    res.json({ success: true, ...synced });
+    await syncAllCompaniesErpPlasiyers();
+    const fresh = await cloudRegistry.getFullRegistry();
+    res.json({ success: true, ...fresh });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1137,12 +1248,43 @@ app.post('/api/registry/companies', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Firma Kodu zorunludur.' });
     }
     const saved = await cloudRegistry.upsertCompany(profile);
+    let erpPlasiyers = [];
+    let companyAccounts = [];
+    let allAccounts = [];
+    if (saved?.profile?.sqlHost && saved.profile.serverUrl !== 'demo') {
+      try {
+        const cfg = {
+          sqlHost: saved.profile.sqlHost,
+          sqlPort: saved.profile.sqlPort || '1433',
+          sqlDatabase: saved.profile.sqlDatabase,
+          sqlUser: saved.profile.sqlUser || '',
+          sqlPassword: saved.profile.sqlPassword || '',
+        };
+        erpPlasiyers = await sqlContext.run(cfg, () =>
+          erpQueries.getErpNativePlasiyers(saved.profile.code)
+        );
+        const synced = await cloudRegistry.syncCompanyErpPlasiyers(
+          saved.profile.code,
+          erpPlasiyers
+        );
+        companyAccounts = synced.companyAccounts || [];
+        allAccounts = synced.accounts || [];
+      } catch (erpErr) {
+        console.warn('Yeni firma ERP12 plasiyer eşitleme uyarısı:', erpErr.message);
+      }
+    }
     if (!process.env.VERCEL) {
       setTimeout(() => {
         syncRegisteredRemoteSqlMirrors(true).catch(() => {});
       }, 150);
     }
-    res.json({ success: true, ...saved });
+    res.json({
+      success: true,
+      ...saved,
+      erpPlasiyers,
+      companyAccounts,
+      accounts: allAccounts.length > 0 ? allAccounts : undefined,
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1290,7 +1432,14 @@ async function syncRegisteredRemoteSqlMirrors(includeCatalog = true) {
           }
         });
 
-        // 2. Cari, Stok ve Durum aynasını güncelle
+        // 2. Cari, Stok, ERP12 Personel/Plasiyer ve Durum aynasını güncelle
+        try {
+          const erpPlasiyers = await erpQueries.getErpNativePlasiyers(p.code);
+          await cloudRegistry.syncCompanyErpPlasiyers(p.code, erpPlasiyers);
+        } catch {
+          // ignore plasiyer sync warning
+        }
+
         if (includeCatalog) {
           const testRes = await testDirectSqlConnection(cfg);
           if (testRes?.success) {

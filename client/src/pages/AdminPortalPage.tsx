@@ -469,7 +469,24 @@ export const AdminPortalPage: React.FC = () => {
       }
       const cfg = plasiyerAuthService.profileToServerConfig(profile);
       const res = await apiService.testSqlConnection(cfg);
-      setFirmTestMap((prev) => ({ ...prev, [profile.code]: res }));
+      let extraMsg = '';
+      if (res.success) {
+        const syncRes = await plasiyerAuthService.syncErpPlasiyersForCompany(profile.code, cfg);
+        refreshData();
+        if (syncRes.success && syncRes.erpPlasiyers.length > 0) {
+          const listStr = syncRes.erpPlasiyers
+            .map((p) => `${p.repCode} (${formatFullName(p.firstName, p.lastName)})`)
+            .join(', ');
+          extraMsg = ` • ERP12 Personel kartlarından ${syncRes.erpPlasiyers.length} plasiyer otomatik eşitlendi: ${listStr}`;
+        }
+      }
+      setFirmTestMap((prev) => ({
+        ...prev,
+        [profile.code]: {
+          ...res,
+          message: `${res.message}${extraMsg}`,
+        },
+      }));
     } catch (err: any) {
       setFirmTestMap((prev) => ({
         ...prev,
@@ -568,10 +585,18 @@ export const AdminPortalPage: React.FC = () => {
         setFormTitle(detectedTitle);
       }
     }
+    let plasiyerInfo = '';
+    if (res.success && Array.isArray(res.erpPlasiyers) && res.erpPlasiyers.length > 0) {
+      const names = res.erpPlasiyers
+        .map((p) => `${p.repCode} (${formatFullName(p.firstName, p.lastName)})`)
+        .join(', ');
+      plasiyerInfo = ` • ERP12 Personel Kartlarından ${res.erpPlasiyers.length} plasiyer bulundu: ${names}`;
+      refreshData();
+    }
     setFormSqlTest({
       testing: false,
       success: res.success,
-      message: res.message,
+      message: `${res.message}${plasiyerInfo}`,
     });
   };
 
@@ -599,10 +624,10 @@ export const AdminPortalPage: React.FC = () => {
       return;
     }
 
-    if (!editingFirmOriginalCode && (!initRepCode.trim() || !initPassword.trim())) {
+    if (formMode === 'demo' && !editingFirmOriginalCode && (!initRepCode.trim() || !initPassword.trim())) {
       setFormFeedback({
         type: 'error',
-        text: 'Yeni firma tanımlarken firmanın kendi plasiyerlerini ekleyebilmesi için Firma Yöneticisi (Yetkilisi) kullanıcı adı ve şifresi zorunludur.',
+        text: 'Demo modunda yeni firma tanımlarken Firma Yöneticisi (Yetkilisi) kullanıcı adı ve şifresi zorunludur.',
       });
       return;
     }
@@ -628,6 +653,17 @@ export const AdminPortalPage: React.FC = () => {
       });
 
       const firmServerCfg = plasiyerAuthService.profileToServerConfig(savedProfile);
+      let syncedErpList: PlasiyerAccount[] = [];
+      if (formMode === 'live' && firmServerCfg.sqlHost && firmServerCfg.sqlDatabase) {
+        const erpSync = await plasiyerAuthService.syncErpPlasiyersForCompany(
+          cleanCode,
+          firmServerCfg
+        );
+        if (erpSync.success) {
+          syncedErpList = erpSync.erpPlasiyers;
+        }
+      }
+
       if (serverConfig.companyCode?.toUpperCase() === cleanCode) {
         updateServerConfig(firmServerCfg);
       } else if (formMode === 'live' && firmServerCfg.sqlHost && firmServerCfg.sqlDatabase) {
@@ -654,11 +690,17 @@ export const AdminPortalPage: React.FC = () => {
 
       refreshData();
       setEditingFirmOriginalCode(cleanCode);
+      const erpPlasiyerSummary =
+        syncedErpList.length > 0
+          ? ` ERP12 Personel kartlarından ${syncedErpList.length} plasiyer (${syncedErpList
+              .map((p) => `${p.repCode} - ${formatFullName(p.firstName, p.lastName)}`)
+              .join(', ')}) kullanıcı adı ve şifreleriyle otomatik kaydedildi.`
+          : '';
       setFormFeedback({
         type: 'success',
         text: managerSaved
-          ? `"${savedProfile.companyTitle}" (${cleanCode}) firması ve Firma Yetkilisi (${initRepCode.trim().toUpperCase()}) başarıyla kaydedildi. Firma yetkilisi Ayarlar menüsünden kendi plasiyerlerini ekleyebilir.`
-          : `"${savedProfile.companyTitle}" (${cleanCode}) firma bilgileri güncellendi.`,
+          ? `"${savedProfile.companyTitle}" (${cleanCode}) firması ve Firma Yetkilisi (${initRepCode.trim().toUpperCase()}) başarıyla kaydedildi.${erpPlasiyerSummary}`
+          : `"${savedProfile.companyTitle}" (${cleanCode}) firma bilgileri güncellendi.${erpPlasiyerSummary}`,
         savedProfile,
       });
     } finally {

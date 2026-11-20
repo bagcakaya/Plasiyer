@@ -1,4 +1,4 @@
-import type { Customer, Product, Order, CollectionRecord, ServerConfig, CustomerStatement, CustomerHistoryResponse, CustomerHistoryItem, CustomerHistoryFinancial, ReturnRecord, CompanyIssuerInfo } from '../types';
+import type { Customer, Product, Order, CollectionRecord, ServerConfig, CustomerStatement, CustomerHistoryResponse, CustomerHistoryItem, CustomerHistoryFinancial, ReturnRecord, CompanyIssuerInfo, PlasiyerAccount } from '../types';
 import { db, initialCustomers, initialProducts } from '../db';
 
 export const isDemoMode = (config?: ServerConfig): boolean => {
@@ -173,7 +173,7 @@ export const apiService = {
   },
 
   // Doğrudan SQL Server Bağlantısını Canlı Test Et (Görsel-1)
-  async testSqlConnection(config: ServerConfig): Promise<{ success: boolean; message: string; companyInfo?: CompanyIssuerInfo }> {
+  async testSqlConnection(config: ServerConfig): Promise<{ success: boolean; message: string; companyInfo?: CompanyIssuerInfo; erpPlasiyers?: PlasiyerAccount[] }> {
     if (!config.sqlHost && isDemoMode(config)) {
       await new Promise(r => setTimeout(r, 400));
       return {
@@ -194,6 +194,7 @@ export const apiService = {
           ...buildSqlHeaders(config),
         },
         body: JSON.stringify({
+          companyCode: (config.companyCode || '').trim().toUpperCase(),
           sqlHost: (config.sqlHost || 'localhost').trim(),
           sqlPort: (config.sqlPort || '1433').trim(),
           sqlDatabase: (config.sqlDatabase || '').trim(),
@@ -209,6 +210,7 @@ export const apiService = {
         return {
           success: data.success,
           companyInfo: data.companyInfo || undefined,
+          erpPlasiyers: Array.isArray(data.erpPlasiyers) ? data.erpPlasiyers : undefined,
           message: data.message || (data.success ? 'SQL Server bağlantısı başarılı.' : 'SQL Server bağlantısı başarısız.'),
         };
       }

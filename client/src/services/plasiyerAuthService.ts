@@ -241,6 +241,8 @@ export const plasiyerAuthService = {
     lastName: string;
     password: string;
     accountRole?: FirmAccountRole;
+    isErpSynced?: boolean;
+    locationName?: string;
     updatedAt?: string;
   }): PlasiyerAccount {
     const companyCode = input.companyCode.trim().toUpperCase();
@@ -275,6 +277,8 @@ export const plasiyerAuthService = {
       password,
       accountRole: resolvedRole,
       isDefaultSeed: false,
+      isErpSynced: input.isErpSynced ?? existing?.isErpSynced,
+      locationName: input.locationName ?? existing?.locationName,
       updatedAt: input.updatedAt || new Date().toISOString(),
     };
 
@@ -693,6 +697,9 @@ export const plasiyerAuthService = {
           if (Array.isArray(data?.profiles)) {
             this.saveCompanyProfiles(data.profiles);
           }
+          if (Array.isArray(data?.accounts)) {
+            this.saveLocalAccounts(data.accounts);
+          }
         }
       } catch {
         // Çevrimdışı durumda yerel kayıt sonraki senkronda buluta aktarılır
@@ -700,6 +707,60 @@ export const plasiyerAuthService = {
     }
 
     return entry;
+  },
+
+  async syncErpPlasiyersForCompany(
+    companyCode?: string,
+    sqlConfig?: ServerConfig
+  ): Promise<{
+    success: boolean;
+    syncedCount: number;
+    erpPlasiyers: PlasiyerAccount[];
+    accounts: PlasiyerAccount[];
+    error?: string;
+  }> {
+    try {
+      const baseUrl = await resolveApiBaseUrlAsync(sqlConfig);
+      const res = await fetch(`${baseUrl}/plasiyers/sync-erp`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.buildRegistryAuthHeaders(companyCode),
+          ...(sqlConfig ? buildSqlHeaders(sqlConfig) : {}),
+        },
+        body: JSON.stringify({
+          companyCode: (companyCode || '').trim().toUpperCase(),
+          sqlConfig,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.success) {
+        if (Array.isArray(data.accounts)) {
+          this.saveLocalAccounts(data.accounts);
+        }
+        return {
+          success: true,
+          syncedCount: Number(data.syncedCount || data.erpPlasiyers?.length || 0),
+          erpPlasiyers: Array.isArray(data.erpPlasiyers) ? data.erpPlasiyers : [],
+          accounts: Array.isArray(data.accounts) ? data.accounts : this.getLocalAccounts(),
+        };
+      }
+      return {
+        success: false,
+        syncedCount: 0,
+        erpPlasiyers: [],
+        accounts: this.getLocalAccounts(),
+        error: data?.error || 'ERP12 Personel kartlarından plasiyerler çekilemedi.',
+      };
+    } catch (err: any) {
+      return {
+        success: false,
+        syncedCount: 0,
+        erpPlasiyers: [],
+        accounts: this.getLocalAccounts(),
+        error: err?.message || 'ERP12 Personel senkronizasyonu sırasında bağlantı hatası oluştu.',
+      };
+    }
   },
 
   deleteCompanyProfile(codeOrId: string): CompanyProfile[] {
@@ -1032,6 +1093,8 @@ export const plasiyerAuthService = {
               lastName: cloudData.account.lastName || '',
               password: pwd,
               accountRole: cloudData.account.accountRole === 'manager' ? 'manager' : 'plasiyer',
+              isErpSynced: Boolean(cloudData.account.isErpSynced),
+              locationName: cloudData.account.locationName,
               updatedAt: cloudData.account.updatedAt,
             });
 
@@ -1109,6 +1172,8 @@ export const plasiyerAuthService = {
               lastName: data.account.lastName || '',
               password: pwd,
               accountRole: data.account.accountRole === 'manager' ? 'manager' : 'plasiyer',
+              isErpSynced: Boolean(data.account.isErpSynced),
+              locationName: data.account.locationName,
             });
             return {
               success: true,

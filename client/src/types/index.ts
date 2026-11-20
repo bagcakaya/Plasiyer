@@ -130,6 +130,8 @@ export interface PlasiyerAccount {
   password: string;
   accountRole?: FirmAccountRole;
   isDefaultSeed?: boolean;
+  isErpSynced?: boolean;
+  locationName?: string;
   updatedAt?: string;
 }
 
@@ -311,6 +313,7 @@ export interface AuthUser {
   salesRepCode?: string;
   customerId?: string;
   customerCode?: string;
+  locationName?: string;
   token?: string;
 }
 

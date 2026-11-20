@@ -97,6 +97,18 @@ function normalizeProfile(p) {
   };
 }
 
+function isPlaceholderAccount(a) {
+  if (!a || !a.repCode) return true;
+  if (a.isDefaultSeed) return true;
+  const rCode = String(a.repCode || '').trim().toUpperCase();
+  const fName = String(a.firstName || '').trim().toLocaleLowerCase('tr-TR');
+  const lName = String(a.lastName || '').trim().toLocaleLowerCase('tr-TR');
+  if (rCode === 'PLS01' && fName === 'ahmet' && (lName === 'yılmaz' || lName === 'yilmaz')) {
+    return true;
+  }
+  return false;
+}
+
 function normalizeAccount(a) {
   const companyCode = String(a.companyCode || '').trim().toUpperCase();
   const repCode = String(a.repCode || '').trim().toUpperCase();
@@ -110,6 +122,8 @@ function normalizeAccount(a) {
     password: String(a.password ?? ''),
     accountRole,
     isDefaultSeed: false,
+    isErpSynced: Boolean(a.isErpSynced),
+    locationName: a.locationName ? String(a.locationName).trim() : undefined,
     updatedAt: a.updatedAt || new Date().toISOString(),
   };
 }
@@ -310,13 +324,17 @@ export const cloudRegistry = {
       const accountMap = new Map();
       for (const a of store.accounts) {
         if (a?.companyCode && a?.repCode) {
+          if (isPlaceholderAccount(a)) {
+            dirty = true;
+            continue;
+          }
           accountMap.set(makeAccountKey(a.companyCode, a.repCode), a);
         }
       }
 
       for (const rawA of incomingAccounts) {
         if (!rawA?.companyCode || !rawA?.repCode || !rawA?.password) continue;
-        if (rawA.isDefaultSeed) continue;
+        if (isPlaceholderAccount(rawA)) continue;
         const cUpper = String(rawA.companyCode).trim().toUpperCase();
         if (cUpper === ADMIN_COMPANY_CODE) continue;
 
@@ -330,7 +348,7 @@ export const cloudRegistry = {
         if (!existing) {
           accountMap.set(key, normA);
           dirty = true;
-        } else if (rawA.updatedAt && existing.updatedAt && rawA.updatedAt > existing.updatedAt) {
+        } else if (!existing.isErpSynced && rawA.updatedAt && existing.updatedAt && rawA.updatedAt > existing.updatedAt) {
           accountMap.set(key, normA);
           dirty = true;
         }
@@ -445,6 +463,108 @@ export const cloudRegistry = {
       );
       await writeRawStore(store);
       return { accounts: store.accounts };
+    });
+  },
+
+  async syncCompanyErpPlasiyers(companyCode, erpAccounts = []) {
+    return runSerialized(async () => {
+      const targetCompany = String(companyCode || '').trim().toUpperCase();
+      if (!targetCompany || targetCompany === ADMIN_COMPANY_CODE) {
+        return { syncedCount: 0, accounts: [] };
+      }
+
+      const store = await readRawStore();
+      let dirty = false;
+      const nowIso = new Date().toISOString();
+
+      // 1. Örnek/sahte (PLS01 Ahmet Yılmaz) hesapları temizle
+      const beforeLen = store.accounts.length;
+      store.accounts = store.accounts.filter((a) => {
+        if (isPlaceholderAccount(a)) {
+          store.deletedAccounts[makeAccountKey(a.companyCode, a.repCode)] = nowIso;
+          return false;
+        }
+        return true;
+      });
+      if (store.accounts.length !== beforeLen) {
+        dirty = true;
+      }
+
+      if (!Array.isArray(erpAccounts) || erpAccounts.length === 0) {
+        if (dirty) await writeRawStore(store);
+        return {
+          syncedCount: 0,
+          companyAccounts: store.accounts.filter((a) => a.companyCode === targetCompany),
+          accounts: store.accounts,
+        };
+      }
+
+      const incomingRepSet = new Set();
+      for (const rawErp of erpAccounts) {
+        if (!rawErp?.repCode || !rawErp?.password) continue;
+        const rUpper = String(rawErp.repCode).trim().toUpperCase();
+        incomingRepSet.add(rUpper);
+        const key = makeAccountKey(targetCompany, rUpper);
+        delete store.deletedAccounts[key];
+
+        const idx = store.accounts.findIndex(
+          (a) => makeAccountKey(a.companyCode, a.repCode) === key
+        );
+        const existing = idx >= 0 ? store.accounts[idx] : null;
+        const norm = normalizeAccount({
+          companyCode: targetCompany,
+          repCode: rUpper,
+          firstName: rawErp.firstName || '',
+          lastName: rawErp.lastName || '',
+          password: String(rawErp.password).trim(),
+          accountRole: existing?.accountRole === 'manager' ? 'manager' : 'plasiyer',
+          isErpSynced: true,
+          locationName: rawErp.locationName || existing?.locationName,
+          updatedAt: nowIso,
+        });
+
+        if (idx >= 0) {
+          if (
+            existing.firstName !== norm.firstName ||
+            existing.lastName !== norm.lastName ||
+            existing.password !== norm.password ||
+            !existing.isErpSynced ||
+            existing.locationName !== norm.locationName
+          ) {
+            store.accounts[idx] = norm;
+            dirty = true;
+          }
+        } else {
+          store.accounts.push(norm);
+          dirty = true;
+        }
+      }
+
+      // ERP12'de pasife çekilmiş (C.AKTIF = 0) olan eski ERP senkronlu plasiyerleri buluttan da kaldır (manager hesaplarına dokunma)
+      const afterPrune = store.accounts.filter((a) => {
+        if (
+          a.companyCode === targetCompany &&
+          a.accountRole !== 'manager' &&
+          a.isErpSynced &&
+          !incomingRepSet.has(a.repCode.toUpperCase())
+        ) {
+          store.deletedAccounts[makeAccountKey(a.companyCode, a.repCode)] = nowIso;
+          dirty = true;
+          return false;
+        }
+        return true;
+      });
+      store.accounts = afterPrune;
+
+      if (dirty) {
+        await writeRawStore(store);
+      }
+
+      return {
+        syncedCount: incomingRepSet.size,
+        companyAccounts: store.accounts.filter((a) => a.companyCode === targetCompany),
+        accounts: store.accounts,
+      };
     });
   },
 
