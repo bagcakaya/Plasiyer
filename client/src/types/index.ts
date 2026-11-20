@@ -53,6 +53,8 @@ export interface Product {
   barcode: string;
   name: string;
   category: string;
+  mainCategory?: string; // ERP12 Üst Stok Grubu (Ana Kategori)
+  subCategory?: string; // ERP12 Alt Stok Grubu (Alt Kategori)
   unit: string;
   vatRate: number; // %1, %10, %20
   price1: number; // Standart Liste Fiyatı

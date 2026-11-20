@@ -1,5 +1,6 @@
 import type { AuthUser, Customer, PlasiyerAccount, Product } from '../types';
 import { plasiyerAuthService } from '../services/plasiyerAuthService';
+import { resolveProductCategory } from './categoryHierarchy';
 
 export function normalizeRegionName(val?: string | null): string {
   return String(val || '')
@@ -203,6 +204,9 @@ export function filterProductsForPlasiyer(
 
   for (const p of products) {
     const catUpper = (p.category || '').trim().toLocaleUpperCase('tr-TR');
+    const resolvedCat = resolveProductCategory(p);
+    const mainUpper = resolvedCat.mainCategory.toLocaleUpperCase('tr-TR');
+    const subUpper = resolvedCat.subCategory.toLocaleUpperCase('tr-TR');
 
     // 1. ERP12 Personel Tanıtım Kartı -> Perakende satılamaz ürünler / gruplar her zaman gizlenir
     if (
@@ -211,12 +215,21 @@ export function filterProductsForPlasiyer(
     ) {
       continue;
     }
-    if (forbiddenGroupSet.has(catUpper)) {
+    if (
+      forbiddenGroupSet.has(catUpper) ||
+      forbiddenGroupSet.has(mainUpper) ||
+      (subUpper && forbiddenGroupSet.has(subUpper))
+    ) {
       continue;
     }
 
     // 2. Stok Grubu filtresi (Yöneticinin seçtiği veya ERP12'den plasiyere tanımlı gruplar)
-    if (allowedGroupSet && !allowedGroupSet.has(catUpper)) {
+    if (
+      allowedGroupSet &&
+      !allowedGroupSet.has(catUpper) &&
+      !allowedGroupSet.has(mainUpper) &&
+      (!subUpper || !allowedGroupSet.has(subUpper))
+    ) {
       continue;
     }
     if (scope.hasCustomStockOverride && (!allowedGroupSet || allowedGroupSet.size === 0)) {

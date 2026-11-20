@@ -32,6 +32,7 @@ import { ProductPhotoModal } from '../components/ProductPhotoModal';
 import { CategoryStoriesBar } from '../components/CategoryStoriesBar';
 import { getProductImageUrl, handleProductImageError } from '../utils/productImages';
 import { filterProductsForPlasiyer } from '../utils/plasiyerScope';
+import { resolveProductCategory } from '../utils/categoryHierarchy';
 
 const PAGE_SIZE_OPTIONS = [20, 30, 50, 100] as const;
 const PAGE_SIZE_STORAGE_KEY = 'plasiyer_catalog_page_size';
@@ -58,6 +59,8 @@ export const CatalogPage: React.FC = () => {
     serverConfig,
     selectedCategory,
     setSelectedCategory,
+    selectedSubCategory,
+    setSelectedSubCategory,
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
@@ -119,12 +122,29 @@ export const CatalogPage: React.FC = () => {
         return false;
       }
 
-      // STOK_GRUP Kategori Filtresi (Instagram Hikayeleri Tarzı)
+      // Hepsiburada 2 Kademeli Kategori & Alt Kategori Filtresi (STOK_GRUP Üst -> Alt Grup)
       if (selectedCategory && selectedCategory !== 'all') {
-        const catClean = selectedCategory.toLowerCase().trim();
-        const prodCat = (product.category || '').toLowerCase().trim();
-        const match = prodCat === catClean || prodCat.includes(catClean);
-        if (!match) return false;
+        const { mainCategory, subCategory } = resolveProductCategory(product);
+        const selMainClean = selectedCategory.toLocaleLowerCase('tr-TR').trim();
+        const mainClean = mainCategory.toLocaleLowerCase('tr-TR').trim();
+        const subClean = subCategory.toLocaleLowerCase('tr-TR').trim();
+        const prodCat = (product.category || '').toLocaleLowerCase('tr-TR').trim();
+
+        const matchesMain =
+          mainClean === selMainClean ||
+          prodCat === selMainClean ||
+          subClean === selMainClean;
+        if (!matchesMain) return false;
+
+        if (selectedSubCategory && selectedSubCategory !== 'all') {
+          if (selectedSubCategory.startsWith('__DIRECT__:')) {
+            if (subCategory) return false;
+          } else {
+            const selSubClean = selectedSubCategory.toLocaleLowerCase('tr-TR').trim();
+            const matchesSub = subClean === selSubClean || prodCat === selSubClean;
+            if (!matchesSub) return false;
+          }
+        }
       }
 
       // Stokta Bulunanlar Filtresi (Tükendi olmayan ürünler)
@@ -134,12 +154,12 @@ export const CatalogPage: React.FC = () => {
 
       return true;
     });
-  }, [products, searchTerm, selectedCategory, onlyInStock]);
+  }, [products, searchTerm, selectedCategory, selectedSubCategory, onlyInStock]);
 
-  // Arama, kategori veya stok filtresi değiştiğinde 1. sayfaya dön
+  // Arama, kategori, alt kategori veya stok filtresi değiştiğinde 1. sayfaya dön
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, selectedCategory, onlyInStock]);
+  }, [searchTerm, selectedCategory, selectedSubCategory, onlyInStock]);
 
   const totalProducts = filteredProducts.length;
   const totalPages = Math.max(1, Math.ceil(totalProducts / pageSize));
@@ -574,9 +594,39 @@ export const CatalogPage: React.FC = () => {
                 {/* Ürün Bilgi Gövdesi */}
                 <div className="p-2.5 flex-1 flex flex-col justify-between gap-1.5">
                   <div>
-                    <div className="flex items-center justify-between text-[10px] text-slate-400 dark:text-slate-500">
-                      <span className="truncate">{product.category}</span>
-                    </div>
+                    {(() => {
+                      const { mainCategory, subCategory } = resolveProductCategory(product);
+                      return (
+                        <div className="flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 overflow-hidden">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setSelectedCategory(mainCategory);
+                            }}
+                            className="truncate hover:text-[#FF6000] font-semibold"
+                          >
+                            {mainCategory}
+                          </button>
+                          {subCategory && (
+                            <>
+                              <span className="text-slate-300 dark:text-slate-600 shrink-0">›</span>
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setSelectedCategory(mainCategory);
+                                  setSelectedSubCategory(subCategory);
+                                }}
+                                className="truncate text-[#FF6000] dark:text-orange-400 font-bold hover:underline"
+                              >
+                                {subCategory}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     <h3 
                       onClick={() => setDetailProduct(product)}
@@ -742,9 +792,39 @@ export const CatalogPage: React.FC = () => {
                           <span className="text-[9px]">Fotoğraf</span>
                         </button>
                       )}
-                      <span className="text-[10px] text-slate-400 dark:text-slate-500 truncate">
-                        {product.category}
-                      </span>
+                      {(() => {
+                        const { mainCategory, subCategory } = resolveProductCategory(product);
+                        return (
+                          <div className="inline-flex items-center gap-1 text-[10px] text-slate-400 dark:text-slate-500 max-w-full overflow-hidden">
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedCategory(mainCategory);
+                              }}
+                              className="truncate hover:text-[#FF6000] font-semibold"
+                            >
+                              {mainCategory}
+                            </button>
+                            {subCategory && (
+                              <>
+                                <span className="text-slate-300 dark:text-slate-600 shrink-0">›</span>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setSelectedCategory(mainCategory);
+                                    setSelectedSubCategory(subCategory);
+                                  }}
+                                  className="truncate text-[#FF6000] dark:text-orange-400 font-bold hover:underline"
+                                >
+                                  {subCategory}
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* Size Özel Fiyat İndirim Rozeti */}
                       {priceInfo.hasSpecialPrice && (

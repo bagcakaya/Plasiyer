@@ -544,6 +544,16 @@ export const erpQueries = {
         S.KOD AS code,
         S.AD AS name,
         ISNULL(G.AD, 'Genel') AS category,
+        COALESCE(
+          NULLIF(LTRIM(RTRIM(GPP.AD)), ''),
+          NULLIF(LTRIM(RTRIM(GP.AD)), ''),
+          NULLIF(LTRIM(RTRIM(G.AD)), ''),
+          'Genel'
+        ) AS mainCategory,
+        CASE
+          WHEN GP.ID IS NOT NULL THEN LTRIM(RTRIM(ISNULL(G.AD, '')))
+          ELSE ''
+        END AS subCategory,
         ISNULL(SB.AD, 'ADET') AS unit,
         ISNULL(V.KDV_TOPTAN, 1) AS vatRate,
         ISNULL(B.BARKOD, S.KOD) AS barcode,
@@ -555,6 +565,8 @@ export const erpQueries = {
         IMG.resimLink AS erpImageLink
       FROM STOK S WITH(NOLOCK)
       LEFT JOIN STOK_GRUP G WITH(NOLOCK) ON G.ID = S.STOK_GRUP
+      LEFT JOIN STOK_GRUP GP WITH(NOLOCK) ON GP.ID = G.USTID AND G.USTID IS NOT NULL AND G.USTID > 0 AND G.USTID <> G.ID
+      LEFT JOIN STOK_GRUP GPP WITH(NOLOCK) ON GPP.ID = GP.USTID AND GP.USTID IS NOT NULL AND GP.USTID > 0 AND GP.USTID <> GP.ID
       LEFT JOIN STOK_VERGI V WITH(NOLOCK) ON V.ID = S.STOK_VERGI
       LEFT JOIN STOK_STOK_BIRIM SSB WITH(NOLOCK) ON SSB.STOK = S.ID AND SSB.VARSAYILAN = 1
       LEFT JOIN STOK_BIRIM SB WITH(NOLOCK) ON SB.ID = SSB.STOK_BIRIM
@@ -864,12 +876,18 @@ export const erpQueries = {
       const routeRepCodes = routeRepsByStokId.get(id);
       const forbiddenRepCodes = forbiddenRepsByStokId.get(id);
 
+      const rawCat = String(row.category || 'Genel').trim();
+      const mainCategory = String(row.mainCategory || rawCat || 'Genel').trim();
+      const subCategory = String(row.subCategory || '').trim();
+
       return {
         id,
         code,
         barcode,
         name: nameStr,
-        category: String(row.category || 'Genel'),
+        category: rawCat,
+        mainCategory,
+        ...(subCategory ? { subCategory } : {}),
         unit: String(row.unit || 'ADET'),
         vatRate: Number(row.vatRate || 1),
         price1: Number(row.price1 || 0),
