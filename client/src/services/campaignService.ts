@@ -39,8 +39,24 @@ export const campaignService = {
       .filter((item) => !item.isGift)
       .map((item) => {
         const matchedProd = productMap.get(item.productId) || productMap.get(item.productCode);
+        const rawDisc = item.discountPercent || 0;
+        const safeDisc = rawDisc > 0 && rawDisc < 100 ? rawDisc : 0;
+        const unitPrice = item.unitPrice || 0;
+        const qty = item.quantity || 1;
+        const vatRate = item.vatRate ?? matchedProd?.vatRate ?? 20;
+        const vatMult = 1 + vatRate / 100;
+        const netPrice = unitPrice * (1 - safeDisc / 100);
+        const netInclVat = Number((netPrice * qty).toFixed(2));
+        const netExclVat = netInclVat / vatMult;
+        const vatAmount = Number((netInclVat - netExclVat).toFixed(2));
         return {
           ...item,
+          vatRate,
+          discountPercent: safeDisc,
+          netPrice,
+          totalAmount: netInclVat,
+          vatAmount,
+          grandTotal: netInclVat,
           image: item.image || matchedProd?.image,
           category: item.category || matchedProd?.category,
           addedAt: item.addedAt || new Date().toISOString(),
@@ -64,21 +80,29 @@ export const campaignService = {
     let campaignDiscountAmount = 0;
     let totalGiftSavings = 0;
 
-    // 1. Seçili ana ürünlerin brüt ve net tutarlarını hesapla
+    // 1. Seçili ana ürünlerin brüt ve net tutarlarını hesapla (ERP12 KDV Dahil fiyat yapısına göre KDV ayrıştırması)
     let rawSubtotal = 0;
     let regularDiscountTotal = 0;
     let regularVatTotal = 0;
+    let regularGrandTotal = 0;
     let regularItemsCount = 0;
 
     selectedRegularItems.forEach((item) => {
-      const gross = item.unitPrice * item.quantity;
-      const disc = gross * ((item.discountPercent || 0) / 100);
-      const net = gross - disc;
-      const vat = net * ((item.vatRate || 0) / 100);
+      const vatMult = 1 + (item.vatRate || 0) / 100;
+      const safeDisc = item.discountPercent || 0;
 
-      rawSubtotal += gross;
-      regularDiscountTotal += disc;
+      const grossInclVat = item.unitPrice * item.quantity;
+      const netInclVat = grossInclVat * (1 - safeDisc / 100);
+
+      const grossExclVat = grossInclVat / vatMult;
+      const discExclVat = grossExclVat * (safeDisc / 100);
+      const netExclVat = grossExclVat - discExclVat;
+      const vat = netInclVat - netExclVat;
+
+      rawSubtotal += grossExclVat;
+      regularDiscountTotal += discExclVat;
       regularVatTotal += vat;
+      regularGrandTotal += netInclVat;
       regularItemsCount += item.quantity;
     });
 
@@ -191,26 +215,25 @@ export const campaignService = {
 
     const finalCart = [...regularItems, ...giftItems];
     const totalItems = regularItemsCount + giftItems.reduce((sum, g) => sum + g.quantity, 0);
-    const totalDiscount = regularDiscountTotal + campaignDiscountAmount;
-    
-    // Kampanya iskontosu düşüldükten sonra KDV'yi orantılı güncelle
-    const discountedVatFactor = netAmountBeforeCampaigns > 0
-      ? (netAmountBeforeCampaigns - campaignDiscountAmount) / netAmountBeforeCampaigns
-      : 1;
-    const finalVat = regularVatTotal * discountedVatFactor;
-    const grandTotal = Math.max(0, (rawSubtotal - totalDiscount) + finalVat);
 
-    const totalCampaignSavings = totalGiftSavings + campaignDiscountAmount;
+    const roundedSubtotal = Number(rawSubtotal.toFixed(2));
+    const roundedRegDisc = Number(regularDiscountTotal.toFixed(2));
+    const roundedCampDisc = Number(campaignDiscountAmount.toFixed(2));
+    const totalDiscount = Number((roundedRegDisc + roundedCampDisc).toFixed(2));
+    const grandTotal = Math.max(0, Number((regularGrandTotal - roundedCampDisc).toFixed(2)));
+    const finalVat = Math.max(0, Number((grandTotal - (roundedSubtotal - totalDiscount)).toFixed(2)));
+
+    const totalCampaignSavings = totalGiftSavings + roundedCampDisc;
     const totalSavings = totalDiscount + totalGiftSavings;
 
     const summary: CartSummary = {
-      subtotal: rawSubtotal,
+      subtotal: roundedSubtotal,
       totalDiscount,
       totalVat: finalVat,
       grandTotal,
       totalItems,
       totalSavings,
-      campaignDiscountAmount,
+      campaignDiscountAmount: roundedCampDisc,
       totalCampaignSavings,
       appliedCampaigns,
       opportunities,

@@ -1,6 +1,4 @@
 import React, { useState } from 'react';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db } from '../db';
 import type { 
   Order, 
   CollectionRecord, 
@@ -58,64 +56,83 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
   const [copiedAlert, setCopiedAlert] = useState<boolean>(false);
   const [isPrinting, setIsPrinting] = useState<boolean>(false);
   const [printStatusMsg, setPrintStatusMsg] = useState<{ type: 'success' | 'info'; text: string } | null>(null);
-  const allCustomers = useLiveQuery(() => db.customers.toArray(), []) || [];
 
   if (!isOpen) return null;
 
-  // İlgili cariye uygulanan iskonto oranı ve iskonto tutarı hesaplaması
-  const matchedOrderCustomer =
-    slipType === 'order' && orderData
-      ? allCustomers.find(
-          (c) => c.id === orderData.customerId || c.code === orderData.customerCode
-        )
-      : undefined;
-
-  const itemDiscountRate =
-    slipType === 'order' && orderData
-      ? orderData.items.find((it) => !it.isGift && (it.discountPercent || 0) > 0)
-          ?.discountPercent || 0
-      : 0;
-
-  const orderSubtotal = slipType === 'order' && orderData ? orderData.subtotal || 0 : 0;
-
-  const orderDiscountRate = (() => {
-    if (slipType !== 'order' || !orderData) return 0;
-    if (itemDiscountRate > 0) return itemDiscountRate;
-    if ((orderData.totalDiscount || 0) > 0 && orderSubtotal > 0) {
-      return Math.round(((orderData.totalDiscount || 0) / orderSubtotal) * 100 * 100) / 100;
+  // Sipariş kalemlerini ERP12 KDV Dahil katalog fiyatı kuralına göre normalize et (eski kayıtlar dahil birebir tutarlılık)
+  const normalizedOrderCalc = (() => {
+    if (slipType !== 'order' || !orderData) {
+      return {
+        items: [] as Array<{ item: Order['items'][number]; lineInclVat: number }>,
+        subtotalExclVat: 0,
+        discountRate: 0,
+        discountAmountExclVat: 0,
+        vatAmount: 0,
+        grandTotalInclVat: 0,
+      };
     }
-    if (matchedOrderCustomer?.specialDiscount && matchedOrderCustomer.specialDiscount > 0) {
-      return matchedOrderCustomer.specialDiscount;
-    }
-    return 0;
+
+    let rawSubtotalExcl = 0;
+    let rawDiscExcl = 0;
+    let rawGrandIncl = 0;
+    let detectedDiscRate = 0;
+
+    const items = orderData.items.map((it) => {
+      if (it.isGift) {
+        return { item: it, lineInclVat: 0 };
+      }
+      const qty = Number(it.quantity || 1);
+      const unitPrice = Number(it.unitPrice || 0);
+      const vatRate = Number(it.vatRate ?? 20);
+      const vatMult = 1 + vatRate / 100;
+      const rawDisc = Number(it.discountPercent || 0);
+      const safeDisc = rawDisc > 0 && rawDisc < 100 ? rawDisc : 0;
+      if (safeDisc > 0 && detectedDiscRate === 0) {
+        detectedDiscRate = safeDisc;
+      }
+
+      const grossIncl = unitPrice * qty;
+      const netIncl = Number((grossIncl * (1 - safeDisc / 100)).toFixed(2));
+      const grossExcl = grossIncl / vatMult;
+      const discExcl = grossExcl * (safeDisc / 100);
+
+      rawSubtotalExcl += grossExcl;
+      rawDiscExcl += discExcl;
+      rawGrandIncl += netIncl;
+
+      return { item: it, lineInclVat: netIncl };
+    });
+
+    const campDisc = Number(orderData.campaignDiscount || 0);
+    const subtotalExclVat = Number(rawSubtotalExcl.toFixed(2));
+    const discountAmountExclVat = Number(rawDiscExcl.toFixed(2));
+    const grandTotalInclVat = Math.max(0, Number((rawGrandIncl - campDisc).toFixed(2)));
+    const vatAmount = Math.max(
+      0,
+      Number((grandTotalInclVat - (subtotalExclVat - discountAmountExclVat - campDisc)).toFixed(2))
+    );
+    const discountRate =
+      detectedDiscRate > 0
+        ? detectedDiscRate
+        : discountAmountExclVat > 0 && subtotalExclVat > 0
+        ? Math.round((discountAmountExclVat / subtotalExclVat) * 100 * 100) / 100
+        : 0;
+
+    return {
+      items,
+      subtotalExclVat,
+      discountRate,
+      discountAmountExclVat,
+      vatAmount,
+      grandTotalInclVat,
+    };
   })();
 
-  const orderDiscountAmount = (() => {
-    if (slipType !== 'order' || !orderData) return 0;
-    if ((orderData.totalDiscount || 0) > 0) return orderData.totalDiscount;
-    if (orderDiscountRate > 0 && orderSubtotal > 0) {
-      return Math.round(orderSubtotal * (orderDiscountRate / 100) * 100) / 100;
-    }
-    return 0;
-  })();
-
-  const orderEffectiveVat = (() => {
-    if (slipType !== 'order' || !orderData) return 0;
-    if ((orderData.totalDiscount || 0) === 0 && orderDiscountAmount > 0 && orderSubtotal > 0) {
-      const factor = Math.max(0, (orderSubtotal - orderDiscountAmount) / orderSubtotal);
-      return Math.round((orderData.totalVat || 0) * factor * 100) / 100;
-    }
-    return orderData.totalVat || 0;
-  })();
-
-  const orderEffectiveGrandTotal = (() => {
-    if (slipType !== 'order' || !orderData) return 0;
-    if ((orderData.totalDiscount || 0) === 0 && orderDiscountAmount > 0) {
-      const campDisc = orderData.campaignDiscount || 0;
-      return Math.max(0, Math.round((orderSubtotal - orderDiscountAmount - campDisc + orderEffectiveVat) * 100) / 100);
-    }
-    return orderData.grandTotal || 0;
-  })();
+  const orderSubtotal = normalizedOrderCalc.subtotalExclVat;
+  const orderDiscountRate = normalizedOrderCalc.discountRate;
+  const orderDiscountAmount = normalizedOrderCalc.discountAmountExclVat;
+  const orderEffectiveVat = normalizedOrderCalc.vatAmount;
+  const orderEffectiveGrandTotal = normalizedOrderCalc.grandTotalInclVat;
 
   const issuerMainTitle = (companyIssuer.brandName || companyIssuer.legalName || 'MERKEZ FİRMA').trim();
   const rawLegalName = (companyIssuer.legalName || '').trim();
@@ -237,7 +254,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
           { header: 'FİYAT', align: 'right', widthRatio: 0.19 },
           { header: 'TUTAR', align: 'right', widthRatio: 0.21 },
         ],
-        rows: orderData.items.map((it) => ({
+        rows: normalizedOrderCalc.items.map(({ item: it, lineInclVat }) => ({
           cells: [
             it.productName,
             String(it.quantity),
@@ -246,7 +263,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
               : it.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
             it.isGift
               ? '0,00'
-              : it.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+              : lineInclVat.toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
           ],
           subText: it.isGift ? `BEDELSİZ HEDİYE (${it.campaignTitle || 'Promosyon'})` : undefined,
         })),
@@ -625,11 +642,11 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
   const handleWhatsAppShare = () => {
     let text = '';
     if (slipType === 'order' && orderData) {
-      const itemsText = orderData.items.map((it) => {
+      const itemsText = normalizedOrderCalc.items.map(({ item: it, lineInclVat }) => {
         if (it.isGift) {
           return `• 🎁 [BEDELSİZ HEDİYE] ${it.productName}\n  ${it.quantity} ${it.unit} x 0,00 ₺ = 0,00 ₺ (${it.campaignTitle || 'Promosyon'})`;
         }
-        return `• ${it.productName}\n  ${it.quantity} ${it.unit} x ${it.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺ = ${it.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺`;
+        return `• ${it.productName}\n  ${it.quantity} ${it.unit} x ${it.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺ = ${lineInclVat.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺`;
       }).join('\n');
 
       let campaignSection = '';
@@ -1106,7 +1123,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-dotted divide-black">
-                    {orderData.items.map((it, idx) => (
+                    {normalizedOrderCalc.items.map(({ item: it, lineInclVat }, idx) => (
                       <tr key={idx} className="py-1">
                         <td className="py-1.5 pr-1 break-words max-w-[140px] font-bold text-black">
                           <div>{it.productName}</div>
@@ -1125,7 +1142,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
                           )}
                         </td>
                         <td className="py-1.5 text-right font-black text-black whitespace-nowrap">
-                          {it.isGift ? '0.00' : it.grandTotal.toFixed(2)}
+                          {it.isGift ? '0.00' : lineInclVat.toFixed(2)}
                         </td>
                       </tr>
                     ))}

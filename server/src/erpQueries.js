@@ -311,30 +311,6 @@ export const erpQueries = {
       SELECT TOP 1 @p3 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 449803;
       IF @p3 IS NULL SELECT TOP 1 @p3 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID NOT IN (ISNULL(@p1, -1), ISNULL(@p2, -1)) ORDER BY ID ASC;
 
-      ;WITH LastCustDiscount AS (
-        SELECT 
-          F.CARI,
-          CASE
-            WHEN ISNUMERIC(REPLACE(
-              CASE WHEN CHARINDEX('+', FD.ISKONTO) > 0 THEN LEFT(FD.ISKONTO, CHARINDEX('+', FD.ISKONTO) - 1) ELSE FD.ISKONTO END,
-              ',', '.'
-            )) = 1
-            AND REPLACE(
-              CASE WHEN CHARINDEX('+', FD.ISKONTO) > 0 THEN LEFT(FD.ISKONTO, CHARINDEX('+', FD.ISKONTO) - 1) ELSE FD.ISKONTO END,
-              ',', '.'
-            ) NOT IN ('.', '+', '-', '$')
-            THEN CAST(REPLACE(
-              CASE WHEN CHARINDEX('+', FD.ISKONTO) > 0 THEN LEFT(FD.ISKONTO, CHARINDEX('+', FD.ISKONTO) - 1) ELSE FD.ISKONTO END,
-              ',', '.'
-            ) AS float)
-            ELSE 0
-          END AS last_discount,
-          ROW_NUMBER() OVER(PARTITION BY F.CARI ORDER BY F.FIS_TARIHI DESC, FD.ID DESC) as rn
-        FROM FIS_DETAY FD WITH(NOLOCK)
-        JOIN FIS F WITH(NOLOCK) ON F.ID = FD.FIS
-        WHERE FD.ISKONTO IS NOT NULL AND FD.ISKONTO <> '' AND FD.ISKONTO <> '0'
-          AND F.FIS_TURU IN (1, 2, 3, 4, 20, 21, 22)
-      )
       SELECT TOP 2000
         C.ID AS id,
         C.KOD AS code,
@@ -349,23 +325,15 @@ export const erpQueries = {
           WHEN C.STOK_FIYAT_AD IN (@p3, 449802, 449803) THEN 3
           ELSE 1 
         END AS priceList,
-        COALESCE(
-          NULLIF(
-            CASE
-              WHEN ISNUMERIC(REPLACE(ISNULL(CAST(C.ISKONTO AS varchar(50)), ''), ',', '.')) = 1
-               AND REPLACE(ISNULL(CAST(C.ISKONTO AS varchar(50)), ''), ',', '.') NOT IN ('.', '+', '-', '$')
-              THEN CAST(REPLACE(CAST(C.ISKONTO AS varchar(50)), ',', '.') AS float)
-              ELSE 0
-            END,
-            0
-          ),
-          ROUND(LD.last_discount, 2),
-          0
-        ) AS specialDiscount,
+        CASE
+          WHEN ISNUMERIC(REPLACE(ISNULL(CAST(C.ISKONTO AS varchar(50)), ''), ',', '.')) = 1
+           AND REPLACE(ISNULL(CAST(C.ISKONTO AS varchar(50)), ''), ',', '.') NOT IN ('.', '+', '-', '$')
+          THEN CAST(REPLACE(CAST(C.ISKONTO AS varchar(50)), ',', '.') AS float)
+          ELSE 0
+        END AS specialDiscount,
         ISNULL(C.RISK, 0) AS riskLimit,
         ISNULL(B.BAKIYE, 0) AS balance
       FROM CARI C WITH(NOLOCK)
-      LEFT JOIN LastCustDiscount LD ON LD.CARI = C.ID AND LD.rn = 1
       LEFT JOIN CARI_BAKIYELER B WITH(NOLOCK) ON B.ID = C.ID
       LEFT JOIN CARI_ADRES A WITH(NOLOCK) ON A.CARI = C.ID AND A.VARSAYILAN = 1
       WHERE C.AKTIF = 1
@@ -409,22 +377,26 @@ export const erpQueries = {
       `;
       rows = await executeJsonQuery(fallbackQuery);
     }
-    const result = rows.map((row) => ({
-      id: String(row.id),
-      code: String(row.code),
-      name: String(row.name),
-      city: 'Erzurum',
-      district: 'Merkez',
-      address: String(row.address || ''),
-      phone: String(row.phone || ''),
-      taxOffice: String(row.taxOffice || ''),
-      taxNumber: String(row.taxNumber || ''),
-      salesRepCode: String(row.salesRepCode || ''),
-      priceList: Number(row.priceList) || 1,
-      specialDiscount: Number(row.specialDiscount || 0),
-      riskLimit: Number(row.riskLimit || 0),
-      balance: Number(row.balance || 0),
-    }));
+    const result = rows.map((row) => {
+      const rawDisc = Number(row.specialDiscount || 0);
+      const safeDisc = rawDisc > 0 && rawDisc < 100 ? rawDisc : 0;
+      return {
+        id: String(row.id),
+        code: String(row.code),
+        name: String(row.name),
+        city: 'Erzurum',
+        district: 'Merkez',
+        address: String(row.address || ''),
+        phone: String(row.phone || ''),
+        taxOffice: String(row.taxOffice || ''),
+        taxNumber: String(row.taxNumber || ''),
+        salesRepCode: String(row.salesRepCode || ''),
+        priceList: Number(row.priceList) || 1,
+        specialDiscount: safeDisc,
+        riskLimit: Number(row.riskLimit || 0),
+        balance: Number(row.balance || 0),
+      };
+    });
 
     // 30 saniye süreyle bellekte sakla
     memCache.customers.set(cacheKey, { data: result, expiresAt: Date.now() + 30000 });
@@ -912,10 +884,47 @@ export const erpQueries = {
       : '';
     const safeCampaignNotes = campaignNotes.replace(/'/g, "''");
 
-    const subtotalNum = Number(order.subtotal || 0);
-    const totalDiscountNum = Number(order.totalDiscount || 0);
-    const totalVatNum = Number(order.totalVat || 0);
-    const grandTotalNum = Number(order.grandTotal || 0);
+    // ERP12'de STOK_VARSAYILAN_FIYAT (katalog fiyatları) KDV_DAHILMI = 1 (KDV Dahil) olduğundan,
+    // her kalemin DAHIL_FIYAT'ı katalog birim fiyatıdır; KDV hariç FIYAT = DAHIL_FIYAT / (1 + KDV/100) olarak ayrıştırılır.
+    const computedItems = (order.items || []).map((item) => {
+      const sCode = (item.productCode || '').replace(/'/g, "''");
+      const isGift = Boolean(item.isGift);
+      const qty = Number(item.quantity || 1);
+      const vatRate = Number(item.vatRate ?? 20);
+      const vatMult = 1 + vatRate / 100;
+      const rawDisc = Number(item.discountPercent || 0);
+      const discNum = isGift ? 100 : (rawDisc > 0 && rawDisc < 100 ? rawDisc : 0);
+      const iskonto = discNum > 0 ? String(discNum) : '0';
+      const dahilFiyat = isGift ? 0 : Number(Number(item.unitPrice || 0).toFixed(4));
+      const fiyat = isGift ? 0 : Number((dahilFiyat / vatMult).toFixed(8));
+      const dahilTutar = isGift ? 0 : Number((dahilFiyat * qty).toFixed(4));
+      const tutar = isGift ? 0 : Number((fiyat * qty).toFixed(8));
+      const satirIskontoTutar = isGift ? 0 : Number((tutar * (discNum / 100)).toFixed(8));
+      const kdvMatrahi = isGift ? 0 : Number((tutar - satirIskontoTutar).toFixed(8));
+      const netDahilTutar = isGift ? 0 : Number((dahilTutar * (1 - discNum / 100)).toFixed(2));
+      const kdvTutar = isGift ? 0 : Number((netDahilTutar - kdvMatrahi).toFixed(8));
+      return {
+        sCode,
+        isGift,
+        qty,
+        vatRate,
+        discNum,
+        iskonto,
+        fiyat,
+        dahilFiyat,
+        tutar,
+        dahilTutar,
+        satirIskontoTutar,
+        kdvMatrahi,
+        kdvTutar,
+        netDahilTutar,
+      };
+    });
+
+    const subtotalNum = Number(computedItems.reduce((sum, r) => sum + r.tutar, 0).toFixed(2));
+    const totalDiscountNum = Number(computedItems.reduce((sum, r) => sum + r.satirIskontoTutar, 0).toFixed(2));
+    const grandTotalNum = Number(computedItems.reduce((sum, r) => sum + r.netDahilTutar, 0).toFixed(2));
+    const totalVatNum = Number(Math.max(0, grandTotalNum - (subtotalNum - totalDiscountNum)).toFixed(2));
 
     const sqlScript = `
       BEGIN TRANSACTION;
@@ -977,22 +986,7 @@ export const erpQueries = {
 
         DECLARE @detId bigint;
         SET @detId = @orderId;
-        ${order.items.map((item, idx) => {
-          const sCode = (item.productCode || '').replace(/'/g, "''");
-          const isGift = Boolean(item.isGift);
-          const qty = Number(item.quantity || 1);
-          const vatRate = Number(item.vatRate ?? 1);
-          const price = isGift ? 0 : Number(item.unitPrice || 0);
-          const discNum = isGift ? 100 : Number(item.discountPercent || 0);
-          const iskonto = String(discNum);
-          const rawNet = Number(item.totalAmount ?? item.netTotal ?? (price * qty * (1 - discNum / 100)));
-          const netTutar = isGift ? 0 : Number(rawNet.toFixed(2));
-          const rawVat = Number(item.vatAmount ?? (netTutar * (vatRate / 100)));
-          const kdvTutar = isGift ? 0 : Number(rawVat.toFixed(2));
-          const rawGrand = Number(item.grandTotal ?? (netTutar + kdvTutar));
-          const dahilTutar = isGift ? 0 : Number(rawGrand.toFixed(2));
-          const dahilFiyat = isGift ? 0 : Number((price * (1 + vatRate / 100)).toFixed(4));
-          const satirIskontoTutar = isGift ? 0 : Number((price * qty - netTutar).toFixed(2));
+        ${computedItems.map((r, idx) => {
           return `
             SET @detId = @detId + 1;
             DECLARE @stokId_${idx} bigint;
@@ -1011,7 +1005,7 @@ export const erpQueries = {
               WHERE STOK_STOK_BIRIM = SSB.ID AND AKTIF = 1
               ORDER BY ID ASC
             ) B
-            WHERE S.KOD = '${sCode}';
+            WHERE S.KOD = '${r.sCode}';
 
             IF @stokId_${idx} IS NOT NULL
             BEGIN
@@ -1027,14 +1021,14 @@ export const erpQueries = {
                 ACIKLAMA, AMBALAJ_BIRIM, AMBALAJ_MIKTAR, AMBALAJ_CARPAN
               ) VALUES (
                 @detId, @orderId, @lokId, @stokId_${idx}, @stokCinsi_${idx}, @birimId_${idx},
-                @barkod_${idx}, '', '${sCode}', @dovizId, 1, 1, 0,
-                ${qty}, 0, 0,
-                ${price}, ${dahilFiyat}, ${netTutar}, ${dahilTutar},
-                '${iskonto}', ${discNum}, 0, 0, ${vatRate}, 0,
+                @barkod_${idx}, '', '${r.sCode}', @dovizId, 1, 1, 0,
+                ${r.qty}, 0, 0,
+                ${r.fiyat}, ${r.dahilFiyat}, ${r.tutar}, ${r.dahilTutar},
+                '${r.iskonto}', ${r.discNum}, 0, 0, ${r.vatRate}, 0,
                 0, 0,
-                ${satirIskontoTutar}, 0, 0,
-                ${netTutar}, ${kdvTutar}, 0, 0,
-                '', @birimId_${idx}, ${qty}, 1
+                ${r.satirIskontoTutar}, 0, 0,
+                ${r.kdvMatrahi}, ${r.kdvTutar}, 0, ${r.fiyat},
+                '', @birimId_${idx}, ${r.qty}, 1
               );
               IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @detId)
                 INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@detId, 'SIPARIS_DETAY', 0);

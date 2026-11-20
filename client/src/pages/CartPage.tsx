@@ -628,7 +628,7 @@ export const CartPage: React.FC = () => {
       {/* Finansal Özet Tablosu */}
       <div className="bg-slate-900 dark:bg-slate-950 text-white rounded-2xl p-4 shadow-sm space-y-2 text-xs border border-slate-800">
         <div className="flex justify-between text-slate-400">
-          <span>Ara Toplam (Brüt)</span>
+          <span>Ara Toplam (KDV Hariç)</span>
           <span className="font-mono">{formatCurrency(cartSummary.subtotal)}</span>
         </div>
 

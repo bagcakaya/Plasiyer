@@ -976,9 +976,72 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [serverConfig.apiUrl]);
 
-  // Başlangıç tohum verisi kontrolü
+  // Başlangıç tohum verisi kontrolü ve mevcut yerel siparişlerin/carilerin KDV Dahil & İskonto normalizasyonu
   useEffect(() => {
     seedInitialDataIfNeeded();
+    (async () => {
+      try {
+        const custs = await db.customers.toArray();
+        for (const c of custs) {
+          if (c.specialDiscount && c.specialDiscount >= 100) {
+            await db.customers.update(c.id, { specialDiscount: 0 });
+          }
+        }
+        const orders = await db.orders.toArray();
+        for (const ord of orders) {
+          if (!ord.id || !Array.isArray(ord.items) || ord.items.length === 0) continue;
+          let rawSubExcl = 0;
+          let rawDiscExcl = 0;
+          let rawGrandIncl = 0;
+          let changed = false;
+          const fixedItems = ord.items.map((it) => {
+            if (it.isGift) return it;
+            const qty = Number(it.quantity || 1);
+            const unitPrice = Number(it.unitPrice || 0);
+            const vatRate = Number(it.vatRate ?? 20);
+            const vatMult = 1 + vatRate / 100;
+            const rawDisc = Number(it.discountPercent || 0);
+            const safeDisc = rawDisc > 0 && rawDisc < 100 ? rawDisc : 0;
+            const netPrice = unitPrice * (1 - safeDisc / 100);
+            const netIncl = Number((netPrice * qty).toFixed(2));
+            const grossExcl = (unitPrice * qty) / vatMult;
+            const discExcl = grossExcl * (safeDisc / 100);
+            const netExcl = netIncl / vatMult;
+            const vatAmt = Number((netIncl - netExcl).toFixed(2));
+            rawSubExcl += grossExcl;
+            rawDiscExcl += discExcl;
+            rawGrandIncl += netIncl;
+            if (Math.abs((it.grandTotal || 0) - netIncl) > 0.01 || it.discountPercent !== safeDisc) {
+              changed = true;
+            }
+            return {
+              ...it,
+              discountPercent: safeDisc,
+              netPrice,
+              totalAmount: netIncl,
+              vatAmount: vatAmt,
+              grandTotal: netIncl,
+            };
+          });
+          const campDisc = Number(ord.campaignDiscount || 0);
+          const subtotal = Number(rawSubExcl.toFixed(2));
+          const totalDiscount = Number((rawDiscExcl + campDisc).toFixed(2));
+          const grandTotal = Math.max(0, Number((rawGrandIncl - campDisc).toFixed(2)));
+          const totalVat = Math.max(0, Number((grandTotal - (subtotal - totalDiscount)).toFixed(2)));
+          if (changed || Math.abs((ord.grandTotal || 0) - grandTotal) > 0.01) {
+            await db.orders.update(ord.id, {
+              items: fixedItems,
+              subtotal,
+              totalDiscount,
+              totalVat,
+              grandTotal,
+            });
+          }
+        }
+      } catch {
+        // ignore migration errors
+      }
+    })();
   }, []);
 
   // Online / Offline dinleyicisi & Bekleyen Kuyruğu Otomatik İletme
@@ -1116,8 +1179,45 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
+  const getBasePriceForCustomer = (product: Product | undefined, fallbackPrice: number, cust?: Customer | null) => {
+    if (!product) return fallbackPrice;
+    const standardPrice = product.price1 > 0 ? product.price1 : Math.max(product.price2, product.price3, fallbackPrice, 0);
+    if (!cust) return standardPrice;
+    if (cust.priceList === 2 && product.price2 > 0) return product.price2;
+    if (cust.priceList === 3 && product.price3 > 0) return product.price3;
+    return standardPrice;
+  };
+
+  const getSafeCustomerDiscount = (cust?: Customer | null): number => {
+    const raw = Number(cust?.specialDiscount || 0);
+    return raw > 0 && raw < 100 ? raw : 0;
+  };
+
   const selectCustomer = (customer: Customer | null) => {
     setSelectedCustomer(customer);
+    const discount = getSafeCustomerDiscount(customer);
+    setRawCart((prev) =>
+      prev.map((item) => {
+        if (item.isGift) return item;
+        const matchedProd = dbProducts.find((p) => p.id === item.productId || p.code === item.productCode);
+        const basePrice = getBasePriceForCustomer(matchedProd, item.originalUnitPrice || item.unitPrice, customer);
+        const vatRate = item.vatRate ?? matchedProd?.vatRate ?? 20;
+        const vatMult = 1 + vatRate / 100;
+        const netPrice = basePrice * (1 - discount / 100);
+        const netInclVat = Number((netPrice * item.quantity).toFixed(2));
+        const netExclVat = netInclVat / vatMult;
+        const vatAmount = Number((netInclVat - netExclVat).toFixed(2));
+        return {
+          ...item,
+          unitPrice: basePrice,
+          discountPercent: discount,
+          netPrice,
+          totalAmount: netInclVat,
+          vatAmount,
+          grandTotal: netInclVat,
+        };
+      })
+    );
   };
 
   // Müşteriye Özel Fiyat Hesaplama Motoru ("Size Özel 800 ₺" Kurgusu)
@@ -1146,8 +1246,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       basePrice = product.price3;
     }
 
-    // Özel iskonto varsa uygula
-    const discount = targetCustomer.specialDiscount || 0;
+    // Özel iskonto varsa uygula (%100 gibi geçersiz bedelsiz satır kalıntılarını yoksay)
+    const discount = getSafeCustomerDiscount(targetCustomer);
     const finalPrice = basePrice * (1 - discount / 100);
 
     const hasSpecialPrice = finalPrice < standardPrice;
@@ -1167,27 +1267,32 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const addToCart = (product: Product, quantity = 1) => {
     const activeCust = userRole === 'customer' ? currentCustomerUser : selectedCustomer;
-    const priceInfo = calculateCustomerPrice(product, activeCust);
-    const price = priceInfo.customerPrice;
-    const discount = activeCust?.specialDiscount || 0;
+    const basePrice = getBasePriceForCustomer(product, product.price1, activeCust);
+    const discount = getSafeCustomerDiscount(activeCust);
+    const vatRate = product.vatRate ?? 20;
+    const vatMult = 1 + vatRate / 100;
 
     setRawCart((prev) => {
       const existingIndex = prev.findIndex((i) => i.productId === product.id && !i.isGift);
       if (existingIndex > -1) {
         const item = prev[existingIndex];
         const newQty = item.quantity + quantity;
-        const netPrice = item.unitPrice * (1 - item.discountPercent / 100);
-        const totalAmount = netPrice * newQty;
-        const vatAmount = totalAmount * (item.vatRate / 100);
+        const rawDisc = item.discountPercent || 0;
+        const safeDisc = rawDisc > 0 && rawDisc < 100 ? rawDisc : 0;
+        const netPrice = item.unitPrice * (1 - safeDisc / 100);
+        const netInclVat = Number((netPrice * newQty).toFixed(2));
+        const netExclVat = netInclVat / vatMult;
+        const vatAmount = Number((netInclVat - netExclVat).toFixed(2));
 
         const updated = [...prev];
         updated[existingIndex] = {
           ...item,
           quantity: newQty,
+          discountPercent: safeDisc,
           netPrice,
-          totalAmount,
+          totalAmount: netInclVat,
           vatAmount,
-          grandTotal: totalAmount + vatAmount,
+          grandTotal: netInclVat,
           image: product.image || item.image,
           category: product.category || item.category,
           addedAt: item.addedAt || new Date().toISOString(),
@@ -1195,9 +1300,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
         return updated;
       } else {
-        const netPrice = price * (1 - discount / 100);
-        const totalAmount = netPrice * quantity;
-        const vatAmount = totalAmount * (product.vatRate / 100);
+        const netPrice = basePrice * (1 - discount / 100);
+        const netInclVat = Number((netPrice * quantity).toFixed(2));
+        const netExclVat = netInclVat / vatMult;
+        const vatAmount = Number((netInclVat - netExclVat).toFixed(2));
 
         const newItem: OrderItem = {
           productId: product.id,
@@ -1205,13 +1311,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           productName: product.name,
           unit: product.unit,
           quantity,
-          unitPrice: price,
+          unitPrice: basePrice,
           discountPercent: discount,
-          vatRate: product.vatRate,
+          vatRate,
           netPrice,
-          totalAmount,
+          totalAmount: netInclVat,
           vatAmount,
-          grandTotal: totalAmount + vatAmount,
+          grandTotal: netInclVat,
           originalUnitPrice: product.price1,
           image: product.image,
           category: product.category,
@@ -1232,16 +1338,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       prev.map((item) => {
         if (item.productId === productId && !item.isGift) {
           const baseUnitPrice = item.unitPrice;
-          const netPrice = baseUnitPrice * (1 - (item.discountPercent || 0) / 100);
-          const totalAmount = netPrice * quantity;
-          const vatAmount = totalAmount * (item.vatRate / 100);
+          const rawDisc = item.discountPercent || 0;
+          const safeDisc = rawDisc > 0 && rawDisc < 100 ? rawDisc : 0;
+          const vatMult = 1 + (item.vatRate || 0) / 100;
+          const netPrice = baseUnitPrice * (1 - safeDisc / 100);
+          const netInclVat = Number((netPrice * quantity).toFixed(2));
+          const netExclVat = netInclVat / vatMult;
+          const vatAmount = Number((netInclVat - netExclVat).toFixed(2));
           return {
             ...item,
             quantity,
+            discountPercent: safeDisc,
             netPrice,
-            totalAmount,
+            totalAmount: netInclVat,
             vatAmount,
-            grandTotal: totalAmount + vatAmount,
+            grandTotal: netInclVat,
           };
         }
         return item;
@@ -1250,22 +1361,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateCartItemDiscount = (productId: string, discountPercent: number) => {
-    const safeDiscount = Math.max(0, Math.min(100, discountPercent));
+    const safeDiscount = Math.max(0, Math.min(99.99, discountPercent));
     setRawCart((prev) =>
       prev.map((item) => {
         if (item.productId === productId && !item.isGift) {
           const baseUnitPrice = item.unitPrice;
+          const vatMult = 1 + (item.vatRate || 0) / 100;
           const netPrice = baseUnitPrice * (1 - safeDiscount / 100);
-          const totalAmount = netPrice * item.quantity;
-          const vatAmount = totalAmount * (item.vatRate / 100);
+          const netInclVat = Number((netPrice * item.quantity).toFixed(2));
+          const netExclVat = netInclVat / vatMult;
+          const vatAmount = Number((netInclVat - netExclVat).toFixed(2));
           return {
             ...item,
             unitPrice: baseUnitPrice,
             discountPercent: safeDiscount,
             netPrice,
-            totalAmount,
+            totalAmount: netInclVat,
             vatAmount,
-            grandTotal: totalAmount + vatAmount,
+            grandTotal: netInclVat,
           };
         }
         return item;
@@ -1278,12 +1391,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRawCart((prev) =>
       prev.map((item) => {
         if (item.productId === productId && !item.isGift) {
-          const vatAmount = item.totalAmount * (safeVat / 100);
+          const vatMult = 1 + safeVat / 100;
+          const netInclVat = item.grandTotal;
+          const netExclVat = netInclVat / vatMult;
+          const vatAmount = Number((netInclVat - netExclVat).toFixed(2));
           return {
             ...item,
             vatRate: safeVat,
             vatAmount,
-            grandTotal: item.totalAmount + vatAmount,
+            totalAmount: netInclVat,
+            grandTotal: netInclVat,
           };
         }
         return item;
@@ -1299,10 +1416,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           const qty = item.quantity > 0 ? item.quantity : 1;
           const baseUnitPrice = item.originalUnitPrice || item.unitPrice;
           const baseNetTotal = qty * baseUnitPrice;
+          const vatMult = 1 + (item.vatRate || 0) / 100;
+          const netExclVat = safeNetTotal / vatMult;
+          const vatAmount = Number((safeNetTotal - netExclVat).toFixed(2));
 
           if (baseNetTotal <= 0) {
             const newUnit = safeNetTotal / qty;
-            const vatAmount = safeNetTotal * (item.vatRate / 100);
             return {
               ...item,
               unitPrice: newUnit,
@@ -1311,7 +1430,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               netPrice: newUnit,
               totalAmount: safeNetTotal,
               vatAmount,
-              grandTotal: safeNetTotal + vatAmount,
+              grandTotal: safeNetTotal,
             };
           }
 
@@ -1319,7 +1438,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const rawDiscount = ((baseNetTotal - safeNetTotal) / baseNetTotal) * 100;
             const discountPercent = Math.round(rawDiscount * 100) / 100;
             const netPrice = safeNetTotal / qty;
-            const vatAmount = safeNetTotal * (item.vatRate / 100);
             return {
               ...item,
               unitPrice: baseUnitPrice,
@@ -1328,11 +1446,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               netPrice,
               totalAmount: safeNetTotal,
               vatAmount,
-              grandTotal: safeNetTotal + vatAmount,
+              grandTotal: safeNetTotal,
             };
           } else {
             const newUnitPrice = safeNetTotal / qty;
-            const vatAmount = safeNetTotal * (item.vatRate / 100);
             return {
               ...item,
               unitPrice: newUnitPrice,
@@ -1341,7 +1458,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
               netPrice: newUnitPrice,
               totalAmount: safeNetTotal,
               vatAmount,
-              grandTotal: safeNetTotal + vatAmount,
+              grandTotal: safeNetTotal,
             };
           }
         }
@@ -1351,65 +1468,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const updateCartItemGrandTotal = (productId: string, grandTotal: number) => {
-    const safeGrandTotal = Math.max(0, grandTotal);
-    setRawCart((prev) =>
-      prev.map((item) => {
-        if (item.productId === productId && !item.isGift) {
-          const baseUnitPrice = item.originalUnitPrice || item.unitPrice;
-          const vatMultiplier = 1 + item.vatRate / 100;
-          const baseGrandTotal = item.quantity * baseUnitPrice * vatMultiplier;
-
-          if (baseGrandTotal <= 0) {
-            const totalAmount = safeGrandTotal / vatMultiplier;
-            const vatAmount = safeGrandTotal - totalAmount;
-            return {
-              ...item,
-              unitPrice: safeGrandTotal,
-              discountPercent: 0,
-              netPrice: safeGrandTotal,
-              totalAmount,
-              vatAmount,
-              grandTotal: safeGrandTotal,
-            };
-          }
-
-          if (safeGrandTotal <= baseGrandTotal) {
-            // İskonto hesapla: % = ((baseGrandTotal - safeGrandTotal) / baseGrandTotal) * 100
-            const rawDiscount = ((baseGrandTotal - safeGrandTotal) / baseGrandTotal) * 100;
-            const discountPercent = Math.round(rawDiscount * 100) / 100;
-            const netPrice = baseUnitPrice * (1 - discountPercent / 100);
-            const totalAmount = safeGrandTotal / vatMultiplier;
-            const vatAmount = safeGrandTotal - totalAmount;
-            return {
-              ...item,
-              unitPrice: baseUnitPrice,
-              originalUnitPrice: baseUnitPrice,
-              discountPercent,
-              netPrice,
-              totalAmount,
-              vatAmount,
-              grandTotal: safeGrandTotal,
-            };
-          } else {
-            // Liste fiyatından daha yüksek girildiyse (iskonto 0, birim fiyat artırılır)
-            const newUnitPrice = safeGrandTotal / (item.quantity * vatMultiplier);
-            const totalAmount = safeGrandTotal / vatMultiplier;
-            const vatAmount = safeGrandTotal - totalAmount;
-            return {
-              ...item,
-              unitPrice: newUnitPrice,
-              originalUnitPrice: baseUnitPrice,
-              discountPercent: 0,
-              netPrice: newUnitPrice,
-              totalAmount,
-              vatAmount,
-              grandTotal: safeGrandTotal,
-            };
-          }
-        }
-        return item;
-      })
-    );
+    updateCartItemNetTotal(productId, grandTotal);
   };
 
   const updateCartItemPrice = (productId: string, unitPrice: number) => {
@@ -1417,17 +1476,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRawCart((prev) =>
       prev.map((item) => {
         if (item.productId === productId && !item.isGift) {
-          const netPrice = safePrice * (1 - item.discountPercent / 100);
-          const totalAmount = netPrice * item.quantity;
-          const vatAmount = totalAmount * (item.vatRate / 100);
+          const rawDisc = item.discountPercent || 0;
+          const safeDisc = rawDisc > 0 && rawDisc < 100 ? rawDisc : 0;
+          const vatMult = 1 + (item.vatRate || 0) / 100;
+          const netPrice = safePrice * (1 - safeDisc / 100);
+          const netInclVat = Number((netPrice * item.quantity).toFixed(2));
+          const netExclVat = netInclVat / vatMult;
+          const vatAmount = Number((netInclVat - netExclVat).toFixed(2));
           return {
             ...item,
             unitPrice: safePrice,
             originalUnitPrice: safePrice,
+            discountPercent: safeDisc,
             netPrice,
-            totalAmount,
+            totalAmount: netInclVat,
             vatAmount,
-            grandTotal: totalAmount + vatAmount,
+            grandTotal: netInclVat,
           };
         }
         return item;
