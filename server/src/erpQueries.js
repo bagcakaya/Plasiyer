@@ -1245,7 +1245,7 @@ export const erpQueries = {
           const finIslemTuru = isInvoice ? 47 : 71;
           const seriPrefix = isInvoice ? 'STS FTRS-' : 'STS FS-';
           const fisBasimTipi = isInvoice ? 3 : 1;
-          const fisAltTipi = isInvoice ? 0 : 1;
+          const fisAltTipi = 1;
           return `
         DECLARE @kasaId bigint;
         SELECT TOP 1 @kasaId = ID FROM KASA_AD WITH(NOLOCK) WHERE LOKASYON = @lokId AND AKTIF = 1 ORDER BY ID ASC;
@@ -1419,6 +1419,14 @@ export const erpQueries = {
         );
         IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @finDetId)
           INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@finDetId, 'FINANS_DETAY', 0);
+
+        IF OBJECT_ID('dbo.SEQUNCES_DEGISIKLIK', 'U') IS NOT NULL
+        BEGIN
+          INSERT INTO SEQUNCES_DEGISIKLIK (KOD_PC, SEQUNCES, KULLANICI, ISLEM, TARIH, TABLO)
+          VALUES (0, @fisId, ISNULL(@cariPersonelId, 0), 1, GETDATE(), 'FIS');
+          INSERT INTO SEQUNCES_DEGISIKLIK (KOD_PC, SEQUNCES, KULLANICI, ISLEM, TARIH, TABLO)
+          VALUES (0, @finDetId, ISNULL(@cariPersonelId, 0), 1, GETDATE(), 'FINANS_DETAY');
+        END;
 
         COMMIT TRANSACTION;
         SELECT @belgeNo AS docNo;
@@ -1630,7 +1638,7 @@ export const erpQueries = {
     const fisTuru = isReceipt ? 20 : isWaybill ? 6 : 2;
     const finIslemTuru = isReceipt ? 71 : 47;
     const fisBasimTipi = isReceipt || isWaybill ? 1 : 3;
-    const fisAltTipi = isReceipt ? 1 : 0;
+    const fisAltTipi = 1;
     const seriPrefix = isReceipt ? 'STS FS-' : isWaybill ? 'STS RSLYS-' : 'STS FTRS-';
 
     const sqlScript = `
@@ -1887,6 +1895,14 @@ export const erpQueries = {
           );
           IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @finDetId)
             INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@finDetId, 'FINANS_DETAY', 0);
+
+          IF OBJECT_ID('dbo.SEQUNCES_DEGISIKLIK', 'U') IS NOT NULL
+          BEGIN
+            INSERT INTO SEQUNCES_DEGISIKLIK (KOD_PC, SEQUNCES, KULLANICI, ISLEM, TARIH, TABLO)
+            VALUES (0, @fisId, ISNULL(@cariPersonelId, 0), 1, GETDATE(), 'FIS');
+            INSERT INTO SEQUNCES_DEGISIKLIK (KOD_PC, SEQUNCES, KULLANICI, ISLEM, TARIH, TABLO)
+            VALUES (0, @finDetId, ISNULL(@cariPersonelId, 0), 1, GETDATE(), 'FINANS_DETAY');
+          END;
 
           UPDATE SIPARIS
           SET ONAYLI = 1,
