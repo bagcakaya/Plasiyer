@@ -1,5 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
+
+declare const __APP_BUILD_VERSION__: string;
 import { db, seedInitialDataIfNeeded } from '../db';
 import { syncService, type SyncResult } from '../services/syncService';
 import { apiService, isDemoMode, resolveApiBaseUrl } from '../services/apiService';
@@ -1823,20 +1825,101 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Senkronizasyon Tetikle
+  // Senkronizasyon & Canlı Değişiklik Güncelleme Tetikle
   const triggerSync = async (overrideConfig?: ServerConfig): Promise<SyncResult> => {
     setIsSyncing(true);
     try {
       const activeCfg = overrideConfig || serverConfig;
+
+      // 1. Plasiyer yetkilerini (Rut Bölgeleri, Stok Grupları, Yönetici/Plasiyer rolü ve ERP12 Personel Kartı değişiklikleri) anında çek
+      if (currentUser && currentUser.role === 'plasiyer') {
+        try {
+          const targetCompany = (currentUser.companyCode || activeCfg.companyCode || '')
+            .trim()
+            .toUpperCase();
+          if (targetCompany) {
+            const syncedAccounts = await plasiyerAuthService.syncAccountsFromSql(activeCfg);
+            const activeRepCode = (currentUser.salesRepCode || currentUser.code || '')
+              .trim()
+              .toUpperCase();
+            const matchedAcc = syncedAccounts.find(
+              (a) =>
+                a.companyCode.toUpperCase() === targetCompany &&
+                a.repCode.toUpperCase() === activeRepCode
+            );
+            if (matchedAcc) {
+              const fullName =
+                [matchedAcc.firstName, matchedAcc.lastName].filter(Boolean).join(' ').trim() ||
+                currentUser.name;
+              const updatedUser: AuthUser = {
+                ...currentUser,
+                name: fullName,
+                firstName: matchedAcc.firstName || currentUser.firstName,
+                lastName: matchedAcc.lastName || currentUser.lastName,
+                accountRole: matchedAcc.accountRole === 'manager' ? 'manager' : 'plasiyer',
+                locationName: matchedAcc.locationName ?? currentUser.locationName,
+                viewAllRoutes: Boolean(matchedAcc.viewAllRoutes),
+                allowedRouteRegions: matchedAcc.allowedRouteRegions,
+                erpAssignedRegions: matchedAcc.erpAssignedRegions,
+                viewAllStocks: Boolean(matchedAcc.viewAllStocks),
+                allowedStockGroups: matchedAcc.allowedStockGroups,
+                erpAssignedStockGroups: matchedAcc.erpAssignedStockGroups,
+                erpForbiddenStockGroups: matchedAcc.erpForbiddenStockGroups,
+              };
+              setCurrentUser(updatedUser);
+              localStorage.setItem('plasiyer_auth_user', JSON.stringify(updatedUser));
+            }
+          }
+        } catch {
+          // Çevrimdışıysa mevcut yerel yetkilerle devam et
+        }
+      }
+
+      // 2. ERP12 SQL veritabanından güncel Cariler, Stoklar, Kategoriler, Fiyatlar ve Bakiyeleri çek
       const res = await syncService.fullSync(activeCfg, salesRep.code);
       if (res.companyInfo) {
         persistIssuerInfo(activeCfg, res.companyInfo);
+      }
+      if (selectedCustomer?.id) {
+        const refreshedCust = await db.customers.get(selectedCustomer.id);
+        if (refreshedCust) {
+          setSelectedCustomer(refreshedCust);
+        }
       }
       const now = new Date();
       if (res.success) {
         setLastSyncTime(now);
         localStorage.setItem('plasiyer_last_sync_time', now.toISOString());
       }
+
+      // 3. Sunucuda yeni bir uygulama/arayüz sürümü (version.json) varsa önbelleği temizleyip anında yeni sürüme geç
+      if (typeof window !== 'undefined' && navigator.onLine) {
+        try {
+          const verRes = await fetch(`/version.json?t=${Date.now()}`, {
+            cache: 'no-store',
+            headers: { 'Cache-Control': 'no-cache' },
+          });
+          if (verRes.ok) {
+            const verData = (await verRes.json()) as { version?: string };
+            const currentBuildVer =
+              typeof __APP_BUILD_VERSION__ !== 'undefined' ? __APP_BUILD_VERSION__ : undefined;
+            if (verData?.version && currentBuildVer && verData.version !== currentBuildVer) {
+              if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(regs.map((r) => r.unregister()));
+              }
+              if ('caches' in window && caches.keys) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map((k) => caches.delete(k)));
+              }
+              window.location.replace(window.location.pathname + '?v=' + Date.now());
+            }
+          }
+        } catch {
+          // ignore version check error
+        }
+      }
+
       return res;
     } finally {
       setIsSyncing(false);

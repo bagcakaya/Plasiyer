@@ -9,14 +9,14 @@ import {
   LogOut,
   Sun,
   Moon,
-  Building2
+  Building2,
+  RefreshCw
 } from 'lucide-react';
 import { CompanyProfileModal } from './CompanyProfileModal';
 
 export const Header: React.FC = () => {
   const { 
     userRole,
-    isCompanyManager,
     currentUser,
     salesRep,
     theme,
@@ -30,15 +30,28 @@ export const Header: React.FC = () => {
     companyIssuer,
     updateServerConfig,
     triggerSync,
+    isSyncing,
   } = useApp();
 
   const [syncToast, setSyncToast] = useState<{ show: boolean; message: string; success: boolean } | null>(null);
   const [isCompanyModalOpen, setIsCompanyModalOpen] = useState(false);
 
+  const handleQuickUpdate = async () => {
+    const res = await triggerSync();
+    setSyncToast({
+      show: true,
+      success: res.success,
+      message: res.success
+        ? 'Güncelleme tamamlandı! Tüm cari, stok ve yetki değişiklikleri alındı.'
+        : res.error || 'Güncelleme sırasında bağlantı kurulamadı.',
+    });
+    setTimeout(() => setSyncToast(null), 3200);
+  };
+
   return (
     <>
-      {/* Plasiyerde Ayarlar sekmesi gizli olduğundan mobilde kompakt kullanıcı & çıkış barı */}
-      {userRole === 'plasiyer' && !isCompanyManager && (
+      {/* Mobilde kompakt firma, Güncelle, Tema ve Çıkış barı */}
+      {userRole === 'plasiyer' && (
         <div className="md:hidden flex items-center justify-between gap-2 px-3 py-1.5 bg-slate-900 text-slate-200 border-b border-slate-800 text-[11px] shrink-0">
           <div className="flex items-center gap-1.5 min-w-0 truncate">
             <Building2 className="w-3.5 h-3.5 text-sky-400 shrink-0" />
@@ -52,6 +65,16 @@ export const Header: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0">
+            <button
+              type="button"
+              onClick={handleQuickUpdate}
+              disabled={isSyncing}
+              className="px-2 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/30 text-emerald-300 font-bold flex items-center gap-1 transition active:scale-95 disabled:opacity-60"
+              title="Yapılan Değişiklikleri ve ERP12 Verilerini Anında Güncelle"
+            >
+              <RefreshCw className={`w-3 h-3 ${isSyncing ? 'animate-spin' : ''}`} />
+              <span>{isSyncing ? 'Alınıyor...' : 'Güncelle'}</span>
+            </button>
             <button
               type="button"
               onClick={toggleTheme}
