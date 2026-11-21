@@ -105,7 +105,11 @@ interface AppContextType {
   clearCart: () => void;
   
   // Order
-  submitCurrentOrder: (deliveryDate?: string, notes?: string) => Promise<{ success: boolean; orderId?: number; error?: string }>;
+  submitCurrentOrder: (
+    deliveryDate?: string,
+    notes?: string,
+    documentType?: 'order' | 'receipt' | 'invoice'
+  ) => Promise<{ success: boolean; orderId?: number; error?: string }>;
   
   // Navigation / Tab
   activeTab: 'customers' | 'catalog' | 'cart' | 'orders' | 'routes' | 'settings' | 'van_stock';
@@ -1578,12 +1582,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRawCart([]);
   };
 
-  // Siparişi Onayla & IndexedDB'ye Kaydet (Yalnızca işaretli / seçili ürünleri gönderir, işaretsizleri sepette bırakır)
-  const submitCurrentOrder = async (deliveryDate?: string, notes?: string) => {
+  // Siparişi / Satış Fişini / Satış Faturasını Onayla & IndexedDB + ERP12'ye Kaydet
+  const submitCurrentOrder = async (
+    deliveryDate?: string,
+    notes?: string,
+    documentType: 'order' | 'receipt' | 'invoice' = 'order'
+  ) => {
     const activeCust = userRole === 'customer' ? currentCustomerUser : selectedCustomer;
 
     if (!activeCust) {
-      return { success: false, error: 'Lütfen sipariş için bir cari (müşteri) seçiniz.' };
+      return { success: false, error: 'Lütfen işlem için bir cari (müşteri) seçiniz.' };
     }
     if (cart.length === 0) {
       return { success: false, error: 'Sepetiniz boş. Lütfen ürün ekleyiniz.' };
@@ -1593,14 +1601,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (selectedCartItems.length === 0) {
       return {
         success: false,
-        error: 'Siparişi onaylamak için lütfen sepetteki ürünlerden en az birini işaretleyiniz.',
+        error: 'İşlemi onaylamak için lütfen sepetteki ürünlerden en az birini işaretleyiniz.',
       };
     }
 
     try {
       const now = new Date();
       const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-      const tempId = 'ORD-' + dateStr + '-' + Math.floor(1000 + Math.random() * 9000);
+      const prefix =
+        documentType === 'receipt' ? 'FIS-' : documentType === 'invoice' ? 'FTR-' : 'ORD-';
+      const tempId = prefix + dateStr + '-' + Math.floor(1000 + Math.random() * 9000);
 
       // AŞAMA 8: Sıcak Satış Kontrolü ve Araç Stoğu Düşümü (Yalnızca seçili ürünler için)
       if (userRole === 'plasiyer' && saleMode === 'hot') {
@@ -1626,6 +1636,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const newOrder: Order = {
         tempId,
+        documentType,
         customerId: activeCust.id,
         customerCode: activeCust.code,
         customerName: activeCust.name,
@@ -1648,6 +1659,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         saleType: userRole === 'plasiyer' ? saleMode : 'cold',
         vanPlate: (userRole === 'plasiyer' && saleMode === 'hot') ? vanPlate : undefined,
         vanWarehouseCode: (userRole === 'plasiyer' && saleMode === 'hot') ? '02 ARAÇ DEPOSU' : undefined,
+        ...(documentType === 'invoice'
+          ? {
+              invoiceStatus: 'invoiced',
+              invoiceNo: tempId,
+              invoicedAt: now.toISOString(),
+            }
+          : {}),
         status: 'pending',
         createdAt: now.toISOString(),
       };
@@ -1655,17 +1673,33 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 1. IndexedDB'ye kaydet
       const orderId = await db.orders.add(newOrder);
 
+      // 1.b. Satış Fişi veya Satış Faturası kesildiyse cari bakiyesine (borç) anında yansıt
+      if (documentType === 'receipt' || documentType === 'invoice') {
+        const cust = await db.customers.get(activeCust.id);
+        if (cust) {
+          const newBal = Number(((cust.balance || 0) + cartSummary.grandTotal).toFixed(2));
+          await db.customers.update(activeCust.id, { balance: newBal });
+          if (selectedCustomer && selectedCustomer.id === activeCust.id) {
+            setSelectedCustomer({ ...selectedCustomer, balance: newBal });
+          }
+        }
+      }
+
       // 2. Yalnızca seçili ürünleri sepetten çıkar; işareti kaldırılan ürünler sepette kalmaya devam etsin
       setRawCart((prev) => prev.filter((item) => !item.isGift && item.selected === false));
 
-      // 3. Eğer online isek ve otomatik senkronizasyon açıksa hemen ERP12'ye göndermeyi dene
+      // 3. Eğer online isek ve otomatik senkronizasyon açıksa hemen ERP12'ye gönder (Fiş/Fatura belge numarasını almak için bekle)
       if (isOnline && serverConfig.autoSync && !isDemoMode(serverConfig)) {
-        syncService.pushPendingOrdersToERP(serverConfig);
+        try {
+          await syncService.pushPendingOrdersToERP(serverConfig);
+        } catch {
+          // Arka plan kuyruğunda tekrar denenecek
+        }
       }
 
       return { success: true, orderId };
     } catch (err: any) {
-      return { success: false, error: err.message || 'Sipariş kaydedilirken bir hata oluştu.' };
+      return { success: false, error: err.message || 'İşlem kaydedilirken bir hata oluştu.' };
     }
   };
 

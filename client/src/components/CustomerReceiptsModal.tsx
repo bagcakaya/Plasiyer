@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db';
 import { 
   X, 
   Receipt, 
@@ -27,9 +29,46 @@ export const CustomerReceiptsModal: React.FC<CustomerReceiptsModalProps> = ({
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedReceiptId, setSelectedReceiptId] = useState<string | null>(null);
 
+  const realReceiptOrders = useLiveQuery(
+    async () => {
+      if (!customer) return [];
+      const all = await db.orders.reverse().toArray();
+      return all.filter(
+        (o) =>
+          o.documentType === 'receipt' &&
+          (o.customerId === customer.id || o.customerCode === customer.code)
+      );
+    },
+    [customer?.id, customer?.code]
+  ) || [];
+
   if (!isOpen || !customer) return null;
 
   const customerDiscountRate = customer.specialDiscount || 0;
+
+  const realMappedReceipts = realReceiptOrders.map((ord) => ({
+    id: `REAL-REC-${ord.id || ord.tempId}`,
+    receiptNo: ord.erp12DocNo || ord.tempId,
+    date: new Date(ord.orderDate || ord.createdAt).toLocaleString('tr-TR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }),
+    paymentType: 'Satış Fişi (ERP12)',
+    totalAmount: ord.subtotal,
+    discountRate: customerDiscountRate,
+    discountAmount: ord.totalDiscount,
+    vatAmount: ord.totalVat,
+    grandTotal: ord.grandTotal,
+    items: (ord.items || []).map((it) => ({
+      name: it.productName,
+      quantity: it.quantity,
+      unitPrice: it.unitPrice,
+      total: it.grandTotal || it.totalAmount,
+    })),
+  }));
 
   // Carinin örnek / gerçek kayıtlı satış fişleri
   const baseReceipts = [
@@ -46,35 +85,9 @@ export const CustomerReceiptsModal: React.FC<CustomerReceiptsModalProps> = ({
         { name: 'Yudum Ayçiçek Yağı 5 Lt', quantity: 2, unitPrice: 230.00, total: 460.00 },
       ],
     },
-    {
-      id: 'REC-002',
-      receiptNo: 'FS-2026-004720',
-      date: '21.10.2026 11:20',
-      paymentType: 'Kredi Kartı',
-      totalAmount: 3200.00,
-      vatAmount: 320.00,
-      grandTotal: 3520.00,
-      items: [
-        { name: 'Sütaş Tam Yağlı Beyaz Peynir 1 Kg', quantity: 10, unitPrice: 195.00, total: 1950.00 },
-        { name: 'Duru Pilavlık Pirinç 2.5 Kg', quantity: 15, unitPrice: 83.33, total: 1250.00 },
-      ],
-    },
-    {
-      id: 'REC-003',
-      receiptNo: 'FS-2026-004655',
-      date: '14.10.2026 16:05',
-      paymentType: 'Cari Hesaba Açık',
-      totalAmount: 2100.00,
-      vatAmount: 210.00,
-      grandTotal: 2310.00,
-      items: [
-        { name: 'Ariel Dağ Esintisi Toz Deterjan 5 Kg', quantity: 5, unitPrice: 240.00, total: 1200.00 },
-        { name: 'Balküpü Toz Şeker 5 Kg', quantity: 6, unitPrice: 150.00, total: 900.00 },
-      ],
-    },
   ];
 
-  const mockReceipts = baseReceipts.map((rec) => {
+  const fallbackReceipts = baseReceipts.map((rec) => {
     const discountAmount = Math.round(rec.totalAmount * (customerDiscountRate / 100) * 100) / 100;
     const netSubtotal = Math.max(0, rec.totalAmount - discountAmount);
     const vatAmount = Math.round(netSubtotal * 0.10 * 100) / 100;
@@ -87,6 +100,8 @@ export const CustomerReceiptsModal: React.FC<CustomerReceiptsModalProps> = ({
       grandTotal,
     };
   });
+
+  const mockReceipts = realMappedReceipts.length > 0 ? realMappedReceipts : fallbackReceipts;
 
   const filteredReceipts = mockReceipts.filter(
     (r) =>

@@ -171,7 +171,11 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
   };
 
   const documentBoxTitle =
-    slipType === 'order' ? (orderData?.saleType === 'hot' ? 'SICAK SATIŞ TESLİM FİŞİ' : 'SİPARİŞ BİLGİ FİŞİ') :
+    slipType === 'order' ? (
+      orderData?.documentType === 'invoice' ? 'SATIŞ FATURASI' :
+      orderData?.documentType === 'receipt' ? 'SATIŞ FİŞİ' :
+      orderData?.saleType === 'hot' ? 'SICAK SATIŞ TESLİM FİŞİ' : 'SİPARİŞ BİLGİ FİŞİ'
+    ) :
     slipType === 'collection' ? 'TAHSİLAT MAKBUZU' :
     slipType === 'return' ? 'SAHA İADE / DEĞİŞİM FİŞİ' :
     slipType === 'van_loading' ? 'ARAÇ MAL YÜKLEME TRANSFER FİŞİ' :
@@ -179,7 +183,11 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
     'GÜN SONU Z RAPORU';
 
   const footerPrimaryText =
-    slipType === 'order' ? (orderData?.saleType === 'hot' ? 'SICAK SATIŞ TESLİM FİŞİDİR' : 'BİLGİ FİŞİDİR - MALİ DEĞERİ YOKTUR') :
+    slipType === 'order' ? (
+      orderData?.documentType === 'invoice' ? 'SATIŞ FATURASI BİLGİ BELGESİDİR' :
+      orderData?.documentType === 'receipt' ? 'SATIŞ FİŞİ BİLGİ BELGESİDİR' :
+      orderData?.saleType === 'hot' ? 'SICAK SATIŞ TESLİM FİŞİDİR' : 'BİLGİ FİŞİDİR - MALİ DEĞERİ YOKTUR'
+    ) :
     slipType === 'collection' ? 'TAHSİLAT BİLGİ MAKBUZUDUR' :
     slipType === 'return' ? 'SAHA İADE VE DEĞİŞİM BELGESİDİR' :
     slipType === 'van_loading' ? 'ARAÇ DEPO TRANSFER FİŞİDİR' :
@@ -782,7 +790,11 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
   };
 
   const slipTitle = 
-    slipType === 'order' ? (orderData?.saleType === 'hot' ? '🔥 Sıcak Satış Teslim Fişi' : 'Sipariş Bilgi Fişi') :
+    slipType === 'order' ? (
+      orderData?.documentType === 'invoice' ? 'Satış Faturası' :
+      orderData?.documentType === 'receipt' ? 'Satış Fişi' :
+      orderData?.saleType === 'hot' ? '🔥 Sıcak Satış Teslim Fişi' : 'Sipariş Bilgi Fişi'
+    ) :
     slipType === 'collection' ? 'Tahsilat Makbuzu' :
     slipType === 'return' ? 'İade & Değişim Fişi' :
     slipType === 'van_loading' ? 'Araç Mal Yükleme Fişi' :

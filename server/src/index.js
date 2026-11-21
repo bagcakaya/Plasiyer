@@ -727,7 +727,13 @@ app.post('/api/orders', async (req, res) => {
     }
 
     const result = await erpQueries.createOrder({ companyCode, period, order });
-    console.log(`✅ Yeni Sipariş ERP12'ye Yazıldı: ${result.docNo} (Cari: ${order.customerCode})`);
+    const docLabel =
+      order.documentType === 'receipt'
+        ? 'Satış Fişi'
+        : order.documentType === 'invoice'
+        ? 'Satış Faturası'
+        : 'Sipariş';
+    console.log(`✅ Yeni ${docLabel} ERP12'ye Yazıldı: ${result.docNo} (Cari: ${order.customerCode})`);
     
     // Kampanya kazancı mesajı
     let campaignText = '';
@@ -739,8 +745,8 @@ app.post('/api/orders', async (req, res) => {
     broadcastNotification({
       id: 'notif-order-' + Date.now(),
       type: 'new_order',
-      title: '🔔 Yeni Sipariş Alındı!',
-      message: `${order.customerName || order.customerCode} için ${order.grandTotal?.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺ tutarında sipariş sisteme düştü${campaignText}.`,
+      title: `🔔 Yeni ${docLabel} Oluşturuldu!`,
+      message: `${order.customerName || order.customerCode} için ${order.grandTotal?.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺ tutarında ${docLabel.toLowerCase()} sisteme düştü${campaignText}.`,
       orderDocNo: result.docNo,
       orderTempId: order.tempId,
       amount: order.grandTotal,
@@ -752,7 +758,7 @@ app.post('/api/orders', async (req, res) => {
     res.json({
       success: true,
       docNo: result.docNo,
-      message: 'Sipariş ERP12 sistemine aktarıldı.',
+      message: `${docLabel} ERP12 sistemine aktarıldı.`,
     });
   } catch (err) {
     const activeCfg = sqlContext.getStore();

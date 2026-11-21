@@ -540,6 +540,20 @@ export const OrdersQueuePage: React.FC = () => {
                   <div className="flex items-start justify-between gap-2">
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 flex-wrap">
+                        {order.documentType === 'receipt' ? (
+                          <span className="text-[10px] font-extrabold text-emerald-700 dark:text-emerald-300 bg-emerald-100 dark:bg-emerald-950/70 border border-emerald-200 dark:border-emerald-900/60 px-1.5 py-0.5 rounded">
+                            Satış Fişi
+                          </span>
+                        ) : order.documentType === 'invoice' ? (
+                          <span className="text-[10px] font-extrabold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-900/60 px-1.5 py-0.5 rounded flex items-center gap-0.5">
+                            <FileCheck className="w-3 h-3" />
+                            <span>Satış Faturası</span>
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-extrabold text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/60 border border-blue-200/70 dark:border-blue-900/60 px-1.5 py-0.5 rounded">
+                            Sipariş
+                          </span>
+                        )}
                         <span className="text-[10px] font-mono font-bold text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded">
                           {order.tempId}
                         </span>
@@ -548,7 +562,7 @@ export const OrdersQueuePage: React.FC = () => {
                             {order.erp12DocNo}
                           </span>
                         )}
-                        {order.invoiceStatus === 'invoiced' && (
+                        {order.invoiceStatus === 'invoiced' && order.documentType !== 'invoice' && (
                           <span className="text-[10px] font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-100 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-900/60 px-1.5 py-0.5 rounded flex items-center gap-0.5">
                             <FileCheck className="w-3 h-3" />
                             <span>Faturalandı</span>

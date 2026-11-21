@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { useLiveQuery } from 'dexie-react-hooks';
+import { db } from '../db';
 import { 
   X, 
   FileCheck, 
@@ -27,10 +29,47 @@ export const CustomerInvoicesModal: React.FC<CustomerInvoicesModalProps> = ({
   const [statusFilter, setStatusFilter] = useState<'all' | 'unpaid' | 'overdue' | 'paid'>('all');
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
 
+  const realInvoiceOrders = useLiveQuery(
+    async () => {
+      if (!customer) return [];
+      const all = await db.orders.reverse().toArray();
+      return all.filter(
+        (o) =>
+          (o.documentType === 'invoice' || o.invoiceStatus === 'invoiced') &&
+          (o.customerId === customer.id || o.customerCode === customer.code)
+      );
+    },
+    [customer?.id, customer?.code]
+  ) || [];
+
   if (!isOpen || !customer) return null;
 
+  const realMappedInvoices = realInvoiceOrders.map((ord) => {
+    const dt = new Date(ord.invoicedAt || ord.orderDate || ord.createdAt);
+    const dateStr = dt.toLocaleDateString('tr-TR');
+    return {
+      id: `REAL-INV-${ord.id || ord.tempId}`,
+      invoiceNo: ord.erp12DocNo || ord.invoiceNo || ord.tempId,
+      date: dateStr,
+      dueDate: ord.deliveryDate ? new Date(ord.deliveryDate).toLocaleDateString('tr-TR') : dateStr,
+      type: 'Satış Faturası (ERP12)',
+      status: 'unpaid',
+      overdueDays: 0,
+      amount: ord.subtotal - ord.totalDiscount,
+      vat: ord.totalVat,
+      grandTotal: ord.grandTotal,
+      remainingAmount: ord.grandTotal,
+      items: (ord.items || []).map((it) => ({
+        name: it.productName,
+        quantity: it.quantity,
+        unitPrice: it.unitPrice,
+        total: it.grandTotal || it.totalAmount,
+      })),
+    };
+  });
+
   // Carinin kayıtlı / örnek ERP12 faturaları
-  const mockInvoices = [
+  const fallbackInvoices = [
     {
       id: 'INV-001',
       invoiceNo: 'GIB2026000012480',
@@ -49,42 +88,9 @@ export const CustomerInvoicesModal: React.FC<CustomerInvoicesModalProps> = ({
         { name: 'Duru Pilavlık Pirinç 2.5 Kg', quantity: 36, unitPrice: 84.72, total: 3050.00 },
       ],
     },
-    {
-      id: 'INV-002',
-      invoiceNo: 'GIB2026000011850',
-      date: '28.09.2026',
-      dueDate: '15.11.2026',
-      type: 'Toptan Satış E-Arşiv',
-      status: 'unpaid', // Açık / Bekleyen
-      overdueDays: 0,
-      amount: 38500.00,
-      vat: 7700.00,
-      grandTotal: 46200.00,
-      remainingAmount: 46200.00,
-      items: [
-        { name: 'Ariel Dağ Esintisi Toz Deterjan 5 Kg', quantity: 80, unitPrice: 240.00, total: 19200.00 },
-        { name: 'Balküpü Toz Şeker 5 Kg', quantity: 100, unitPrice: 150.00, total: 15000.00 },
-        { name: 'Sütaş Tam Yağlı Peynir 1 Kg', quantity: 22, unitPrice: 195.45, total: 4300.00 },
-      ],
-    },
-    {
-      id: 'INV-003',
-      invoiceNo: 'GIB2026000009410',
-      date: '15.08.2026',
-      dueDate: '30.08.2026',
-      type: 'Toptan Satış E-Faturası',
-      status: 'paid', // Tamamen Ödendi
-      overdueDays: 0,
-      amount: 22000.00,
-      vat: 4400.00,
-      grandTotal: 26400.00,
-      remainingAmount: 0.00,
-      items: [
-        { name: 'Tariş Sızma Zeytinyağı 5 Lt', quantity: 25, unitPrice: 580.00, total: 14500.00 },
-        { name: 'Doğuş Filiz Çay 1000 Gr', quantity: 50, unitPrice: 150.00, total: 7500.00 },
-      ],
-    },
   ];
+
+  const mockInvoices = realMappedInvoices.length > 0 ? realMappedInvoices : fallbackInvoices;
 
   const filteredInvoices = mockInvoices.filter((inv) => {
     const matchesSearch =

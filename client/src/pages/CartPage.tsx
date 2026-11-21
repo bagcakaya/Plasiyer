@@ -27,7 +27,9 @@ import {
   Snowflake,
   Search,
   RefreshCw,
-  UserX
+  UserX,
+  Receipt,
+  FileCheck
 } from 'lucide-react';
 
 const formatCurrency = (val: number) => {
@@ -250,11 +252,13 @@ export const CartPage: React.FC = () => {
   });
   const [orderNotes, setOrderNotes] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submittingDocType, setSubmittingDocType] = useState<'order' | 'receipt' | 'invoice' | null>(null);
   const [orderSuccessModal, setOrderSuccessModal] = useState<{
     show: boolean;
     orderId?: number;
     tempId?: string;
     savedOrder?: Order | null;
+    docType?: 'order' | 'receipt' | 'invoice';
   } | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
@@ -266,7 +270,7 @@ export const CartPage: React.FC = () => {
     }
   }, [activeCustomer]);
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (docType: 'order' | 'receipt' | 'invoice' = 'order') => {
     if (!activeCustomer) {
       setErrorMessage('Lütfen önce bir müşteri (cari) seçiniz.');
       return;
@@ -277,10 +281,12 @@ export const CartPage: React.FC = () => {
     }
 
     setIsSubmitting(true);
+    setSubmittingDocType(docType);
     setErrorMessage(null);
 
-    const result = await submitCurrentOrder(deliveryDate, orderNotes);
+    const result = await submitCurrentOrder(deliveryDate, orderNotes, docType);
     setIsSubmitting(false);
+    setSubmittingDocType(null);
 
     if (result.success) {
       let savedOrder: Order | null = null;
@@ -291,10 +297,14 @@ export const CartPage: React.FC = () => {
         show: true,
         orderId: result.orderId,
         savedOrder,
+        docType,
       });
       setOrderNotes('');
+      if ((docType === 'receipt' || docType === 'invoice') && savedOrder) {
+        openPrintSlip({ type: 'order', orderData: savedOrder });
+      }
     } else {
-      setErrorMessage(result.error || 'Sipariş kaydedilirken bir hata oluştu.');
+      setErrorMessage(result.error || 'İşlem kaydedilirken bir hata oluştu.');
     }
   };
 
@@ -700,43 +710,112 @@ export const CartPage: React.FC = () => {
         </div>
 
         {!activeCustomer && userRole === 'plasiyer' ? (
-          <button
-            type="button"
-            onClick={openCustomerSelectModal}
-            className="w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white bg-amber-600 hover:bg-amber-700"
-          >
-            <UserPlus className="w-4 h-4" />
-            <span>Siparişi Onaylamak İçin Cari Seç</span>
-          </button>
+          <div className="space-y-2.5">
+            {/* 1. Siparişi Onaylamak İçin Cari Seç */}
+            <button
+              type="button"
+              onClick={openCustomerSelectModal}
+              className="w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white bg-amber-600 hover:bg-amber-700 cursor-pointer"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>Siparişi Onaylamak İçin Cari Seç</span>
+            </button>
+
+            {/* 2. Fiş Yazdırmak İçin Cari Seç */}
+            <button
+              type="button"
+              onClick={openCustomerSelectModal}
+              className="w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white bg-emerald-600 hover:bg-emerald-700 cursor-pointer"
+            >
+              <Receipt className="w-4 h-4" />
+              <span>Fiş Yazdırmak İçin Cari Seç</span>
+            </button>
+
+            {/* 3. Fatura Yazdırmak İçin Cari Seç */}
+            <button
+              type="button"
+              onClick={openCustomerSelectModal}
+              className="w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white bg-indigo-600 hover:bg-indigo-700 cursor-pointer"
+            >
+              <FileCheck className="w-4 h-4" />
+              <span>Fatura Yazdırmak İçin Cari Seç</span>
+            </button>
+          </div>
         ) : (
-          <button
-            onClick={handleSubmit}
-            disabled={isSubmitting || !activeCustomer}
-            className={`w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white ${
-              isSubmitting || !activeCustomer
-                ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
-                : userRole === 'customer'
-                ? 'bg-emerald-600 hover:bg-emerald-700'
-                : saleMode === 'hot'
-                ? 'bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-700 hover:to-rose-700 shadow-amber-500/20'
-                : 'bg-blue-600 hover:bg-blue-700'
-            }`}
-          >
-            {saleMode === 'hot' && userRole === 'plasiyer' ? (
-              <Flame className="w-4 h-4 animate-pulse" />
-            ) : (
-              <Send className="w-4 h-4" />
+          <div className="space-y-2.5">
+            {/* 1. Siparişi Onayla (ERP12 Alınan Sipariş) */}
+            <button
+              type="button"
+              onClick={() => handleSubmit('order')}
+              disabled={isSubmitting || !activeCustomer}
+              className={`w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white cursor-pointer ${
+                isSubmitting || !activeCustomer
+                  ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
+                  : userRole === 'customer'
+                  ? 'bg-emerald-600 hover:bg-emerald-700'
+                  : saleMode === 'hot'
+                  ? 'bg-gradient-to-r from-amber-600 to-rose-600 hover:from-amber-700 hover:to-rose-700 shadow-amber-500/20'
+                  : 'bg-blue-600 hover:bg-blue-700'
+              }`}
+            >
+              {saleMode === 'hot' && userRole === 'plasiyer' ? (
+                <Flame className="w-4 h-4 animate-pulse" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+              <span>
+                {isSubmitting && submittingDocType === 'order'
+                  ? 'Sipariş Kaydediliyor...'
+                  : userRole === 'customer'
+                  ? 'Siparişi Tamamla & Onayla'
+                  : saleMode === 'hot'
+                  ? '🔥 Sıcak Satışı Onayla & Gönder (Araçtan Teslim)'
+                  : 'Siparişi Onayla & Gönder'}
+              </span>
+            </button>
+
+            {userRole === 'plasiyer' && (
+              <>
+                {/* 2. Fiş Yazdır (ERP12 Satış Fişi - FIS_TURU=20) */}
+                <button
+                  type="button"
+                  onClick={() => handleSubmit('receipt')}
+                  disabled={isSubmitting || !activeCustomer}
+                  className={`w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white cursor-pointer ${
+                    isSubmitting || !activeCustomer
+                      ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
+                      : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
+                  }`}
+                >
+                  <Receipt className="w-4 h-4" />
+                  <span>
+                    {isSubmitting && submittingDocType === 'receipt'
+                      ? 'Satış Fişi ERP12’ye Yazılıyor...'
+                      : 'Fiş Yazdır'}
+                  </span>
+                </button>
+
+                {/* 3. Fatura Yazdır (ERP12 Satış Faturası - FIS_TURU=2) */}
+                <button
+                  type="button"
+                  onClick={() => handleSubmit('invoice')}
+                  disabled={isSubmitting || !activeCustomer}
+                  className={`w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white cursor-pointer ${
+                    isSubmitting || !activeCustomer
+                      ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
+                      : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/20'
+                  }`}
+                >
+                  <FileCheck className="w-4 h-4" />
+                  <span>
+                    {isSubmitting && submittingDocType === 'invoice'
+                      ? 'Satış Faturası ERP12’ye Yazılıyor...'
+                      : 'Fatura Yazdır'}
+                  </span>
+                </button>
+              </>
             )}
-            <span>
-              {isSubmitting
-                ? 'Kaydediliyor...'
-                : userRole === 'customer'
-                ? 'Siparişi Tamamla & Onayla'
-                : saleMode === 'hot'
-                ? '🔥 Sıcak Satışı Onayla & Fiş Kes (Araçtan Teslim)'
-                : 'Siparişi Onayla & Gönder'}
-            </span>
-          </button>
+          </div>
         )}
       </div>
 
@@ -747,15 +826,25 @@ export const CartPage: React.FC = () => {
             <div className="w-14 h-14 bg-emerald-100 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 rounded-full flex items-center justify-center mx-auto">
               <CheckCircle className="w-8 h-8" />
             </div>
-            <h3 className="text-base font-bold">Sipariş Başarıyla Alındı!</h3>
+            <h3 className="text-base font-bold">
+              {orderSuccessModal.docType === 'receipt'
+                ? 'Satış Fişi Başarıyla Oluşturuldu!'
+                : orderSuccessModal.docType === 'invoice'
+                ? 'Satış Faturası Başarıyla Oluşturuldu!'
+                : 'Sipariş Başarıyla Alındı!'}
+            </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
-              {isOnline
+              {orderSuccessModal.docType === 'receipt'
+                ? 'Seçtiğiniz ürünler ERP12 (Fiş → Satış Fişi) ve Plasiyer sistemine kaydedildi.'
+                : orderSuccessModal.docType === 'invoice'
+                ? 'Seçtiğiniz ürünler ERP12 (Fatura → Satış Faturası) ve Plasiyer sistemine kaydedildi.'
+                : isOnline
                 ? 'Seçtiğiniz ürünler siparişe dönüştürülerek sisteme iletildi. Yetkili onayının ardından faturalandırma ve sevkiyat başlayacaktır.'
                 : 'Seçtiğiniz ürünler cihaz hafızasına kaydedildi. İnternet bağlantısı sağlandığında otomatik senkronize edilecektir.'}
             </p>
             {cart.length > 0 && (
               <div className="p-2.5 rounded-xl bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/70 text-[11px] font-semibold text-amber-800 dark:text-amber-300">
-                İşaretini kaldırdığınız <strong>{cart.length} ürün</strong> daha sonra sipariş verebilmeniz için sepetinizde bırakıldı.
+                İşaretini kaldırdığınız <strong>{cart.length} ürün</strong> daha sonra işlem yapabilmeniz için sepetinizde bırakıldı.
               </div>
             )}
 
@@ -773,7 +862,9 @@ export const CartPage: React.FC = () => {
                   className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-bold py-2.5 rounded-xl transition flex items-center justify-center gap-1.5 shadow-md active:scale-95"
                 >
                   <Printer className="w-4 h-4" />
-                  <span>Fiş Yazdır</span>
+                  <span>
+                    {orderSuccessModal.docType === 'invoice' ? 'Fatura Yazdır' : 'Fiş Yazdır'}
+                  </span>
                 </button>
               )}
               {cart.length > 0 && (

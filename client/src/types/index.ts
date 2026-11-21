@@ -100,7 +100,8 @@ export interface OrderItem {
 
 export interface Order {
   id?: number; // Dexie auto-increment ID
-  tempId: string; // "SIP-20261008-XXXX"
+  tempId: string; // "ORD-20261008-XXXX" | "FIS-..." | "FTR-..."
+  documentType?: 'order' | 'receipt' | 'invoice'; // 'order': Alınan Sipariş, 'receipt': Satış Fişi (FIS_TURU=20), 'invoice': Satış Faturası (FIS_TURU=2)
   customerId: string;
   customerCode: string;
   customerName: string;
