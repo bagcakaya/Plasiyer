@@ -18,7 +18,6 @@ import {
   Building, 
   Check,
   ChevronRight,
-  ChevronLeft,
   ChevronDown,
   ChevronUp,
   BarChart3,
@@ -31,7 +30,7 @@ import { CustomerInvoicesModal } from '../components/CustomerInvoicesModal';
 import { CustomerOrdersModal } from '../components/CustomerOrdersModal';
 import { CustomerStatementModal } from '../components/CustomerStatementModal';
 import { CustomerHistoryModal } from '../components/CustomerHistoryModal';
-import { filterCustomersForPlasiyer, getCustomerRegionCode } from '../utils/plasiyerScope';
+import { filterCustomersForPlasiyer } from '../utils/plasiyerScope';
 
 export const CustomersPage: React.FC = () => {
   const { 
@@ -48,7 +47,6 @@ export const CustomersPage: React.FC = () => {
   } = useApp();
 
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedRegion, setSelectedRegion] = useState<string>('ALL');
   const [activeIndex, setActiveIndex] = useState(0);
   const [expandedCustomerId, setExpandedCustomerId] = useState<string | null>(null);
   const [updateToast, setUpdateToast] = useState<{ message: string; success: boolean } | null>(null);
@@ -63,16 +61,7 @@ export const CustomersPage: React.FC = () => {
   const [historyModalCustomer, setHistoryModalCustomer] = useState<Customer | null>(null);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const regionScrollRef = useRef<HTMLDivElement>(null);
   const cardRefs = useRef<Record<string, HTMLDivElement | null>>({});
-
-  // Rut bölgesi yatay kaydırma okları ve mouse sürükleme
-  const [showRegionLeftArrow, setShowRegionLeftArrow] = useState(false);
-  const [showRegionRightArrow, setShowRegionRightArrow] = useState(false);
-  const [isRegionMouseDown, setIsRegionMouseDown] = useState(false);
-  const [regionStartX, setRegionStartX] = useState(0);
-  const [regionScrollLeftStart, setRegionScrollLeftStart] = useState(0);
-  const [isRegionDragging, setIsRegionDragging] = useState(false);
 
   // Cari listesi dikey mouse sürükleme ile kaydırma
   const [isListMouseDown, setIsListMouseDown] = useState(false);
@@ -87,34 +76,11 @@ export const CustomersPage: React.FC = () => {
     [rawCustomers, currentUser, isCompanyManager]
   );
 
-  // Mevcut görünür carilerdeki Rut Bölgeleri listesi
-  const availableRegions = useMemo(() => {
-    const counts = new Map<string, number>();
-    for (const c of customers) {
-      const reg = getCustomerRegionCode(c);
-      if (!reg || reg === 'GENEL') continue;
-      counts.set(reg, (counts.get(reg) || 0) + 1);
-    }
-    return Array.from(counts.entries())
-      .sort((a, b) => a[0].localeCompare(b[0], 'tr-TR'))
-      .map(([name, count]) => ({ name, count }));
-  }, [customers]);
-
-  useEffect(() => {
-    if (selectedRegion !== 'ALL' && !availableRegions.some((r) => r.name === selectedRegion)) {
-      setSelectedRegion('ALL');
-    }
-  }, [availableRegions, selectedRegion]);
-
-  // Arama ve Rut Bölgesi filtreleme
+  // Arama filtreleme
   const filteredCustomers = useMemo(() => {
-    let base = customers;
-    if (selectedRegion !== 'ALL') {
-      base = base.filter((c) => getCustomerRegionCode(c) === selectedRegion);
-    }
-    if (!searchTerm.trim()) return base;
+    if (!searchTerm.trim()) return customers;
     const q = searchTerm.toLowerCase();
-    return base.filter(
+    return customers.filter(
       (c) =>
         c.name.toLowerCase().includes(q) ||
         c.code.toLowerCase().includes(q) ||
@@ -123,85 +89,21 @@ export const CustomersPage: React.FC = () => {
         (c.regionCode && c.regionCode.toLowerCase().includes(q)) ||
         (c.taxNumber && c.taxNumber.includes(q))
     );
-  }, [customers, searchTerm, selectedRegion]);
+  }, [customers, searchTerm]);
 
-  // Arama veya bölge değiştiğinde başa sar
+  // Arama değiştiğinde başa sar
   useEffect(() => {
     setActiveIndex(0);
     setVisibleCustomerCount(CUSTOMERS_PAGE_SIZE);
     if (containerRef.current) {
       containerRef.current.scrollTo({ top: 0, behavior: 'smooth' });
     }
-  }, [searchTerm, selectedRegion]);
+  }, [searchTerm]);
 
   const visibleCustomers = useMemo(
     () => filteredCustomers.slice(0, visibleCustomerCount),
     [filteredCustomers, visibleCustomerCount]
   );
-
-  // Rut bölgesi kaydırma oklarını güncelle
-  const updateRegionScrollArrows = () => {
-    if (!regionScrollRef.current) return;
-    const { scrollLeft, scrollWidth, clientWidth } = regionScrollRef.current;
-    setShowRegionLeftArrow(scrollLeft > 6);
-    setShowRegionRightArrow(scrollLeft < scrollWidth - clientWidth - 6);
-  };
-
-  useEffect(() => {
-    const el = regionScrollRef.current;
-    if (!el) return;
-    updateRegionScrollArrows();
-    const timer = setTimeout(updateRegionScrollArrows, 80);
-
-    const onWheel = (e: WheelEvent) => {
-      if (e.deltaY !== 0 || e.deltaX !== 0) {
-        e.preventDefault();
-        el.scrollLeft += e.deltaY !== 0 ? e.deltaY : e.deltaX;
-        updateRegionScrollArrows();
-      }
-    };
-    el.addEventListener('wheel', onWheel, { passive: false });
-    window.addEventListener('resize', updateRegionScrollArrows);
-    return () => {
-      clearTimeout(timer);
-      el.removeEventListener('wheel', onWheel);
-      window.removeEventListener('resize', updateRegionScrollArrows);
-    };
-  }, [availableRegions.length]);
-
-  const handleRegionScrollByButton = (dir: 'left' | 'right') => {
-    if (!regionScrollRef.current) return;
-    regionScrollRef.current.scrollBy({
-      left: dir === 'left' ? -240 : 240,
-      behavior: 'smooth',
-    });
-    setTimeout(updateRegionScrollArrows, 280);
-  };
-
-  const handleRegionMouseDown = (e: React.MouseEvent) => {
-    if (!regionScrollRef.current) return;
-    setIsRegionMouseDown(true);
-    setIsRegionDragging(false);
-    setRegionStartX(e.pageX - regionScrollRef.current.getBoundingClientRect().left);
-    setRegionScrollLeftStart(regionScrollRef.current.scrollLeft);
-  };
-
-  const handleRegionMouseMove = (e: React.MouseEvent) => {
-    if (!isRegionMouseDown || !regionScrollRef.current) return;
-    e.preventDefault();
-    const x = e.pageX - regionScrollRef.current.getBoundingClientRect().left;
-    const dist = x - regionStartX;
-    if (Math.abs(dist) > 5) {
-      setIsRegionDragging(true);
-    }
-    regionScrollRef.current.scrollLeft = regionScrollLeftStart - dist;
-    updateRegionScrollArrows();
-  };
-
-  const handleRegionMouseUpOrLeave = () => {
-    setIsRegionMouseDown(false);
-    setTimeout(() => setIsRegionDragging(false), 60);
-  };
 
   // Cari listesi dikey mouse sürükleme
   const handleListMouseDown = (e: React.MouseEvent) => {
@@ -461,88 +363,6 @@ export const CustomersPage: React.FC = () => {
             <span>{isSyncing ? 'Alınıyor...' : 'Güncelle'}</span>
           </button>
         </div>
-
-        {/* Rut Bölgesi Hızlı Filtre Çubuğu (Kaydırılabilir + Ok Butonlu) */}
-        {availableRegions.length > 0 && (
-          <div className="relative flex items-center pt-1.5 pb-0.5">
-            {showRegionLeftArrow && (
-              <button
-                type="button"
-                onClick={() => handleRegionScrollByButton('left')}
-                className="absolute left-0 top-1/2 -translate-y-1/2 z-20 w-6 h-6 rounded-full bg-white/95 dark:bg-slate-800/95 border border-blue-300 dark:border-slate-600 shadow-md text-blue-600 dark:text-blue-400 flex items-center justify-center hover:scale-110 active:scale-95 transition cursor-pointer"
-                title="Sola Kaydır"
-              >
-                <ChevronLeft className="w-3.5 h-3.5" />
-              </button>
-            )}
-
-            {showRegionRightArrow && (
-              <button
-                type="button"
-                onClick={() => handleRegionScrollByButton('right')}
-                className="absolute right-0 top-1/2 -translate-y-1/2 z-20 w-6 h-6 rounded-full bg-white/95 dark:bg-slate-800/95 border border-blue-300 dark:border-slate-600 shadow-md text-blue-600 dark:text-blue-400 flex items-center justify-center hover:scale-110 active:scale-95 transition cursor-pointer"
-                title="Sağa Kaydır"
-              >
-                <ChevronRight className="w-3.5 h-3.5" />
-              </button>
-            )}
-
-            <div
-              ref={regionScrollRef}
-              onScroll={updateRegionScrollArrows}
-              onMouseDown={handleRegionMouseDown}
-              onMouseMove={handleRegionMouseMove}
-              onMouseUp={handleRegionMouseUpOrLeave}
-              onMouseLeave={handleRegionMouseUpOrLeave}
-              className={`flex-1 flex items-center gap-1.5 overflow-x-auto no-scrollbar pr-4 touch-pan-x select-none ${
-                isRegionMouseDown ? 'cursor-grabbing' : 'cursor-grab scroll-smooth'
-              }`}
-            >
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isRegionDragging) setSelectedRegion('ALL');
-                }}
-                className={`shrink-0 px-2.5 py-1 rounded-xl text-[11px] font-extrabold border transition ${
-                  selectedRegion === 'ALL'
-                    ? 'bg-blue-600 border-blue-600 text-white shadow-2xs'
-                    : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-300 hover:border-blue-400'
-                }`}
-              >
-                Tüm Rutlar ({customers.length})
-              </button>
-              {availableRegions.map((reg) => {
-                const active = selectedRegion === reg.name;
-                return (
-                  <button
-                    key={reg.name}
-                    type="button"
-                    onClick={() => {
-                      if (!isRegionDragging) setSelectedRegion(active ? 'ALL' : reg.name);
-                    }}
-                    className={`shrink-0 px-2.5 py-1 rounded-xl text-[11px] font-bold border transition flex items-center gap-1 ${
-                      active
-                        ? 'bg-blue-600 border-blue-600 text-white shadow-2xs'
-                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:border-blue-400'
-                    }`}
-                  >
-                    <MapPin className={`w-3 h-3 ${active ? 'text-white' : 'text-blue-500'}`} />
-                    <span>{reg.name}</span>
-                    <span
-                      className={`text-[10px] px-1 rounded ${
-                        active
-                          ? 'bg-white/20 text-white'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-                      }`}
-                    >
-                      {reg.count}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-        )}
       </div>
 
       {/* 2. Çekmece (Drawer) Tarzı Kaydırmalı Cari Kartları (Görsel-2: Kapalıyken Sadece Başlık & Adres, Görsel-1: Açılınca Finans & İşlem Butonları) */}
