@@ -1,4 +1,4 @@
-import type { Customer, Product, Order, CollectionRecord, ServerConfig, CustomerStatement, CustomerHistoryResponse, CustomerHistoryItem, CustomerHistoryFinancial, ReturnRecord, CompanyIssuerInfo, PlasiyerAccount } from '../types';
+import type { Customer, Product, Order, CollectionRecord, ServerConfig, CustomerStatement, CustomerHistoryResponse, CustomerHistoryItem, CustomerHistoryFinancial, ReturnRecord, CompanyIssuerInfo, PlasiyerAccount, ErpLocation, ErpLocationType, VanStockItem } from '../types';
 import { db, initialCustomers, initialProducts } from '../db';
 
 export const isDemoMode = (config?: ServerConfig): boolean => {
@@ -334,6 +334,142 @@ export const apiService = {
       clearTimeout(timeoutId);
       throw handleFetchError(err);
     }
+  },
+
+  // ERP12'den Çoklu Araç / Şube (LOKASYON) Listesini Çek
+  async fetchLocations(config: ServerConfig): Promise<ErpLocation[]> {
+    if (isDemoMode(config)) {
+      return [
+        {
+          id: '75919',
+          parentId: '0',
+          name: 'Merkez',
+          plate: 'Merkez',
+          type: 'merkez',
+          codeLabel: '01 Merkez Depo',
+          itemCount: 8,
+          totalQuantity: 1567,
+        },
+        {
+          id: '2653964',
+          parentId: '75919',
+          name: '25 ADY 050',
+          plate: '25 ADY 050',
+          type: 'arac',
+          codeLabel: '02 Araç Depo',
+          itemCount: 6,
+          totalQuantity: 150,
+        },
+        {
+          id: '483822',
+          parentId: '75919',
+          name: '25 GB 875',
+          plate: '25 GB 875',
+          type: 'arac',
+          codeLabel: '03 Araç Depo',
+          itemCount: 1,
+          totalQuantity: 12,
+        },
+      ];
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000);
+    try {
+      const baseUrl = await resolveApiBaseUrlAsync(config, true);
+      const querySuffix = `/locations?company=${encodeURIComponent(config.companyCode || '01')}`;
+      const reqHeaders = { ...buildSqlHeaders(config) };
+      let response = await fetch(`${baseUrl}${querySuffix}`, {
+        headers: reqHeaders,
+        signal: controller.signal,
+      }).catch(() => null);
+      if ((!response || !response.ok) && baseUrl !== '/api') {
+        response = await fetch(`/api${querySuffix}`, {
+          headers: reqHeaders,
+          signal: controller.signal,
+        }).catch(() => null);
+      }
+      clearTimeout(timeoutId);
+      if (!response || !response.ok) return [];
+      const data = await response.json().catch(() => null);
+      return Array.isArray(data?.locations) ? data.locations : [];
+    } catch {
+      clearTimeout(timeoutId);
+      return [];
+    }
+  },
+
+  // ERP12'den Seçili Araç veya Şube (LOKASYON) İçi Canlı Stokları Çek
+  async fetchLocationStocks(config: ServerConfig, locationParam: string): Promise<VanStockItem[]> {
+    if (isDemoMode(config)) {
+      return [];
+    }
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 20000);
+    try {
+      const baseUrl = await resolveApiBaseUrlAsync(config, true);
+      const querySuffix = `/locations/stocks?company=${encodeURIComponent(config.companyCode || '01')}&location=${encodeURIComponent(locationParam)}`;
+      const reqHeaders = { ...buildSqlHeaders(config) };
+      let response = await fetch(`${baseUrl}${querySuffix}`, {
+        headers: reqHeaders,
+        signal: controller.signal,
+      }).catch(() => null);
+      if ((!response || !response.ok) && baseUrl !== '/api') {
+        response = await fetch(`/api${querySuffix}`, {
+          headers: reqHeaders,
+          signal: controller.signal,
+        }).catch(() => null);
+      }
+      clearTimeout(timeoutId);
+      if (!response || !response.ok) return [];
+      const data = await response.json().catch(() => null);
+      return Array.isArray(data?.stocks) ? data.stocks : [];
+    } catch {
+      clearTimeout(timeoutId);
+      return [];
+    }
+  },
+
+  // ERP12'ye Yeni Araç veya Şube (LOKASYON) Ekle
+  async createLocation(
+    config: ServerConfig,
+    payload: { name: string; type: ErpLocationType; plate?: string; address?: string; phone?: string }
+  ): Promise<ErpLocation> {
+    if (isDemoMode(config)) {
+      return {
+        id: 'LOK-' + Date.now(),
+        parentId: '75919',
+        name: payload.name.trim(),
+        plate: payload.plate || (payload.type === 'arac' ? payload.name.trim() : ''),
+        type: payload.type,
+        codeLabel: payload.type === 'arac' ? 'Araç Depo' : payload.type === 'merkez' ? 'Merkez Depo' : 'Şube Depo',
+        address: payload.address || '',
+        phone: payload.phone || '',
+        itemCount: 0,
+        totalQuantity: 0,
+      };
+    }
+
+    const baseUrl = await resolveApiBaseUrlAsync(config, true);
+    const response = await fetch(`${baseUrl}/locations`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...buildSqlHeaders(config),
+      },
+      body: JSON.stringify({
+        companyCode: config.companyCode,
+        ...payload,
+      }),
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.detail || errData.error || `Araç/Şube ERP12'ye eklenemedi (HTTP ${response.status})`);
+    }
+    const data = await response.json();
+    return data.location as ErpLocation;
   },
 
   // ERP12'ye Siparişi İlet

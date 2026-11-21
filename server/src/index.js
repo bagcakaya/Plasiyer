@@ -960,6 +960,69 @@ app.get('/api/campaigns', (req, res) => {
   res.json({ success: true, campaigns });
 });
 
+// 7.B. ÇOKLU ARAÇ & ŞUBE (LOKASYON) LİSTESİ, LOKASYON STOKLARI VE YENİ ARAÇ/ŞUBE EKLEME
+app.get('/api/locations', async (req, res) => {
+  try {
+    const companyCode = String(req.query.company || req.query.companyCode || '').trim().toUpperCase();
+    let activeCtx = sqlContext.getStore();
+    if ((!activeCtx || !activeCtx.sqlHost) && companyCode) {
+      activeCtx = await cloudRegistry.findCompanyServerConfig(companyCode);
+    }
+    const locations =
+      activeCtx && activeCtx.sqlHost
+        ? await sqlContext.run(activeCtx, () => erpQueries.getLocations())
+        : await erpQueries.getLocations();
+    res.json({ success: true, locations });
+  } catch (err) {
+    console.warn('Lokasyon listesi çekme uyarısı:', err.message);
+    res.status(500).json({ error: 'Lokasyon listesi alınamadı', detail: err.message });
+  }
+});
+
+app.get('/api/locations/stocks', async (req, res) => {
+  try {
+    const companyCode = String(req.query.company || req.query.companyCode || '').trim().toUpperCase();
+    const locationParam = String(req.query.location || '').trim();
+    let activeCtx = sqlContext.getStore();
+    if ((!activeCtx || !activeCtx.sqlHost) && companyCode) {
+      activeCtx = await cloudRegistry.findCompanyServerConfig(companyCode);
+    }
+    const stocks =
+      activeCtx && activeCtx.sqlHost
+        ? await sqlContext.run(activeCtx, () => erpQueries.getLocationStocks(locationParam))
+        : await erpQueries.getLocationStocks(locationParam);
+    res.json({ success: true, stocks });
+  } catch (err) {
+    console.warn('Lokasyon stokları çekme uyarısı:', err.message);
+    res.status(500).json({ error: 'Lokasyon stokları alınamadı', detail: err.message });
+  }
+});
+
+app.post('/api/locations', async (req, res) => {
+  try {
+    const companyCode = String(req.body?.companyCode || req.query.company || '').trim().toUpperCase();
+    let activeCtx = sqlContext.getStore();
+    if ((!activeCtx || !activeCtx.sqlHost) && companyCode) {
+      activeCtx = await cloudRegistry.findCompanyServerConfig(companyCode);
+    }
+    const payload = {
+      name: req.body?.name,
+      type: req.body?.type,
+      plate: req.body?.plate,
+      address: req.body?.address,
+      phone: req.body?.phone,
+    };
+    const location =
+      activeCtx && activeCtx.sqlHost
+        ? await sqlContext.run(activeCtx, () => erpQueries.createLocation(payload))
+        : await erpQueries.createLocation(payload);
+    res.json({ success: true, location });
+  } catch (err) {
+    console.error('Yeni lokasyon/araç/şube ekleme hatası:', err.message);
+    res.status(500).json({ error: 'Araç veya şube ERP12 veritabanına eklenemedi', detail: err.message });
+  }
+});
+
 // 8. PLASİYER & FİRMA YETKİLİSİ KULLANICI YÖNETİMİ VE GİRİŞ DOĞRULAMA
 app.get('/api/plasiyers', async (req, res) => {
   try {

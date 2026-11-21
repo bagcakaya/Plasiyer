@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { db } from '../db';
 import { useLiveQuery } from 'dexie-react-hooks';
-import type { VanLoadingItem, VanAuditItem } from '../types';
+import type { VanLoadingItem, VanAuditItem, ErpLocationType } from '../types';
 import {
   Truck,
   Flame,
@@ -16,7 +16,13 @@ import {
   ClipboardCheck,
   Package,
   Layers,
-  Edit2
+  Edit2,
+  Building2,
+  Warehouse,
+  RefreshCw,
+  UserCheck,
+  MapPin,
+  X
 } from 'lucide-react';
 
 export const VanStockPage: React.FC = () => {
@@ -25,6 +31,11 @@ export const VanStockPage: React.FC = () => {
     setSaleMode,
     vanPlate,
     setVanPlate,
+    erpLocations,
+    activeLocation,
+    isLoadingLocationStocks,
+    refreshLocations,
+    addErpLocation,
     vanStocks,
     vanLoadings,
     vanAudits,
@@ -35,8 +46,17 @@ export const VanStockPage: React.FC = () => {
 
   const [activeSubTab, setActiveSubTab] = useState<'stocks' | 'loading' | 'audit' | 'history'>('stocks');
   const [searchTerm, setSearchTerm] = useState('');
+  const [visibleStockCount, setVisibleStockCount] = useState(60);
   const [isEditingPlate, setIsEditingPlate] = useState(false);
   const [plateInput, setPlateInput] = useState(vanPlate);
+
+  // Yeni Araç / Şube Ekleme Form State
+  const [isAddLocationOpen, setIsAddLocationOpen] = useState(false);
+  const [newLocType, setNewLocType] = useState<ErpLocationType>('arac');
+  const [newLocName, setNewLocName] = useState('');
+  const [newLocAddress, setNewLocAddress] = useState('');
+  const [newLocPhone, setNewLocPhone] = useState('');
+  const [isCreatingLocation, setIsCreatingLocation] = useState(false);
 
   // Ürünler veritabanından
   const allProducts = useLiveQuery(() => db.products.toArray(), []) || [];
@@ -61,10 +81,10 @@ export const VanStockPage: React.FC = () => {
   );
 
   // İcmal Sayıları
-  const totalItemsCount = vanStocks.reduce((sum, s) => sum + s.currentStock, 0);
-  const totalSoldToday = vanStocks.reduce((sum, s) => sum + s.totalSoldToday, 0);
-  const totalReturnedToday = vanStocks.reduce((sum, s) => sum + s.totalReturnedToday, 0);
-  const totalLoadedToday = vanStocks.reduce((sum, s) => sum + s.totalLoadedToday, 0);
+  const totalItemsCount = Math.round(vanStocks.reduce((sum, s) => sum + s.currentStock, 0) * 100) / 100;
+  const totalSoldToday = Math.round(vanStocks.reduce((sum, s) => sum + s.totalSoldToday, 0) * 100) / 100;
+  const totalReturnedToday = Math.round(vanStocks.reduce((sum, s) => sum + s.totalReturnedToday, 0) * 100) / 100;
+  const totalLoadedToday = Math.round(vanStocks.reduce((sum, s) => sum + s.totalLoadedToday, 0) * 100) / 100;
 
   // Plaka kaydet
   const handleSavePlate = () => {
@@ -73,6 +93,41 @@ export const VanStockPage: React.FC = () => {
       setIsEditingPlate(false);
     }
   };
+
+  // Yeni Araç / Şube (Lokasyon) Kaydet
+  const handleCreateLocation = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newLocName.trim()) return;
+    setIsCreatingLocation(true);
+    try {
+      await addErpLocation({
+        name: newLocName.trim(),
+        type: newLocType,
+        plate: newLocType === 'arac' ? newLocName.trim().toUpperCase() : newLocName.trim(),
+        address: newLocAddress.trim(),
+        phone: newLocPhone.trim(),
+      });
+      setNewLocName('');
+      setNewLocAddress('');
+      setNewLocPhone('');
+      setIsAddLocationOpen(false);
+    } catch (err: any) {
+      alert('Araç / Şube eklenemedi: ' + (err.message || 'Bilinmeyen hata'));
+    } finally {
+      setIsCreatingLocation(false);
+    }
+  };
+
+  const activeType: ErpLocationType = activeLocation?.type || 'arac';
+  const activeHeaderTitle =
+    activeType === 'merkez'
+      ? 'Merkez Ana Depo'
+      : activeType === 'sube'
+      ? 'Şube / Bölge Deposu'
+      : 'Mobil Araç Deposu';
+  const activeCodeBadge =
+    activeLocation?.codeLabel ||
+    (activeType === 'merkez' ? '01 Merkez Depo' : activeType === 'sube' ? 'Şube Depo' : '02 Araç Depo');
 
   // Yükleme sepetine ekleme
   const handleAddLoadingItem = () => {
@@ -176,22 +231,41 @@ export const VanStockPage: React.FC = () => {
 
   return (
     <div className="space-y-4 pb-36 md:pb-12 animate-fadeIn w-full max-w-7xl mx-auto p-3 md:p-6">
-      {/* Üst Araç & Sıcak Satış Durum Kartı */}
+      {/* Üst Araç / Şube & Sıcak Satış Durum Kartı */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-5 shadow-sm space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          {/* Araç & Plaka Bilgisi */}
+          {/* Araç / Şube & Plaka Bilgisi */}
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 rounded-2xl bg-amber-500/10 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0 shadow-xs">
-              <Truck className="w-6 h-6" />
+            <div
+              className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 shadow-xs ${
+                activeType === 'merkez'
+                  ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
+                  : activeType === 'sube'
+                  ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                  : 'bg-amber-500/10 text-amber-600 dark:text-amber-400'
+              }`}
+            >
+              {activeType === 'merkez' ? (
+                <Warehouse className="w-6 h-6" />
+              ) : activeType === 'sube' ? (
+                <Building2 className="w-6 h-6" />
+              ) : (
+                <Truck className="w-6 h-6" />
+              )}
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">Mobil Araç Deposu</span>
+                <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  {activeHeaderTitle}
+                </span>
                 {!isEditingPlate && (
-                  <button 
-                    onClick={() => setIsEditingPlate(true)}
+                  <button
+                    onClick={() => {
+                      setPlateInput(vanPlate);
+                      setIsEditingPlate(true);
+                    }}
                     className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
-                    title="Plakayı Değiştir"
+                    title="Araç Plakası / Şube Seç"
                   >
                     <Edit2 className="w-3.5 h-3.5" />
                   </button>
@@ -203,70 +277,287 @@ export const VanStockPage: React.FC = () => {
                     type="text"
                     value={plateInput}
                     onChange={(e) => setPlateInput(e.target.value)}
-                    className="px-2.5 py-1 text-sm font-black border border-slate-300 dark:border-slate-700 rounded-lg uppercase w-32 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
+                    className="px-2.5 py-1 text-sm font-black border border-slate-300 dark:border-slate-700 rounded-lg uppercase w-36 bg-slate-50 dark:bg-slate-800 text-slate-900 dark:text-white"
                   />
                   <button
                     onClick={handleSavePlate}
                     className="px-2.5 py-1 text-xs bg-emerald-600 text-white font-bold rounded-lg"
                   >
-                    Kaydet
+                    Seç
                   </button>
                   <button
-                    onClick={() => { setIsEditingPlate(false); setPlateInput(vanPlate); }}
+                    onClick={() => {
+                      setIsEditingPlate(false);
+                      setPlateInput(vanPlate);
+                    }}
                     className="px-2 py-1 text-xs text-slate-500 font-medium"
                   >
                     İptal
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center gap-2 mt-0.5">
+                <div className="flex flex-wrap items-center gap-2 mt-0.5">
                   <span className="text-lg font-black text-slate-900 dark:text-white tracking-wide bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-lg border border-slate-300 dark:border-slate-700 font-mono">
                     {vanPlate}
                   </span>
-                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">02 Araç Depo</span>
+                  <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
+                    {activeCodeBadge}
+                  </span>
+                  {activeLocation?.assignedRepNames && (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-md border border-indigo-500/20">
+                      <UserCheck className="w-3 h-3" />
+                      {activeLocation.assignedRepNames}
+                    </span>
+                  )}
                 </div>
               )}
             </div>
           </div>
 
-          {/* Satış Modu Butonları (Sıcak 🔥 vs Soğuk ❄️) */}
-          <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-2xl">
+          {/* Sağ Üst: Araç/Şube Ekle + Yenile + Satış Modu Butonları */}
+          <div className="flex flex-wrap items-center gap-2">
             <button
-              onClick={() => setSaleMode('hot')}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
-                saleMode === 'hot'
-                  ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
+              type="button"
+              onClick={() => setIsAddLocationOpen((prev) => !prev)}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition active:scale-95"
             >
-              <Flame className="w-4 h-4 text-amber-300 animate-pulse" />
-              <span>Sıcak Satış (Araçtan)</span>
+              <Plus className="w-4 h-4" />
+              <span>Araç / Şube Ekle</span>
             </button>
+
             <button
-              onClick={() => setSaleMode('cold')}
-              className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
-                saleMode === 'cold'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
-              }`}
+              type="button"
+              onClick={() => refreshLocations(vanPlate)}
+              disabled={isLoadingLocationStocks}
+              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition disabled:opacity-50"
+              title="ERP12 Araç & Şube Stoklarını Yenile"
             >
-              <Snowflake className="w-4 h-4 text-blue-200" />
-              <span>Soğuk Satış (Merkez)</span>
+              <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLocationStocks ? 'animate-spin' : ''}`} />
+              <span>Güncelle</span>
+            </button>
+
+            {/* Satış Modu Butonları (Sıcak 🔥 vs Soğuk ❄️) */}
+            <div className="flex items-center gap-1.5 p-1 bg-slate-100 dark:bg-slate-800 rounded-2xl">
+              <button
+                onClick={() => setSaleMode('hot')}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                  saleMode === 'hot'
+                    ? 'bg-amber-600 text-white shadow-md shadow-amber-600/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Flame className="w-4 h-4 text-amber-300 animate-pulse" />
+                <span>Sıcak Satış ({activeType === 'sube' ? 'Şubeden' : 'Araçtan'})</span>
+              </button>
+              <button
+                onClick={() => setSaleMode('cold')}
+                className={`flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                  saleMode === 'cold'
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30'
+                    : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
+                }`}
+              >
+                <Snowflake className="w-4 h-4 text-blue-200" />
+                <span>Soğuk Satış (Merkez)</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        {/* Çok Şubeli & Çok Araçlı Lokasyon Seçici Çekmecesi / Kartları */}
+        <div className="pt-2 border-t border-slate-100 dark:border-slate-800/70 space-y-2.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
+              <MapPin className="w-3.5 h-3.5 text-amber-500" />
+              <span>Kayıtlı Araçlar, Şubeler & Depolar ({erpLocations.length || 1})</span>
+            </span>
+            <span className="text-[11px] text-slate-400">
+              Stoklarını görmek veya işlem yapmak istediğiniz aracı/şubeyi seçin
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+            {erpLocations.map((loc) => {
+              const isSelected =
+                loc.name.trim().toUpperCase() === (vanPlate || '').trim().toUpperCase() ||
+                loc.plate.trim().toUpperCase() === (vanPlate || '').trim().toUpperCase();
+              const locIcon =
+                loc.type === 'merkez' ? (
+                  <Warehouse className="w-4 h-4 shrink-0" />
+                ) : loc.type === 'sube' ? (
+                  <Building2 className="w-4 h-4 shrink-0" />
+                ) : (
+                  <Truck className="w-4 h-4 shrink-0" />
+                );
+
+              return (
+                <button
+                  key={loc.id}
+                  type="button"
+                  onClick={() => setVanPlate(loc.name)}
+                  className={`text-left p-3 rounded-2xl border transition-all flex items-start justify-between gap-2 ${
+                    isSelected
+                      ? 'bg-amber-500/10 dark:bg-amber-500/15 border-amber-500/50 ring-2 ring-amber-500/30 shadow-xs'
+                      : 'bg-slate-50/80 dark:bg-slate-800/50 border-slate-200/80 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                  }`}
+                >
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-1.5">
+                      <span
+                        className={`p-1.5 rounded-xl ${
+                          isSelected
+                            ? 'bg-amber-500 text-white'
+                            : loc.type === 'merkez'
+                            ? 'bg-indigo-500/10 text-indigo-600 dark:text-indigo-400'
+                            : loc.type === 'sube'
+                            ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                            : 'bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                        }`}
+                      >
+                        {locIcon}
+                      </span>
+                      <div className="min-w-0">
+                        <div className="font-black text-sm text-slate-900 dark:text-white truncate font-mono">
+                          {loc.name}
+                        </div>
+                        <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                          {loc.codeLabel}
+                        </div>
+                      </div>
+                    </div>
+
+                    {loc.assignedRepNames && (
+                      <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium truncate">
+                        Plasiyer: {loc.assignedRepNames}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <span
+                      className={`inline-block text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        isSelected
+                          ? 'bg-amber-600 text-white'
+                          : 'bg-slate-200/80 dark:bg-slate-700 text-slate-700 dark:text-slate-300'
+                      }`}
+                    >
+                      {isSelected ? 'Aktif' : 'Seç'}
+                    </span>
+                    <div className="text-xs font-extrabold text-slate-800 dark:text-slate-200 mt-1">
+                      {isSelected ? vanStocks.length : loc.itemCount} Kalem
+                    </div>
+                    <div className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">
+                      {(isSelected ? totalItemsCount : loc.totalQuantity).toLocaleString('tr-TR')} Adet
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+
+            {/* Hızlı + Yeni Araç / Şube Ekle Kartı */}
+            <button
+              type="button"
+              onClick={() => setIsAddLocationOpen(true)}
+              className="p-3 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 dark:hover:border-emerald-500 text-slate-500 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition flex items-center justify-center gap-2 min-h-[76px]"
+            >
+              <Plus className="w-4 h-4" />
+              <span className="text-xs font-bold">+ Yeni Araç veya Şube Ekle</span>
             </button>
           </div>
         </div>
 
+        {/* Yeni Araç / Şube Ekleme Paneli */}
+        {isAddLocationOpen && (
+          <form
+            onSubmit={handleCreateLocation}
+            className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-800/80 border border-emerald-500/30 space-y-3 animate-fadeIn"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Plus className="w-4 h-4 text-emerald-600" />
+                <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800 dark:text-slate-100">
+                  Yeni Araç veya Şube Deposu Tanımla (ERP12 Entegreli)
+                </h4>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddLocationOpen(false)}
+                className="p-1 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 rounded-lg"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+              <div className="sm:col-span-3">
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 block mb-1">
+                  Lokasyon Türü
+                </label>
+                <select
+                  value={newLocType}
+                  onChange={(e) => setNewLocType(e.target.value as ErpLocationType)}
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-white"
+                >
+                  <option value="arac">Araç Deposu (Plaka)</option>
+                  <option value="sube">Şube / Bölge Deposu</option>
+                  <option value="merkez">Merkez / Ana Depo</option>
+                </select>
+              </div>
+
+              <div className="sm:col-span-3">
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 block mb-1">
+                  {newLocType === 'arac' ? 'Araç Plakası *' : 'Şube / Depo Adı *'}
+                </label>
+                <input
+                  type="text"
+                  required
+                  placeholder={newLocType === 'arac' ? 'Örn: 25 ABC 123' : 'Örn: OLTU ŞUBE'}
+                  value={newLocName}
+                  onChange={(e) => setNewLocName(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs font-bold text-slate-900 dark:text-white uppercase"
+                />
+              </div>
+
+              <div className="sm:col-span-4">
+                <label className="text-[11px] font-semibold text-slate-600 dark:text-slate-300 block mb-1">
+                  Şube Adresi / Açıklama (Opsiyonel)
+                </label>
+                <input
+                  type="text"
+                  placeholder="Şube adresi veya bölge bilgisi..."
+                  value={newLocAddress}
+                  onChange={(e) => setNewLocAddress(e.target.value)}
+                  className="w-full bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl px-3 py-2 text-xs text-slate-900 dark:text-white"
+                />
+              </div>
+
+              <div className="sm:col-span-2 flex items-end">
+                <button
+                  type="submit"
+                  disabled={isCreatingLocation || !newLocName.trim()}
+                  className="w-full py-2 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-xs rounded-xl transition shadow-xs"
+                >
+                  {isCreatingLocation ? 'Ekleniyor...' : 'Kaydet & Seç'}
+                </button>
+              </div>
+            </div>
+          </form>
+        )}
+
         {/* Aktif Mod Açıklaması */}
-        <div className={`p-3 rounded-2xl text-xs flex items-center gap-2 border ${
-          saleMode === 'hot'
-            ? 'bg-amber-500/10 border-amber-500/20 text-amber-900 dark:text-amber-200'
-            : 'bg-blue-500/10 border-blue-500/20 text-blue-900 dark:text-blue-200'
-        }`}>
+        <div
+          className={`p-3 rounded-2xl text-xs flex items-center gap-2 border ${
+            saleMode === 'hot'
+              ? 'bg-amber-500/10 border-amber-500/20 text-amber-900 dark:text-amber-200'
+              : 'bg-blue-500/10 border-blue-500/20 text-blue-900 dark:text-blue-200'
+          }`}
+        >
           {saleMode === 'hot' ? (
             <>
               <Flame className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
               <span>
-                <strong>Sıcak Satış Aktif:</strong> Kesilen siparişler doğrudan <strong>{vanPlate}</strong> araç stoğundan düşer ve anında teslim fişi düzenlenir.
+                <strong>Sıcak Satış Aktif:</strong> Kesilen sipariş, fiş ve faturalar doğrudan{' '}
+                <strong>{vanPlate}</strong> ({activeCodeBadge}) stoğundan düşer ve ERP12'ye bu lokasyonla işlenir.
               </span>
             </>
           ) : (
@@ -282,28 +573,40 @@ export const VanStockPage: React.FC = () => {
         {/* İcmal Sayaçları */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 pt-1">
           <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
-            <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">Araçtaki Çeşit</span>
-            <span className="text-lg font-black text-slate-900 dark:text-white mt-0.5 block">{vanStocks.length} Kalem</span>
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">
+              {activeType === 'sube' ? 'Şubedeki Çeşit' : activeType === 'merkez' ? 'Depodaki Çeşit' : 'Araçtaki Çeşit'}
+            </span>
+            <span className="text-lg font-black text-slate-900 dark:text-white mt-0.5 block">
+              {vanStocks.length} Kalem
+            </span>
           </div>
 
           <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
             <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">Bugün Yüklenen</span>
-            <span className="text-lg font-black text-indigo-600 dark:text-indigo-400 mt-0.5 block">+{totalLoadedToday} Adet</span>
+            <span className="text-lg font-black text-indigo-600 dark:text-indigo-400 mt-0.5 block">
+              +{totalLoadedToday.toLocaleString('tr-TR')} Adet
+            </span>
           </div>
 
           <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
             <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">Sıcak Satılan</span>
-            <span className="text-lg font-black text-amber-600 dark:text-amber-400 mt-0.5 block">-{totalSoldToday} Adet</span>
+            <span className="text-lg font-black text-amber-600 dark:text-amber-400 mt-0.5 block">
+              -{totalSoldToday.toLocaleString('tr-TR')} Adet
+            </span>
           </div>
 
           <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
             <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">İade Alınan</span>
-            <span className="text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5 block">+{totalReturnedToday} Adet</span>
+            <span className="text-lg font-black text-blue-600 dark:text-blue-400 mt-0.5 block">
+              +{totalReturnedToday.toLocaleString('tr-TR')} Adet
+            </span>
           </div>
 
           <div className="p-3 rounded-2xl bg-slate-50 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-800">
             <span className="text-[10px] text-slate-500 dark:text-slate-400 block font-medium">Fiziki Mevcut</span>
-            <span className="text-lg font-black text-emerald-600 dark:text-emerald-400 mt-0.5 block">{totalItemsCount} Adet</span>
+            <span className="text-lg font-black text-emerald-600 dark:text-emerald-400 mt-0.5 block">
+              {totalItemsCount.toLocaleString('tr-TR')} Adet
+            </span>
           </div>
         </div>
       </div>
@@ -319,7 +622,10 @@ export const VanStockPage: React.FC = () => {
           }`}
         >
           <Layers className="w-4 h-4" />
-          <span>Araç İçi Stok ({vanStocks.length})</span>
+          <span>
+            {activeType === 'sube' ? 'Şube İçi Stok' : activeType === 'merkez' ? 'Merkez Depo Stok' : 'Araç İçi Stok'} (
+            {vanStocks.length})
+          </span>
         </button>
 
         <button
@@ -367,88 +673,130 @@ export const VanStockPage: React.FC = () => {
             <Search className="w-4 h-4 absolute left-3 top-3.5 text-slate-400" />
             <input
               type="text"
-              placeholder="Araçtaki ürünü ada veya barkoda göre ara..."
+              placeholder={`${vanPlate} içindeki ürünü ada, koda veya barkoda göre ara...`}
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setVisibleStockCount(60);
+              }}
               className="w-full bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-slate-900 dark:text-white rounded-2xl pl-9 pr-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-amber-500 shadow-xs"
             />
           </div>
 
-          {filteredStocks.length === 0 ? (
+          {isLoadingLocationStocks ? (
+            <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 text-center border border-slate-200 dark:border-slate-800">
+              <RefreshCw className="w-8 h-8 mx-auto text-amber-500 animate-spin mb-2" />
+              <p className="font-bold text-sm text-slate-700 dark:text-slate-200">
+                {vanPlate} stokları ERP12'den yükleniyor...
+              </p>
+            </div>
+          ) : filteredStocks.length === 0 ? (
             <div className="bg-white dark:bg-slate-900 rounded-3xl p-8 text-center border border-slate-200 dark:border-slate-800">
               <Package className="w-12 h-12 mx-auto text-slate-300 dark:text-slate-600 mb-2" />
-              <p className="font-bold text-sm text-slate-700 dark:text-slate-200">Araçta bu kriterde stok bulunamadı.</p>
-              <p className="text-xs text-slate-400 mt-1">Sabah Mal Yükleme sekmesinden araca ürün yükleyebilirsiniz.</p>
+              <p className="font-bold text-sm text-slate-700 dark:text-slate-200">
+                {vanPlate} lokasyonunda bu kriterde stok bulunamadı.
+              </p>
+              <p className="text-xs text-slate-400 mt-1">
+                Sabah Mal Yükleme sekmesinden bu araca/şubeye ürün yükleyebilirsiniz.
+              </p>
               <button
                 onClick={() => setActiveSubTab('loading')}
                 className="mt-3 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl transition shadow-xs"
               >
-                + Araca Mal Yükle
+                + Araca / Şubeye Mal Yükle
               </button>
             </div>
           ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {filteredStocks.map((stock) => {
-                const isCritical = stock.currentStock <= 5;
-                const isZero = stock.currentStock === 0;
+            <>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {filteredStocks.slice(0, visibleStockCount).map((stock) => {
+                  const isCritical = stock.currentStock <= 5;
+                  const isZero = stock.currentStock === 0;
 
-                return (
-                  <div
-                    key={stock.productCode}
-                    className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 shadow-xs space-y-3 transition-all hover:border-slate-300 dark:hover:border-slate-700"
-                  >
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="min-w-0">
-                        <span className="text-[10px] text-slate-400 font-mono block">{stock.productCode}</span>
-                        <h4 className="font-bold text-sm text-slate-900 dark:text-white truncate">{stock.productName}</h4>
-                        <div className="flex items-center gap-2 mt-1">
-                          <span className="text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md font-medium">
-                            Birim: {stock.unit}
+                  return (
+                    <div
+                      key={stock.productCode}
+                      className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-3xl p-4 shadow-xs space-y-3 transition-all hover:border-slate-300 dark:hover:border-slate-700"
+                    >
+                      <div className="flex justify-between items-start gap-2">
+                        <div className="min-w-0">
+                          <span className="text-[10px] text-slate-400 font-mono block">{stock.productCode}</span>
+                          <h4 className="font-bold text-sm text-slate-900 dark:text-white truncate">{stock.productName}</h4>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-[10px] text-slate-500 dark:text-slate-400 bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-md font-medium">
+                              Birim: {stock.unit}
+                            </span>
+                            {stock.barcode && (
+                              <span className="text-[10px] text-slate-400 font-mono">Barkod: {stock.barcode}</span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* Mevcut Araç / Şube Stoğu Rozeti */}
+                        <div className="text-right shrink-0">
+                          <div
+                            className={`px-3 py-1.5 rounded-2xl font-black text-center ${
+                              isZero
+                                ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
+                                : isCritical
+                                ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
+                                : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
+                            }`}
+                          >
+                            <span className="text-xs block font-medium">
+                              {activeType === 'sube' ? 'Şube Stoğu' : activeType === 'merkez' ? 'Depo Stoğu' : 'Araç Stoğu'}
+                            </span>
+                            <span className="text-base font-extrabold">
+                              {stock.currentStock.toLocaleString('tr-TR')} {stock.unit}
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Gün İçi Hareket Detayı */}
+                      <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 grid grid-cols-4 gap-2 text-center text-[10px]">
+                        <div>
+                          <span className="text-slate-400 block">Gün Başı</span>
+                          <span className="font-bold text-slate-700 dark:text-slate-300">
+                            {stock.initialStock.toLocaleString('tr-TR')}
                           </span>
-                          {stock.barcode && (
-                            <span className="text-[10px] text-slate-400 font-mono">Barkod: {stock.barcode}</span>
-                          )}
                         </div>
-                      </div>
-
-                      {/* Mevcut Araç Stoğu Rozeti */}
-                      <div className="text-right shrink-0">
-                        <div className={`px-3 py-1.5 rounded-2xl font-black text-center ${
-                          isZero
-                            ? 'bg-rose-500/10 text-rose-600 dark:text-rose-400 border border-rose-500/20'
-                            : isCritical
-                            ? 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20'
-                            : 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20'
-                        }`}>
-                          <span className="text-xs block font-medium">Araç Stoğu</span>
-                          <span className="text-base font-extrabold">{stock.currentStock} {stock.unit}</span>
+                        <div>
+                          <span className="text-slate-400 block">Yüklenen</span>
+                          <span className="font-bold text-emerald-600 dark:text-emerald-400">
+                            +{stock.totalLoadedToday.toLocaleString('tr-TR')}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block">Satılan</span>
+                          <span className="font-bold text-amber-600 dark:text-amber-400">
+                            -{stock.totalSoldToday.toLocaleString('tr-TR')}
+                          </span>
+                        </div>
+                        <div>
+                          <span className="text-slate-400 block">İade Alınan</span>
+                          <span className="font-bold text-blue-600 dark:text-blue-400">
+                            +{stock.totalReturnedToday.toLocaleString('tr-TR')}
+                          </span>
                         </div>
                       </div>
                     </div>
+                  );
+                })}
+              </div>
 
-                    {/* Gün İçi Hareket Detayı */}
-                    <div className="pt-2 border-t border-slate-100 dark:border-slate-800/60 grid grid-cols-4 gap-2 text-center text-[10px]">
-                      <div>
-                        <span className="text-slate-400 block">Gün Başı</span>
-                        <span className="font-bold text-slate-700 dark:text-slate-300">{stock.initialStock}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block">Yüklenen</span>
-                        <span className="font-bold text-emerald-600 dark:text-emerald-400">+{stock.totalLoadedToday}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block">Satılan</span>
-                        <span className="font-bold text-amber-600 dark:text-amber-400">-{stock.totalSoldToday}</span>
-                      </div>
-                      <div>
-                        <span className="text-slate-400 block">İade Alınan</span>
-                        <span className="font-bold text-blue-600 dark:text-blue-400">+{stock.totalReturnedToday}</span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+              {filteredStocks.length > visibleStockCount && (
+                <div className="text-center pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setVisibleStockCount((prev) => prev + 60)}
+                    className="px-5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 text-xs font-bold rounded-2xl shadow-xs transition"
+                  >
+                    Daha Fazla Ürün Göster ({visibleStockCount} / {filteredStocks.length})
+                  </button>
+                </div>
+              )}
+            </>
           )}
         </div>
       )}

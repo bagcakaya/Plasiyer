@@ -1102,6 +1102,8 @@ export const erpQueries = {
     const safeTempId = (order.tempId || '').replace(/'/g, "''");
     const safeSalesRepCode = String(order.salesRepCode || '').trim().replace(/'/g, "''");
     const safeSalesRepName = String(order.salesRepName || '').trim().replace(/'/g, "''");
+    const safeSaleType = String(order.saleType || 'cold').trim().replace(/'/g, "''");
+    const safeVanPlate = String(order.vanPlate || '').trim().replace(/'/g, "''");
     const campaignNotes = (order.appliedCampaigns && order.appliedCampaigns.length > 0)
       ? (' [Kampanya: ' + order.appliedCampaigns.map(c => c.campaignTitle).join(', ') + ']')
       : '';
@@ -1166,7 +1168,16 @@ export const erpQueries = {
         SELECT TOP 1 @cariAdresId = ID FROM CARI_ADRES WITH(NOLOCK) WHERE CARI = @cariId ORDER BY ID ASC;
 
         DECLARE @lokId bigint;
-        SELECT TOP 1 @lokId = ID FROM LOKASYON WITH(NOLOCK) WHERE ID = 75919;
+        IF N'${safeSaleType}' = N'hot' AND N'${safeVanPlate}' <> N''
+        BEGIN
+          SELECT TOP 1 @lokId = ID FROM LOKASYON WITH(NOLOCK)
+          WHERE ISNULL(AKTIF, 1) = 1
+            AND (
+              UPPER(LTRIM(RTRIM(AD))) = UPPER(N'${safeVanPlate}')
+              OR UPPER(REPLACE(AD, N' ', N'')) = UPPER(REPLACE(N'${safeVanPlate}', N' ', N''))
+            );
+        END;
+        IF @lokId IS NULL SELECT TOP 1 @lokId = ID FROM LOKASYON WITH(NOLOCK) WHERE ID = 75919;
         IF @lokId IS NULL SELECT TOP 1 @lokId = ID FROM LOKASYON WITH(NOLOCK) ORDER BY ID ASC;
 
         DECLARE @projeId bigint;
@@ -2908,6 +2919,362 @@ export const erpQueries = {
     } catch (err) {
       return { found: false, authenticated: false, sqlWarning: err.message };
     }
+  },
+
+  // 12. ÇOKLU ARAÇ & ŞUBE (LOKASYON) LİSTESİ VE LOKASYON BAZLI CANLI STOKLAR
+  async getLocations() {
+    const query = `
+      SELECT
+        CAST(L.ID AS varchar(50)) AS id,
+        CAST(ISNULL(L.USTID, 0) AS varchar(50)) AS parentId,
+        LTRIM(RTRIM(ISNULL(L.AD, ''))) AS name,
+        LTRIM(RTRIM(ISNULL(L.PLAKA, ''))) AS plate,
+        LTRIM(RTRIM(ISNULL(L.ADRES, ''))) AS address,
+        LTRIM(RTRIM(ISNULL(L.TELEFON, ''))) AS phone,
+        ISNULL(L.SICAK_SATISA_ACIK, 1) AS hotSaleEnabled,
+        ISNULL(L.SIPARIS_LOKASYONU_MU, 1) AS orderEnabled,
+        ISNULL(SM_AGG.itemCount, 0) AS itemCount,
+        ISNULL(SM_AGG.totalQuantity, 0) AS totalQuantity
+      FROM LOKASYON L WITH(NOLOCK)
+      LEFT JOIN (
+        SELECT
+          LOKASYON,
+          COUNT(DISTINCT CASE WHEN MIKTAR > 0 THEN STOK END) AS itemCount,
+          SUM(CASE WHEN MIKTAR > 0 THEN MIKTAR ELSE 0 END) AS totalQuantity
+        FROM STOK_MIKTAR WITH(NOLOCK)
+        GROUP BY LOKASYON
+      ) SM_AGG ON SM_AGG.LOKASYON = L.ID
+      WHERE ISNULL(L.AKTIF, 1) = 1
+        AND LTRIM(RTRIM(ISNULL(L.AD, ''))) <> ''
+      ORDER BY
+        CASE WHEN ISNULL(L.USTID, 0) = 0 OR L.ID = 75919 OR UPPER(L.AD) LIKE '%MERKEZ%' THEN 0 ELSE 1 END ASC,
+        L.ID ASC
+    `;
+
+    let rows = [];
+    try {
+      rows = await executeJsonQuery(query);
+    } catch {
+      const fallbackQuery = `
+        SELECT
+          CAST(L.ID AS varchar(50)) AS id,
+          CAST(ISNULL(L.USTID, 0) AS varchar(50)) AS parentId,
+          LTRIM(RTRIM(ISNULL(L.AD, ''))) AS name,
+          '' AS plate,
+          '' AS address,
+          '' AS phone,
+          1 AS hotSaleEnabled,
+          1 AS orderEnabled,
+          ISNULL(SM_AGG.itemCount, 0) AS itemCount,
+          ISNULL(SM_AGG.totalQuantity, 0) AS totalQuantity
+        FROM LOKASYON L WITH(NOLOCK)
+        LEFT JOIN (
+          SELECT
+            LOKASYON,
+            COUNT(DISTINCT CASE WHEN MIKTAR > 0 THEN STOK END) AS itemCount,
+            SUM(CASE WHEN MIKTAR > 0 THEN MIKTAR ELSE 0 END) AS totalQuantity
+          FROM STOK_MIKTAR WITH(NOLOCK)
+          GROUP BY LOKASYON
+        ) SM_AGG ON SM_AGG.LOKASYON = L.ID
+        WHERE ISNULL(L.AKTIF, 1) = 1
+          AND LTRIM(RTRIM(ISNULL(L.AD, ''))) <> ''
+        ORDER BY L.ID ASC
+      `;
+      rows = await executeJsonQuery(fallbackQuery).catch(() => []);
+    }
+
+    // Hangi lokasyona hangi personeller atanmış (CARI_PERSONEL.LOKASYON)
+    let repRows = [];
+    try {
+      repRows = await executeJsonQuery(`
+        SELECT
+          CAST(CP.LOKASYON AS varchar(50)) AS locId,
+          LTRIM(RTRIM(ISNULL(C.AD, ''))) AS repName
+        FROM CARI_PERSONEL CP WITH(NOLOCK)
+        INNER JOIN CARI C WITH(NOLOCK) ON C.ID = CP.CARI AND C.AKTIF = 1
+        WHERE CP.LOKASYON IS NOT NULL AND CP.LOKASYON > 0
+      `);
+    } catch {
+      repRows = [];
+    }
+
+    const repsByLoc = new Map();
+    for (const r of repRows) {
+      const lid = String(r.locId || '');
+      const rName = String(r.repName || '').trim();
+      if (!lid || !rName) continue;
+      const list = repsByLoc.get(lid) || [];
+      if (!list.includes(rName)) list.push(rName);
+      repsByLoc.set(lid, list);
+    }
+
+    const plateRegex = /^\d{2}\s*[A-ZÇĞİÖŞÜ]{1,4}\s*\d{2,5}$/i;
+
+    return (rows || []).map((row, idx) => {
+      const name = String(row.name || '').trim();
+      const plate = String(row.plate || '').trim();
+      const isMain =
+        String(row.parentId || '0') === '0' ||
+        String(row.id) === '75919' ||
+        /^merkez/i.test(name);
+      const isVehicle =
+        !isMain &&
+        (plateRegex.test(name) ||
+          plateRegex.test(plate) ||
+          /ara[çc]|plaka|van|kamyon|transit/i.test(name));
+      const type = isMain ? 'merkez' : isVehicle ? 'arac' : 'sube';
+      const codeNum = String(idx + 1).padStart(2, '0');
+      const codeLabel =
+        type === 'merkez'
+          ? `${codeNum} Merkez Depo`
+          : type === 'arac'
+          ? `${codeNum} Araç Depo`
+          : `${codeNum} Şube Depo`;
+
+      return {
+        id: String(row.id),
+        parentId: String(row.parentId || '0'),
+        name,
+        plate: plate || (isVehicle ? name : ''),
+        type,
+        codeLabel,
+        address: String(row.address || ''),
+        phone: String(row.phone || ''),
+        itemCount: Number(row.itemCount || 0),
+        totalQuantity: Number(Number(row.totalQuantity || 0).toFixed(2)),
+        assignedRepNames: (repsByLoc.get(String(row.id)) || []).join(', '),
+        hotSaleEnabled: Boolean(row.hotSaleEnabled),
+        orderEnabled: Boolean(row.orderEnabled),
+      };
+    });
+  },
+
+  async getLocationStocks(locationParam) {
+    const safeParam = String(locationParam || '').trim().replace(/'/g, "''");
+
+    const query = `
+      DECLARE @lokId bigint;
+      DECLARE @lokAd nvarchar(150);
+
+      IF TRY_CAST(N'${safeParam}' AS bigint) IS NOT NULL
+        SELECT TOP 1 @lokId = ID, @lokAd = LTRIM(RTRIM(AD))
+        FROM LOKASYON WITH(NOLOCK)
+        WHERE ID = TRY_CAST(N'${safeParam}' AS bigint);
+
+      IF @lokId IS NULL AND N'${safeParam}' <> N''
+        SELECT TOP 1 @lokId = ID, @lokAd = LTRIM(RTRIM(AD))
+        FROM LOKASYON WITH(NOLOCK)
+        WHERE ISNULL(AKTIF, 1) = 1
+          AND (
+            UPPER(LTRIM(RTRIM(AD))) = UPPER(N'${safeParam}')
+            OR UPPER(REPLACE(AD, N' ', N'')) = UPPER(REPLACE(N'${safeParam}', N' ', N''))
+          );
+
+      IF @lokId IS NULL
+        SELECT TOP 1 @lokId = ID, @lokAd = LTRIM(RTRIM(AD))
+        FROM LOKASYON WITH(NOLOCK)
+        WHERE ISNULL(AKTIF, 1) = 1
+        ORDER BY CASE WHEN ID = 75919 OR ISNULL(USTID, 0) = 0 THEN 1 ELSE 0 END ASC, ID ASC;
+
+      DECLARE @p1 bigint;
+      SELECT TOP 1 @p1 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) WHERE ID = 1016;
+      IF @p1 IS NULL SELECT TOP 1 @p1 = ID FROM STOK_FIYAT_AD WITH(NOLOCK) ORDER BY ID ASC;
+
+      SELECT TOP 5000
+        CAST(S.ID AS varchar(50)) AS productId,
+        LTRIM(RTRIM(S.KOD)) AS productCode,
+        LTRIM(RTRIM(S.AD)) AS productName,
+        ISNULL(SB.AD, 'ADET') AS unit,
+        COALESCE(NULLIF(LTRIM(RTRIM(SM.BARKOD)), ''), B.BARKOD, LTRIM(RTRIM(S.KOD))) AS barcode,
+        ISNULL(G.AD, 'Genel') AS category,
+        ISNULL(F.FIYAT, 0) AS unitPrice,
+        ISNULL(SM.MIKTAR, 0) AS currentStock,
+        ISNULL(TODAY_MOV.loadedToday, 0) AS totalLoadedToday,
+        ISNULL(TODAY_MOV.soldToday, 0) AS totalSoldToday,
+        ISNULL(TODAY_MOV.returnedToday, 0) AS totalReturnedToday,
+        @lokAd AS vanPlate,
+        CAST(@lokId AS varchar(50)) AS locationId
+      FROM (
+        SELECT STOK, MAX(BARKOD) AS BARKOD, SUM(MIKTAR) AS MIKTAR
+        FROM STOK_MIKTAR WITH(NOLOCK)
+        WHERE LOKASYON = @lokId
+        GROUP BY STOK
+        HAVING SUM(MIKTAR) > 0
+      ) SM
+      INNER JOIN STOK S WITH(NOLOCK) ON S.ID = SM.STOK AND S.AKTIF = 1
+      LEFT JOIN STOK_GRUP G WITH(NOLOCK) ON G.ID = S.STOK_GRUP
+      LEFT JOIN STOK_STOK_BIRIM SSB WITH(NOLOCK) ON SSB.STOK = S.ID AND SSB.VARSAYILAN = 1
+      LEFT JOIN STOK_BIRIM SB WITH(NOLOCK) ON SB.ID = SSB.STOK_BIRIM
+      LEFT JOIN (
+        SELECT STOK_STOK_BIRIM, MIN(BARKOD) AS BARKOD
+        FROM STOK_BARKOD WITH(NOLOCK)
+        WHERE AKTIF = 1
+        GROUP BY STOK_STOK_BIRIM
+      ) B ON B.STOK_STOK_BIRIM = SSB.ID
+      LEFT JOIN STOK_VARSAYILAN_FIYAT F WITH(NOLOCK) ON F.STOK_STOK_BIRIM = SSB.ID AND F.STOK_FIYAT_AD = @p1
+      LEFT JOIN (
+        SELECT
+          FD.STOK,
+          SUM(CASE WHEN F.FIS_TURU = 14 THEN ISNULL(FD.MIKTAR_FIS, 0) ELSE 0 END) AS loadedToday,
+          SUM(CASE WHEN F.FIS_TURU IN (2, 20, 6, 11, 35) THEN ISNULL(FD.MIKTAR_FIS, 0) ELSE 0 END) AS soldToday,
+          SUM(CASE WHEN F.FIS_TURU IN (4, 22, 8, 12) THEN ISNULL(FD.MIKTAR_FIS, 0) ELSE 0 END) AS returnedToday
+        FROM FIS_DETAY FD WITH(NOLOCK)
+        INNER JOIN FIS F WITH(NOLOCK) ON F.ID = FD.FIS AND F.AKTIF = 1
+        WHERE FD.LOKASYON = @lokId
+          AND CAST(F.FIS_TARIHI AS DATE) = CAST(GETDATE() AS DATE)
+        GROUP BY FD.STOK
+      ) TODAY_MOV ON TODAY_MOV.STOK = S.ID
+      ORDER BY SM.MIKTAR DESC, S.AD ASC
+    `;
+
+    const rows = await executeJsonQuery(query);
+    const nowIso = new Date().toISOString();
+
+    return (rows || []).map((r) => {
+      const currentStock = Number(Number(r.currentStock || 0).toFixed(2));
+      const totalLoadedToday = Number(Number(r.totalLoadedToday || 0).toFixed(2));
+      const totalSoldToday = Number(Number(r.totalSoldToday || 0).toFixed(2));
+      const totalReturnedToday = Number(Number(r.totalReturnedToday || 0).toFixed(2));
+      const initialStock = Math.max(
+        0,
+        Number((currentStock - totalLoadedToday + totalSoldToday - totalReturnedToday).toFixed(2))
+      );
+
+      return {
+        productId: String(r.productId || r.productCode),
+        productCode: String(r.productCode || ''),
+        productName: String(r.productName || ''),
+        barcode: String(r.barcode || ''),
+        unit: String(r.unit || 'ADET'),
+        category: String(r.category || 'Genel'),
+        unitPrice: Number(r.unitPrice || 0),
+        currentStock,
+        initialStock,
+        totalLoadedToday,
+        totalSoldToday,
+        totalReturnedToday,
+        vanPlate: String(r.vanPlate || locationParam || ''),
+        locationId: String(r.locationId || ''),
+        updatedAt: nowIso,
+      };
+    });
+  },
+
+  async createLocation({ name, type = 'arac', plate = '', address = '', phone = '' }) {
+    const safeName = String(name || plate || '').trim().replace(/'/g, "''");
+    const safePlate = String(plate || (type === 'arac' ? name : '') || '').trim().replace(/'/g, "''");
+    const safeAddress = String(address || '').trim().replace(/'/g, "''");
+    const safePhone = String(phone || '').trim().replace(/'/g, "''");
+
+    if (!safeName) {
+      throw new Error('Araç plakası veya şube adı boş olamaz.');
+    }
+
+    const sqlScript = `
+      BEGIN TRANSACTION;
+      BEGIN TRY
+        DECLARE @existingId bigint;
+        SELECT TOP 1 @existingId = ID
+        FROM LOKASYON WITH(NOLOCK)
+        WHERE UPPER(LTRIM(RTRIM(AD))) = UPPER(N'${safeName}')
+           OR UPPER(REPLACE(AD, N' ', N'')) = UPPER(REPLACE(N'${safeName}', N' ', N''));
+
+        IF @existingId IS NOT NULL
+        BEGIN
+          UPDATE LOKASYON
+          SET AKTIF = 1,
+              SICAK_SATISA_ACIK = 1,
+              SIPARIS_LOKASYONU_MU = 1
+          WHERE ID = @existingId;
+
+          COMMIT TRANSACTION;
+          SELECT CAST(@existingId AS varchar(50)) AS id, N'${safeName}' AS name;
+          RETURN;
+        END;
+
+        DECLARE @merkezId bigint;
+        DECLARE @lokTuru bigint;
+        DECLARE @ilIlce bigint;
+        DECLARE @fiyatAd bigint;
+
+        SELECT TOP 1
+          @merkezId = ID,
+          @lokTuru = ISNULL(LOKASYON_TURU, 1007),
+          @ilIlce = ISNULL(ILILCE, 0),
+          @fiyatAd = ISNULL(STOK_FIYAT_AD, 1016)
+        FROM LOKASYON WITH(NOLOCK)
+        WHERE ID = 75919 OR ISNULL(USTID, 0) = 0
+        ORDER BY ID ASC;
+
+        IF @merkezId IS NULL SET @merkezId = 0;
+        IF @lokTuru IS NULL SET @lokTuru = 1007;
+        IF @ilIlce IS NULL SET @ilIlce = 0;
+        IF @fiyatAd IS NULL SET @fiyatAd = 1016;
+
+        DECLARE @newLokId bigint;
+        IF OBJECT_ID('dbo.ID', 'SO') IS NOT NULL
+          SET @newLokId = NEXT VALUE FOR [dbo].[ID];
+        ELSE
+          SELECT @newLokId = ISNULL(MAX(ID), 75919) + 1 FROM LOKASYON WITH(NOLOCK);
+
+        INSERT INTO LOKASYON (
+          ID, USTID, AD, LOKASYON_TURU, SIPARIS_LOKASYONU_MU, FIZIKI_MI,
+          ILILCE, ADRES, SICAK_SATISA_ACIK, ALISA_ACIK, SATISA_ACIK,
+          STOK_FIYAT_AD, BOYLAM, ENLEM, AKTIF,
+          EMAIL_ADRES, EMAIL_PORTNO, EMAIL_HOST, EMAIL_USER, EMAIL_PASSWORD,
+          YS_RestaurantList, MEKEZI_PAKET_ALIR, POS_MUTFAK_YAZICI_PC, MERKEZI_PAKET_PC,
+          SSL, ZMAIL, KT_SUBE_NO, LOKASYON_MALIYET_FIYAT_AD, POS_KISISAYISI_ZORUNLU,
+          AKRT_FIRMA, AKRT_DOSYA_YOLU, AKRT_DAGITICI_CARI, VARSAYILAN_CARI_GRUP,
+          E_BELGEDE_LOKASYON_ADRESI_YOLLANIR, TELEFON, FAX, AKRT_MANUEL, AKRT_FLEET_CODE,
+          PLAKA, BURDANBI_DE_CALISIR, LOKASYON_SEVKINDE_MALIYET_FIYATINI_KULLANIR,
+          POSTA_KODU, QR_ID
+        ) VALUES (
+          @newLokId, @merkezId, N'${safeName}', @lokTuru, 1, 1,
+          @ilIlce, N'${safeAddress}', 1, 1, 1,
+          @fiyatAd, '', '', 1,
+          '', 0, '', '', '',
+          0, 0, 0, 0,
+          0, '', 0, 0, 0,
+          0, '', 0, 0,
+          0, N'${safePhone}', '', 0, '',
+          N'${safePlate}', 0, 0,
+          '', ''
+        );
+
+        IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @newLokId)
+          INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@newLokId, 'LOKASYON', 0);
+
+        IF OBJECT_ID('dbo.KASA_AD', 'U') IS NOT NULL
+        BEGIN
+          DECLARE @newKasaId bigint;
+          IF OBJECT_ID('dbo.ID', 'SO') IS NOT NULL
+            SET @newKasaId = NEXT VALUE FOR [dbo].[ID];
+          ELSE
+            SELECT @newKasaId = ISNULL(MAX(ID), 75923) + 1 FROM KASA_AD WITH(NOLOCK);
+
+          INSERT INTO KASA_AD (ID, LOKASYON, AD, AKTIF, KOD)
+          VALUES (@newKasaId, @newLokId, LEFT(N'${safeName}' + N' KASA', 50), 1, N'');
+
+          IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @newKasaId)
+            INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@newKasaId, 'KASA_AD', 0);
+        END;
+
+        COMMIT TRANSACTION;
+        SELECT CAST(@newLokId AS varchar(50)) AS id, N'${safeName}' AS name;
+      END TRY
+      BEGIN CATCH
+        ROLLBACK TRANSACTION;
+        DECLARE @errMsgLok nvarchar(4000) = ERROR_MESSAGE();
+        RAISERROR(@errMsgLok, 16, 1);
+      END CATCH;
+    `;
+
+    await executeJsonQuery(sqlScript);
+    const all = await this.getLocations();
+    const created =
+      all.find((l) => l.name.toUpperCase() === safeName.toUpperCase()) ||
+      all[all.length - 1];
+    return created;
   },
 };
 

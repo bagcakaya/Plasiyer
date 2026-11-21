@@ -568,8 +568,25 @@ export interface CartSummary {
   opportunities: CampaignOpportunity[];
 }
 
-// AŞAMA 8: SICAK SATIŞ (ARAÇ İÇİ STOK, YÜKLEME & ARAÇ SAYIMI)
+// AŞAMA 8: SICAK SATIŞ (ARAÇ İÇİ STOK, YÜKLEME & ARAÇ SAYIMI) VE ÇOKLU ARAÇ / ŞUBE (LOKASYON)
 export type SaleMode = 'cold' | 'hot';
+export type ErpLocationType = 'arac' | 'sube' | 'merkez';
+
+export interface ErpLocation {
+  id: string;
+  parentId?: string;
+  name: string;
+  plate: string;
+  type: ErpLocationType;
+  codeLabel?: string; // örn: "01 Merkez Depo", "02 Araç Depo", "03 Şube Depo"
+  address?: string;
+  phone?: string;
+  itemCount: number;
+  totalQuantity: number;
+  assignedRepNames?: string;
+  hotSaleEnabled?: boolean;
+  orderEnabled?: boolean;
+}
 
 export interface VanStockItem {
   id?: number;
@@ -580,12 +597,13 @@ export interface VanStockItem {
   unit: string;
   category?: string;
   unitPrice?: number;
-  currentStock: number; // Araçta şu an bulunan fiziki miktar
-  initialStock: number; // Güne başlarken araçtaki miktar
-  totalLoadedToday: number; // Bugün araca yüklenen toplam
-  totalSoldToday: number; // Bugün sıcak satışla araçtan teslim edilen
-  totalReturnedToday: number; // Bugün müşteriden araç deposuna iade alınan
-  vanPlate: string; // örn: "25 AG 123"
+  currentStock: number; // Araçta / şubede şu an bulunan fiziki miktar
+  initialStock: number; // Güne başlarken araçtaki / şubedeki miktar
+  totalLoadedToday: number; // Bugün araca / şubeye yüklenen toplam
+  totalSoldToday: number; // Bugün sıcak satışla araçtan / şubeden teslim edilen
+  totalReturnedToday: number; // Bugün müşteriden araç / şube deposuna iade alınan
+  vanPlate: string; // örn: "25 ADY 050", "25 GB 875" veya Şube adı
+  locationId?: string;
   updatedAt: string;
 }
 

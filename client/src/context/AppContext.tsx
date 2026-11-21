@@ -33,7 +33,9 @@ import type {
   VanAuditItem,
   PlasiyerQuotaTarget,
   PlasiyerPerformanceSummary,
-  CompanyIssuerInfo
+  CompanyIssuerInfo,
+  ErpLocation,
+  ErpLocationType
 } from '../types';
 import { campaignService } from '../services/campaignService';
 import { vanStockService } from '../services/vanStockService';
@@ -182,12 +184,23 @@ interface AppContextType {
   openDailyReportModal: () => void;
   closeDailyReportModal: () => void;
 
-  // AŞAMA 8: Sıcak Satış (Araç İçi Stok, Yükleme & Sayım)
+  // AŞAMA 8: Sıcak Satış (Araç / Şube İçi Stok, Yükleme & Sayım + Çok Şubeli Lokasyon Yönetimi)
   saleMode: SaleMode;
   setSaleMode: (mode: SaleMode) => void;
   toggleSaleMode: () => void;
   vanPlate: string;
   setVanPlate: (plate: string) => void;
+  erpLocations: ErpLocation[];
+  activeLocation: ErpLocation | null;
+  isLoadingLocationStocks: boolean;
+  refreshLocations: (overrideSelectedName?: string) => Promise<void>;
+  addErpLocation: (payload: {
+    name: string;
+    type: ErpLocationType;
+    plate?: string;
+    address?: string;
+    phone?: string;
+  }) => Promise<ErpLocation>;
   vanStocks: VanStockItem[];
   vanLoadings: VanLoadingRecord[];
   vanAudits: VanAuditRecord[];
@@ -593,17 +606,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
   const [isSyncing, setIsSyncing] = useState<boolean>(false);
 
-  // AŞAMA 8: Sıcak Satış & Araç İçi Stok Yönetimi
+  // AŞAMA 8: Sıcak Satış & Araç / Şube İçi Stok Yönetimi (Çok Şubeli Lokasyon Desteği)
   const [saleMode, setSaleModeState] = useState<SaleMode>(() => {
     return (localStorage.getItem('plasiyer_sale_mode') as SaleMode) || 'cold';
   });
   const [vanPlate, setVanPlateState] = useState<string>(() => {
-    return localStorage.getItem('plasiyer_van_plate') || '25 AG 123';
+    return localStorage.getItem('plasiyer_van_plate') || '25 ADY 050';
   });
+  const [erpLocations, setErpLocations] = useState<ErpLocation[]>(() => {
+    try {
+      const saved = localStorage.getItem('plasiyer_erp_locations_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+  const [isLoadingLocationStocks, setIsLoadingLocationStocks] = useState<boolean>(false);
 
   const vanStocks = useLiveQuery(() => db.vanStocks.toArray(), []) || [];
   const vanLoadings = useLiveQuery(() => db.vanLoadings.reverse().toArray(), []) || [];
   const vanAudits = useLiveQuery(() => db.vanAudits.reverse().toArray(), []) || [];
+
+  const activeLocation = useMemo<ErpLocation | null>(() => {
+    const cleanPlate = (vanPlate || '').trim().toUpperCase();
+    return (
+      erpLocations.find(
+        (loc) =>
+          loc.name.trim().toUpperCase() === cleanPlate ||
+          loc.plate.trim().toUpperCase() === cleanPlate ||
+          loc.id === cleanPlate
+      ) || null
+    );
+  }, [erpLocations, vanPlate]);
 
   const setSaleMode = (mode: SaleMode) => {
     setSaleModeState(mode);
@@ -615,10 +653,176 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setSaleMode(next);
   };
 
-  const setVanPlate = (plate: string) => {
-    setVanPlateState(plate);
-    localStorage.setItem('plasiyer_van_plate', plate);
+  const loadStocksForLocation = async (
+    targetLocOrName: ErpLocation | string,
+    cfg: ServerConfig = serverConfig
+  ) => {
+    if (userRole === 'admin' || !isOnline || isDemoMode(cfg)) return;
+    const param =
+      typeof targetLocOrName === 'string'
+        ? targetLocOrName
+        : targetLocOrName.id || targetLocOrName.name;
+    const displayName =
+      typeof targetLocOrName === 'string' ? targetLocOrName : targetLocOrName.name;
+    if (!param) return;
+
+    setIsLoadingLocationStocks(true);
+    try {
+      const stocks = await apiService.fetchLocationStocks(cfg, param);
+      const normalized: VanStockItem[] = (stocks || []).map((st) => ({
+        ...st,
+        vanPlate: st.vanPlate || displayName,
+      }));
+      await db.transaction('rw', db.vanStocks, async () => {
+        await db.vanStocks.clear();
+        if (normalized.length > 0) {
+          await db.vanStocks.bulkPut(normalized);
+        }
+      });
+    } catch (err) {
+      console.warn('Lokasyon stokları çekilemedi:', err);
+    } finally {
+      setIsLoadingLocationStocks(false);
+    }
   };
+
+  const refreshLocations = async (overrideSelectedName?: string) => {
+    if (userRole === 'admin' || !isOnline || isDemoMode(serverConfig)) return;
+    try {
+      const locs = await apiService.fetchLocations(serverConfig);
+      if (Array.isArray(locs) && locs.length > 0) {
+        setErpLocations(locs);
+        try {
+          localStorage.setItem('plasiyer_erp_locations_v1', JSON.stringify(locs));
+        } catch {
+          // ignore
+        }
+
+        const desiredRaw = (overrideSelectedName || vanPlate || '').trim();
+        const desiredUpper = desiredRaw.toUpperCase();
+        let matched = locs.find(
+          (l) =>
+            l.name.trim().toUpperCase() === desiredUpper ||
+            l.plate.trim().toUpperCase() === desiredUpper ||
+            l.id === desiredRaw
+        );
+
+        if (!matched && currentUser?.locationName) {
+          const userLocUpper = currentUser.locationName.trim().toUpperCase();
+          matched = locs.find(
+            (l) =>
+              l.name.trim().toUpperCase() === userLocUpper ||
+              l.plate.trim().toUpperCase() === userLocUpper
+          );
+        }
+
+        if (!matched) {
+          matched =
+            locs.find((l) => l.type === 'arac' && l.itemCount > 0) ||
+            locs.find((l) => l.type === 'arac') ||
+            locs.find((l) => l.type === 'sube') ||
+            locs[0];
+        }
+
+        if (matched) {
+          if (matched.name !== vanPlate) {
+            setVanPlateState(matched.name);
+            localStorage.setItem('plasiyer_van_plate', matched.name);
+          }
+          await loadStocksForLocation(matched, serverConfig);
+        }
+      }
+    } catch (err) {
+      console.warn('ERP12 Lokasyon listesi çekilemedi:', err);
+    }
+  };
+
+  const setVanPlate = (plate: string) => {
+    const clean = plate.trim();
+    if (!clean) return;
+    setVanPlateState(clean);
+    localStorage.setItem('plasiyer_van_plate', clean);
+    const matched = erpLocations.find(
+      (l) =>
+        l.name.trim().toUpperCase() === clean.toUpperCase() ||
+        l.plate.trim().toUpperCase() === clean.toUpperCase() ||
+        l.id === clean
+    );
+    if (matched) {
+      loadStocksForLocation(matched, serverConfig);
+    } else if (!isDemoMode(serverConfig)) {
+      loadStocksForLocation(clean, serverConfig);
+    }
+  };
+
+  const addErpLocation = async (payload: {
+    name: string;
+    type: ErpLocationType;
+    plate?: string;
+    address?: string;
+    phone?: string;
+  }): Promise<ErpLocation> => {
+    const cleanName = (payload.name || payload.plate || '').trim();
+    if (!cleanName) {
+      throw new Error('Araç plakası veya şube adı zorunludur.');
+    }
+
+    if (!isDemoMode(serverConfig) && isOnline) {
+      const created = await apiService.createLocation(serverConfig, {
+        ...payload,
+        name: cleanName,
+      });
+      await refreshLocations(created.name);
+      soundNotification.playOrderChime();
+      return created;
+    }
+
+    // Demo / Çevrimdışı modda yerel olarak ekle
+    const localLoc: ErpLocation = {
+      id: 'LOC-' + Date.now(),
+      parentId: '0',
+      name: cleanName,
+      plate: (payload.plate || cleanName).toUpperCase(),
+      type: payload.type || 'arac',
+      codeLabel:
+        payload.type === 'merkez'
+          ? '01 Merkez Depo'
+          : payload.type === 'sube'
+          ? `${String(erpLocations.length + 1).padStart(2, '0')} Şube Depo`
+          : `${String(erpLocations.length + 1).padStart(2, '0')} Araç Depo`,
+      address: payload.address || '',
+      phone: payload.phone || '',
+      itemCount: 0,
+      totalQuantity: 0,
+      assignedRepNames: '',
+      hotSaleEnabled: true,
+      orderEnabled: true,
+    };
+    const nextLocs = [...erpLocations, localLoc];
+    setErpLocations(nextLocs);
+    try {
+      localStorage.setItem('plasiyer_erp_locations_v1', JSON.stringify(nextLocs));
+    } catch {
+      // ignore
+    }
+    setVanPlateState(localLoc.name);
+    localStorage.setItem('plasiyer_van_plate', localLoc.name);
+    soundNotification.playOrderChime();
+    return localLoc;
+  };
+
+  useEffect(() => {
+    if (userRole === 'admin' || !isOnline || isDemoMode(serverConfig)) {
+      return;
+    }
+    refreshLocations();
+  }, [
+    userRole,
+    isOnline,
+    serverConfig.sqlDatabase,
+    serverConfig.sqlHost,
+    serverConfig.companyCode,
+  ]);
 
   const loadVanStock = async (items: VanLoadingItem[], notes?: string): Promise<VanLoadingRecord> => {
     const res = await vanStockService.recordVanLoading({
@@ -1911,6 +2115,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       // 2. ERP12 SQL veritabanından güncel Cariler, Stoklar, Kategoriler, Fiyatlar ve Bakiyeleri çek
       const res = await syncService.fullSync(activeCfg, salesRep.code);
+      await refreshLocations();
       if (res.companyInfo) {
         persistIssuerInfo(activeCfg, res.companyInfo);
       }
@@ -2070,12 +2275,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         isCampaignsModalOpen,
         openCampaignsModal,
         closeCampaignsModal,
-        // AŞAMA 8: Sıcak Satış
+        // AŞAMA 8: Sıcak Satış & Çok Şubeli Lokasyon Yönetimi
         saleMode,
         setSaleMode,
         toggleSaleMode,
         vanPlate,
         setVanPlate,
+        erpLocations,
+        activeLocation,
+        isLoadingLocationStocks,
+        refreshLocations,
+        addErpLocation,
         vanStocks,
         vanLoadings,
         vanAudits,
