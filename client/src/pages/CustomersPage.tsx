@@ -134,21 +134,7 @@ export const CustomersPage: React.FC = () => {
     if (!containerRef.current) return;
     const { scrollTop, clientHeight, scrollHeight } = containerRef.current;
     if (clientHeight > 0) {
-      if (expandedCustomerId !== null) {
-        const idx = Math.round(scrollTop / clientHeight);
-        if (idx !== activeIndex && idx >= 0 && idx < filteredCustomers.length) {
-          setActiveIndex(idx);
-          const currentCust = filteredCustomers[idx];
-          if (currentCust && currentCust.id !== expandedCustomerId) {
-            setExpandedCustomerId(currentCust.id);
-          }
-        }
-        if (idx >= visibleCustomerCount - 8 && visibleCustomerCount < filteredCustomers.length) {
-          setVisibleCustomerCount((prev) =>
-            Math.min(prev + CUSTOMERS_PAGE_SIZE, filteredCustomers.length)
-          );
-        }
-      } else if (
+      if (
         scrollTop + clientHeight >= scrollHeight - 360 &&
         visibleCustomerCount < filteredCustomers.length
       ) {
@@ -162,25 +148,18 @@ export const CustomersPage: React.FC = () => {
   const handleToggleDrawer = (cust: Customer, idx: number) => {
     if (isListDragging) return;
     setActiveIndex(idx);
-    if (expandedCustomerId !== null) {
-      // Çekmece açıkken tekrar basılırsa çekmece moduna (Görsel-2 kompakt listeye) geri dön
-      setExpandedCustomerId(null);
-      setTimeout(() => {
-        cardRefs.current[cust.id]?.scrollIntoView({
-          behavior: 'smooth',
-          block: 'center',
-        });
-      }, 40);
-    } else {
-      // Çekmeceyi aç (Görsel-1 tam kart ve aynı Reels kaydırma düzeni)
-      setExpandedCustomerId(cust.id);
-      setTimeout(() => {
-        cardRefs.current[cust.id]?.scrollIntoView({
-          behavior: 'auto',
-          block: 'start',
-        });
-      }, 25);
-    }
+    setExpandedCustomerId((prev) => {
+      const next = prev === cust.id ? null : cust.id;
+      if (next) {
+        setTimeout(() => {
+          cardRefs.current[cust.id]?.scrollIntoView({
+            behavior: 'smooth',
+            block: 'nearest',
+          });
+        }, 50);
+      }
+      return next;
+    });
   };
 
   // Klavye Yukarı / Aşağı tuşlarıyla geçiş desteği
@@ -196,13 +175,12 @@ export const CustomersPage: React.FC = () => {
     setActiveIndex(targetIdx);
     if (expandedCustomerId !== null && targetCust) {
       setExpandedCustomerId(targetCust.id);
-      const cardHeight = containerRef.current.clientHeight;
-      containerRef.current.scrollTo({ top: targetIdx * cardHeight, behavior: 'smooth' });
-    } else if (targetCust) {
+    }
+    if (targetCust) {
       setTimeout(() => {
         cardRefs.current[targetCust.id]?.scrollIntoView({
           behavior: 'smooth',
-          block: 'start',
+          block: 'nearest',
         });
       }, 40);
     }
@@ -381,17 +359,15 @@ export const CustomersPage: React.FC = () => {
             onMouseMove={handleListMouseMove}
             onMouseUp={handleListMouseUpOrLeave}
             onMouseLeave={handleListMouseUpOrLeave}
-            className={`absolute inset-0 overflow-y-scroll no-scrollbar py-1 ${
-              expandedCustomerId !== null
-                ? 'snap-y snap-mandatory space-y-3'
-                : 'pb-6 space-y-2.5'
-            } ${isListMouseDown ? 'cursor-grabbing' : 'scroll-smooth'}`}
+            className={`absolute inset-0 overflow-y-scroll no-scrollbar py-1 pb-6 space-y-2.5 ${
+              isListMouseDown ? 'cursor-grabbing' : 'scroll-smooth'
+            }`}
           >
             {visibleCustomers.map((cust, idx) => {
               const fin = getCustomerFinancials(cust);
               const initials = getInitials(cust.name);
               const isSelected = selectedCustomer?.id === cust.id;
-              const isExpanded = expandedCustomerId !== null;
+              const isExpanded = expandedCustomerId === cust.id;
 
               return (
                 <div
@@ -399,10 +375,10 @@ export const CustomersPage: React.FC = () => {
                   ref={(el) => {
                     cardRefs.current[cust.id] = el;
                   }}
-                  className={`w-full shrink-0 flex flex-col rounded-3xl bg-white dark:bg-slate-900 border transition-all ${
+                  className={`w-full shrink-0 flex flex-col p-3.5 sm:p-4 rounded-3xl bg-white dark:bg-slate-900 border transition-all ${
                     isExpanded
-                      ? 'h-[calc(100%-8px)] min-h-[280px] snap-start snap-always justify-between p-3.5 sm:p-5 border-slate-200 dark:border-slate-800 shadow-xl relative overflow-hidden'
-                      : 'p-3.5 sm:p-4 border-slate-200 dark:border-slate-800 shadow-sm hover:border-blue-300 dark:hover:border-slate-700'
+                      ? 'border-blue-400 dark:border-blue-700 shadow-xl ring-1 ring-blue-400/30 space-y-3'
+                      : 'border-slate-200 dark:border-slate-800 shadow-sm hover:border-blue-300 dark:hover:border-slate-700'
                   }`}
                 >
                   {/* GÖRSEL-2 KISMI (Çekmece Halindeyken Yalnızca Bu Kısım Görünür) */}
