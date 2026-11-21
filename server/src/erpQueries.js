@@ -1230,15 +1230,31 @@ export const erpQueries = {
           ELSE N''
         END;
 
-        ${order.documentType === 'receipt' || order.documentType === 'invoice' ? (() => {
-          const fisTuru = order.documentType === 'invoice' ? 2 : 20;
-          const finIslemTuru = order.documentType === 'invoice' ? 47 : 71;
-          const seriPrefix = order.documentType === 'invoice' ? 'STS FTRS-' : 'STS FS-';
+        ${(() => {
+          const effectiveDocType =
+            order.documentType === 'receipt' || String(order.tempId || '').startsWith('FIS-')
+              ? 'receipt'
+              : order.documentType === 'invoice' || String(order.tempId || '').startsWith('FTR-')
+              ? 'invoice'
+              : 'order';
+          return effectiveDocType === 'receipt' || effectiveDocType === 'invoice';
+        })() ? (() => {
+          const isInvoice =
+            order.documentType === 'invoice' || String(order.tempId || '').startsWith('FTR-');
+          const fisTuru = isInvoice ? 2 : 20;
+          const finIslemTuru = isInvoice ? 47 : 71;
+          const seriPrefix = isInvoice ? 'STS FTRS-' : 'STS FS-';
+          const fisBasimTipi = isInvoice ? 3 : 1;
+          const fisAltTipi = isInvoice ? 0 : 1;
           return `
         DECLARE @kasaId bigint;
         SELECT TOP 1 @kasaId = ID FROM KASA_AD WITH(NOLOCK) WHERE LOKASYON = @lokId AND AKTIF = 1 ORDER BY ID ASC;
         IF @kasaId IS NULL SELECT TOP 1 @kasaId = ID FROM KASA_AD WITH(NOLOCK) WHERE ID = 75923;
         IF @kasaId IS NULL SELECT TOP 1 @kasaId = ID FROM KASA_AD WITH(NOLOCK) ORDER BY ID ASC;
+
+        DECLARE @sevkNedeniId bigint;
+        SELECT TOP 1 @sevkNedeniId = SEVK_NEDENI FROM FIS WITH(NOLOCK) WHERE SEVK_NEDENI IS NOT NULL AND SEVK_NEDENI > 0 ORDER BY ID DESC;
+        IF @sevkNedeniId IS NULL SET @sevkNedeniId = 0;
 
         DECLARE @fisId bigint;
         SELECT @fisId = ISNULL((
@@ -1277,8 +1293,9 @@ export const erpQueries = {
           IHRACAT_GONDERIM_SEKLI, IHRACAT_TESLIM_SEKLI, VERGI_MUAFIYET_KODU, E_FATURA_KABUL_DURUMU,
           DOVIZ_KUR_SECIMI, FIS_ODEME_TIPI_ISKONTOLARI, FIS_STOK_HAREKETLERINI_ETKILER, FIS_ALT_TIPI,
           SEVK_PERSONEL_AD, SEVK_PERSONEL_TCKN, SEVK_ARAC_PLAKA, SEVK_DORSE_PLAKA,
-          SGK_DOSYA_NO, MUHASEBELESTI, PAREKENDE_KDV_KULLAN, SATILDIGI_PAZAR_YERI,
-          ODEMEMNIN_YAPILDIGI_TARIH, GONDERIM_TARIHI, ASIL_SATICI_CARISI, HAREKET_TARIHI, SATIR_STOPAJ_TOPLAM
+          SGK_DOSYA_NO, SGK_DONEM_BASLANGIC, SGK_DONEM_BITIS, MUHASEBELESTI, PAREKENDE_KDV_KULLAN, SATILDIGI_PAZAR_YERI,
+          ODEMEMNIN_YAPILDIGI_TARIH, GONDERIM_TARIHI, SEVK_NEDENI, ASIL_SATICI_CARISI, HAREKET_TARIHI, SATIR_STOPAJ_TOPLAM,
+          ALIS_BELGE_NO, ALIS_BELGE_NO_2, ALIS_BELGE_NO_3, ALIS_BELGE_NO_4, ALIS_BELGE_NO_5
         ) VALUES (
           @fisId, ${fisTuru}, @lokId, NULL, @cariId, @cariAdresId, @cariAdresId, @projeId,
           @belgeNo, GETDATE(), GETDATE(), GETDATE(), @dovizId, 1, ISNULL(@cariPersonelId, 0),
@@ -1286,18 +1303,19 @@ export const erpQueries = {
           0, ${totalVatNum}, 0, 0, ${grandTotalNum},
           1, CAST(GETDATE() AS DATE), 17, @aciklamaText, 0,
           1, @dovizId, 1, 1,
-          1, '', 0, 1,
-          0, 300, 1,
+          1, '', 0, 0,
+          0, 300, ${fisBasimTipi},
           0, 0, '',
           ' ', 0,
           0, 0, 0, 0, 0, 0, 0, 0,
           0, 0, 0, 0, 0, 0,
           0, 0, 0, 0, 0, 0,
           0, 0, 0, 0,
-          2, 1, 1, 1,
+          2, 1, 1, ${fisAltTipi},
           '', '', '', '',
-          '', 0, 0, '',
-          CAST(GETDATE() AS DATE), CAST(GETDATE() AS DATE), 0, GETDATE(), 0
+          '', CAST(GETDATE() AS DATE), CAST(GETDATE() AS DATE), 0, 0, '',
+          CAST(GETDATE() AS DATE), CAST(GETDATE() AS DATE), @sevkNedeniId, 0, GETDATE(), 0,
+          '', '', '', '', ''
         );
         IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @fisId)
           INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@fisId, 'FIS', 0);
@@ -1349,7 +1367,7 @@ export const erpQueries = {
                 LOKASYON_MALIYETI, MALIYET_ELLE_GIRILDI, ALT_BIRIM_MIKTARI, UTS,
                 ANLASMA_DETAY_ID, STOK_FIYAT_AD, BURUT, FIRE, FIYAT_MANUEL_GIRILDI,
                 FK_IHRACAT_KAB_CINSI, IHRACAT_KAB_NO, IHRACAT_KAB_ADET, SATICIKODU,
-                BUNDLE_DETAY, FK_GIDER_YERI, KT_BUNDLE_FIYAT, SATIR_STOPAJ_TUTAR
+                PARTI_NO_SON_KULLANMA_TARIHI, BUNDLE_DETAY, FK_GIDER_YERI, KT_BUNDLE_FIYAT, SATIR_STOPAJ_TUTAR
               ) VALUES (
                 @detId, @fisId, @lokId, @stokId_${idx}, @stokCinsi_${idx}, @birimId_${idx},
                 @barkod_${idx}, '', @dovizId, 1, 0,
@@ -1361,7 +1379,7 @@ export const erpQueries = {
                 0, 0, 0,
                 ${r.satirIskontoTutar}, 0, 0,
                 ${r.kdvMatrahi}, ${r.kdvTutar}, 0, ${r.fiyat},
-                0, 0, ${r.fiyat}, 0, 0,
+                0, 0, 0, 0, 0,
                 '', 0, ${r.fiyat}, GETDATE(), 0,
                 '', '${r.sCode}', '', 0, '${fisTuru}', 0,
                 @birimId_${idx}, ${r.qty}, 1, '',
@@ -1369,7 +1387,7 @@ export const erpQueries = {
                 0, 0, 0, '',
                 0, 0, 0, 0, 0,
                 0, 0, 0, '',
-                0, 0, 0, 0
+                GETDATE(), 0, 0, 0, 0
               );
               IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @detId)
                 INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@detId, 'FIS_DETAY', 0);
@@ -1383,7 +1401,7 @@ export const erpQueries = {
         INSERT INTO FINANS (
           ID, PROJE, LOKASYON, KASA_AD, BELGENO, TARIH, ISLEM_TARIHI, FIS, BAGLI_FINANS, MOBIL_MI
         ) VALUES (
-          @finId, @projeId, @lokId, @kasaId, @belgeNo, GETDATE(), GETDATE(), @fisId, NULL, 1
+          @finId, @projeId, @lokId, @kasaId, @belgeNo, GETDATE(), GETDATE(), @fisId, NULL, 0
         );
         IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @finId)
           INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@finId, 'FINANS', 0);
@@ -1396,7 +1414,7 @@ export const erpQueries = {
         ) VALUES (
           @finDetId, @finId, ${finIslemTuru}, @dovizId, 1,
           @cariId, @fisId, ${grandTotalNum}, 0, 0,
-          @fisId, CAST(GETDATE() AS DATE), ISNULL(@cariPersonelId, 0), @aciklamaText, 1,
+          @fisId, CAST(GETDATE() AS DATE), ISNULL(@cariPersonelId, 0), LEFT(@aciklamaText, 250), 1,
           GETDATE(), 1, @cariAdresId
         );
         IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @finDetId)
@@ -1430,7 +1448,7 @@ export const erpQueries = {
           @dovizId, 1, ISNULL(@cariPersonelId, 0),
           ${subtotalNum}, ${totalDiscountNum}, '0', 0,
           0, ${totalVatNum}, 0, 0, ${grandTotalNum},
-          @aciklamaText, 0, 1, 1, 1,
+          LEFT(@aciklamaText, 100), 0, 1, 1, 1,
           0, 0, 0, 0, 0,
           '', 1, 1
         );
@@ -1599,22 +1617,293 @@ export const erpQueries = {
     return { docNo: res[0]?.docNo || docNo };
   },
 
-  // 5. SİPARİŞİ ERP12'DE ONAYLA & FATURALAŞTIRMAYA SEVK ET
+  // 5. SİPARİŞİ ERP12'DE ONAYLA & FATURALAŞTIRMAYA SEVK ET (FIS / FIS_DETAY / FINANS OLUŞTUR)
   async invoiceOrder({ docNo, invoiceNo, notes }) {
+    erpQueries.invalidateCustomerCache();
     const safeDocNo = (docNo || '').replace(/'/g, "''");
     const safeInvNo = (invoiceNo || '').replace(/'/g, "''");
     const safeNotes = (notes || '').replace(/'/g, "''");
 
+    const notesRaw = String(notes || '');
+    const isReceipt = notesRaw.includes('[Perakende') || notesRaw.includes('[Fiş');
+    const isWaybill = notesRaw.includes('[Sevk');
+    const fisTuru = isReceipt ? 20 : isWaybill ? 6 : 2;
+    const finIslemTuru = isReceipt ? 71 : 47;
+    const fisBasimTipi = isReceipt || isWaybill ? 1 : 3;
+    const fisAltTipi = isReceipt ? 1 : 0;
+    const seriPrefix = isReceipt ? 'STS FS-' : isWaybill ? 'STS RSLYS-' : 'STS FTRS-';
+
     const sqlScript = `
       BEGIN TRANSACTION;
       BEGIN TRY
-        UPDATE SIPARIS 
-        SET ONAYLI = 1,
-            ACIKLAMA = ACIKLAMA + ' [Faturaya Sevk: ' + '${safeInvNo}' + ' ' + '${safeNotes}' + ']'
-        WHERE BELGENO = '${safeDocNo}';
+        DECLARE @sipId bigint;
+        DECLARE @existingFisId bigint;
+        DECLARE @lokId bigint;
+        DECLARE @cariId bigint;
+        DECLARE @cariAdresId bigint;
+        DECLARE @gonderimAdresiId bigint;
+        DECLARE @projeId bigint;
+        DECLARE @dovizId bigint;
+        DECLARE @cariPersonelId bigint;
+        DECLARE @satirToplam decimal(18,8);
+        DECLARE @satirIskonto decimal(18,8);
+        DECLARE @kdvToplam decimal(18,8);
+        DECLARE @genelToplam decimal(18,8);
+        DECLARE @sipAciklama nvarchar(200);
+
+        SELECT TOP 1
+          @sipId = ID,
+          @existingFisId = ISNULL(FIS, 0),
+          @lokId = ISNULL(LOKASYON, 75919),
+          @cariId = CARI,
+          @cariAdresId = CARI_ADRES,
+          @gonderimAdresiId = ISNULL(GONDERIM_ADRESI, CARI_ADRES),
+          @projeId = ISNULL(PROJE, 75916),
+          @dovizId = ISNULL(DOVIZ_AD, 1),
+          @cariPersonelId = ISNULL(CARI_PERSONEL, 0),
+          @satirToplam = ISNULL(SATIR_TOPLAM, 0),
+          @satirIskonto = ISNULL(SATIR_ISKONTO_TOPLAM, 0),
+          @kdvToplam = ISNULL(KDV_TOPLAM, 0),
+          @genelToplam = ISNULL(GENELTOPLAM, 0),
+          @sipAciklama = ISNULL(ACIKLAMA, N'')
+        FROM SIPARIS WITH(NOLOCK)
+        WHERE BELGENO = N'${safeDocNo}' OR CAST(ID AS nvarchar(50)) = N'${safeDocNo}'
+        ORDER BY ID DESC;
+
+        DECLARE @belgeNo nvarchar(50) = LEFT(N'${safeInvNo}', 50);
+
+        IF @sipId IS NOT NULL AND @existingFisId = 0
+        BEGIN
+          IF @belgeNo = N''
+          BEGIN
+            DECLARE @seriPrefix nvarchar(20) = N'${seriPrefix}';
+            DECLARE @maxSeriNum int;
+            SELECT @maxSeriNum = MAX(TRY_CAST(SUBSTRING(BELGENO, LEN(@seriPrefix) + 1, 20) AS int))
+            FROM FIS WITH(NOLOCK)
+            WHERE FIS_TURU = ${fisTuru} AND BELGENO LIKE @seriPrefix + N'[0-9]%';
+            SET @belgeNo = @seriPrefix + RIGHT(N'000000' + CAST(ISNULL(@maxSeriNum, 0) + 1 AS nvarchar(20)), 6);
+          END;
+
+          DECLARE @kasaId bigint;
+          SELECT TOP 1 @kasaId = ID FROM KASA_AD WITH(NOLOCK) WHERE LOKASYON = @lokId AND AKTIF = 1 ORDER BY ID ASC;
+          IF @kasaId IS NULL SELECT TOP 1 @kasaId = ID FROM KASA_AD WITH(NOLOCK) WHERE ID = 75923;
+          IF @kasaId IS NULL SELECT TOP 1 @kasaId = ID FROM KASA_AD WITH(NOLOCK) ORDER BY ID ASC;
+
+          DECLARE @sevkNedeniId bigint;
+          SELECT TOP 1 @sevkNedeniId = SEVK_NEDENI FROM FIS WITH(NOLOCK) WHERE SEVK_NEDENI IS NOT NULL AND SEVK_NEDENI > 0 ORDER BY ID DESC;
+          IF @sevkNedeniId IS NULL SET @sevkNedeniId = 0;
+
+          DECLARE @fisId bigint;
+          SELECT @fisId = ISNULL((
+            SELECT MAX(v) FROM (VALUES
+              (ISNULL((SELECT MAX(ID) FROM SEQUNCES WITH(NOLOCK)), 0)),
+              (ISNULL((SELECT MAX(ID) FROM FIS WITH(NOLOCK)), 4892790)),
+              (ISNULL((SELECT MAX(ID) FROM FIS_DETAY WITH(NOLOCK)), 4892790)),
+              (ISNULL((SELECT MAX(ID) FROM FIS_DETAY_BELGE_DETAY WITH(NOLOCK)), 4892790)),
+              (ISNULL((SELECT MAX(ID) FROM FINANS WITH(NOLOCK)), 4892790)),
+              (ISNULL((SELECT MAX(ID) FROM FINANS_DETAY WITH(NOLOCK)), 4892790))
+            ) AS T(v)
+          ), 4892790) + 1;
+
+          DECLARE @fisAciklama nvarchar(500);
+          SET @fisAciklama = CASE
+            WHEN @sipAciklama <> N'' AND N'${safeNotes}' <> N'' THEN @sipAciklama + N' - ' + N'${safeNotes}'
+            WHEN @sipAciklama <> N'' THEN @sipAciklama
+            ELSE N'${safeNotes}'
+          END;
+
+          INSERT INTO FIS (
+            ID, FIS_TURU, LOKASYON, KARSI_LOKASYON, CARI, CARI_ADRES, GONDERIM_ADRESI, PROJE,
+            BELGENO, FIS_TARIHI, ISLEM_TARIHI, SEVK_TARIHI, DOVIZ_AD, DOVIZ_KUR, CARI_PERSONEL,
+            SATIR_TOPLAM, SATIR_ISKONTO_TOPLAM, FIS_ISKONTO_ORAN, FIS_ISKONTO_TOPLAM,
+            YUVARLAMA, KDV_TOPLAM, OTV_TOPLAM, TEFKIFAT_TOPLAM, GENELTOPLAM,
+            DURUM, VADE, VADE_SECENEKLERI, ACIKLAMA, YAZAR_KASA_NO,
+            FIS_CARIYI_ETKILERMI, CARI_DOVIZ_AD, CARI_DOVIZ_KUR, CARI_TAKIP_SEKLI,
+            AKTIF, E_FATURA_GIDIS_KODU, SEVKIYAT_YAPILSIN, MOBIL_MI,
+            FIS_SEZON, MARKET_KASA_TERAZI_MARKALARI, FIS_BASIM_TIPI,
+            KARGO_CARISI, INTERNET_ODEME_SEKLI, INTERNET_ODEME_ACIKLAMASI,
+            VIO_MUHENTYAPILDI, ONAY_BEKLIYOR,
+            BAGKUR_ORAN, BAGKUR_TUTAR, STOPAJ_ORAN, STOPAJ_TUTAR, BORSA_ORAN, BORSA_TUTAR, MERA_ORAN, MERA_TUTAR,
+            TEVKIF, FIS_OZEL_KOD_1, FIS_OZEL_KOD_2, FIS_OZEL_KOD_3, FIS_OZEL_KOD_4, FIS_OZEL_KOD_5,
+            BELGE_YETKILISI, YAZILDI, EMAIL_GONDERILDI, NAKLIYE_ODEME_TIPI, SEVK_SEKLI, ARTTIRIM,
+            IHRACAT_GONDERIM_SEKLI, IHRACAT_TESLIM_SEKLI, VERGI_MUAFIYET_KODU, E_FATURA_KABUL_DURUMU,
+            DOVIZ_KUR_SECIMI, FIS_ODEME_TIPI_ISKONTOLARI, FIS_STOK_HAREKETLERINI_ETKILER, FIS_ALT_TIPI,
+            SEVK_PERSONEL_AD, SEVK_PERSONEL_TCKN, SEVK_ARAC_PLAKA, SEVK_DORSE_PLAKA,
+            SGK_DOSYA_NO, SGK_DONEM_BASLANGIC, SGK_DONEM_BITIS, MUHASEBELESTI, PAREKENDE_KDV_KULLAN, SATILDIGI_PAZAR_YERI,
+            ODEMEMNIN_YAPILDIGI_TARIH, GONDERIM_TARIHI, SEVK_NEDENI, ASIL_SATICI_CARISI, HAREKET_TARIHI, SATIR_STOPAJ_TOPLAM,
+            ALIS_BELGE_NO, ALIS_BELGE_NO_2, ALIS_BELGE_NO_3, ALIS_BELGE_NO_4, ALIS_BELGE_NO_5
+          ) VALUES (
+            @fisId, ${fisTuru}, @lokId, NULL, @cariId, @cariAdresId, @gonderimAdresiId, @projeId,
+            @belgeNo, GETDATE(), GETDATE(), GETDATE(), @dovizId, 1, @cariPersonelId,
+            @satirToplam, @satirIskonto, '', 0,
+            0, @kdvToplam, 0, 0, @genelToplam,
+            1, CAST(GETDATE() AS DATE), 17, @fisAciklama, 0,
+            1, @dovizId, 1, 1,
+            1, '', 0, 0,
+            0, 300, ${fisBasimTipi},
+            0, 0, '',
+            ' ', 0,
+            0, 0, 0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0, 0, 0,
+            0, 0, 0, 0,
+            2, 1, 1, ${fisAltTipi},
+            '', '', '', '',
+            '', CAST(GETDATE() AS DATE), CAST(GETDATE() AS DATE), 0, 0, '',
+            CAST(GETDATE() AS DATE), CAST(GETDATE() AS DATE), @sevkNedeniId, 0, GETDATE(), 0,
+            '', '', '', '', ''
+          );
+          IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @fisId)
+            INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@fisId, 'FIS', 0);
+
+          DECLARE @baseSatirNo bigint;
+          SELECT @baseSatirNo = ISNULL(MAX(TRY_CAST(SATIR AS bigint)), 52000) FROM FIS_DETAY WITH(NOLOCK);
+
+          DECLARE @detCount int;
+          SELECT @detCount = COUNT(*) FROM SIPARIS_DETAY WITH(NOLOCK) WHERE SIPARIS = @sipId;
+
+          INSERT INTO FIS_DETAY (
+            ID, FIS, LOKASYON, STOK, STOK_CINSI, STOK_BIRIM,
+            BARKOD, KOLI_BARKODU, DOVIZ_AD, CARPAN, KAB,
+            MIKTAR_FIS, MIKTAR_BEDELSIZ, MIKTAR_GIRIS, MIKTAR_CIKIS,
+            ANLASMA_FIYAT, FIYAT, DAHIL_FIYAT, TUTAR, DAHIL_TUTAR,
+            ISKONTO, ISKONTO_HESAP, OTV_ORAN, OTV_TUTAR, KDV_TOPTAN, TEVKIF,
+            KUR, PUAN, FIYAT_FARKI, SERINO_ZORUNLU, FK_PERSONEL, SATIR,
+            YEREL_KARSI_FIYAT, BELGE_TARIHINDEKI_SON_ALIS_FIYATI, HK_MIKTAR_FIS,
+            FATRALANDIRILMIS_IRSALIYEMI, URETILENMI, FK_VERGI_MUAFIYET_KODU,
+            TOPLAM_SATIR_ISKONTOSU, TOPLAM_FIS_ISKONTOSU, TOPLAM_OTV,
+            TOPLAM_KDV_MATRAHI, TOPLAM_KDV, TOPLAM_TEVKIF, HESAPLANAN_FIYAT,
+            PRIM, FIS_DETAY_SATIR_TURU, LISTE_FIYATI, RECETE_MALIYET_ORANI, RECETE,
+            PARTINO, PARTINO_ZORUNLU, YEREL_FIYAT, FIS_TARIHI, ISLENDI,
+            ACIKLAMA, KOD, JOKER, BAGLI_SATIR, FIS_TURU, MASA,
+            AMBALAJ_BIRIM, AMBALAJ_MIKTAR, AMBALAJ_CARPAN, GTIPNO,
+            POS_PROMASYON, POS_PROMASYON_TOPLAM, FK_STOK_TEVKIF_LESTE,
+            LOKASYON_MALIYETI, MALIYET_ELLE_GIRILDI, ALT_BIRIM_MIKTARI, UTS,
+            ANLASMA_DETAY_ID, STOK_FIYAT_AD, BURUT, FIRE, FIYAT_MANUEL_GIRILDI,
+            FK_IHRACAT_KAB_CINSI, IHRACAT_KAB_NO, IHRACAT_KAB_ADET, SATICIKODU,
+            PARTI_NO_SON_KULLANMA_TARIHI, BUNDLE_DETAY, FK_GIDER_YERI, KT_BUNDLE_FIYAT, SATIR_STOPAJ_TUTAR
+          )
+          SELECT
+            @fisId + ROW_NUMBER() OVER (ORDER BY SD.ID ASC),
+            @fisId,
+            ISNULL(SD.LOKASYON, @lokId),
+            SD.STOK,
+            ISNULL(SD.STOK_CINSI, 1),
+            ISNULL(SD.STOK_BIRIM, 1012),
+            ISNULL(SD.BARKOD, N''),
+            ISNULL(SD.KOLI_BARKODU, N''),
+            ISNULL(SD.DOVIZ_AD, @dovizId),
+            ISNULL(SD.CARPAN, 1),
+            ISNULL(SD.KAB, 0),
+            ISNULL(SD.MIKTAR_FIS, 1),
+            ISNULL(SD.MIKTAR_BEDELSIZ, 0),
+            0,
+            ISNULL(SD.MIKTAR_FIS, 1),
+            ISNULL(SD.ANLASMA_FIYAT, 0),
+            ISNULL(SD.FIYAT, 0),
+            ISNULL(SD.DAHIL_FIYAT, 0),
+            ISNULL(SD.TUTAR, 0),
+            ISNULL(SD.DAHIL_TUTAR, 0),
+            CASE WHEN ISNULL(SD.ISKONTO, N'0') = N'0' THEN N'' ELSE SD.ISKONTO END,
+            ISNULL(SD.ISKONTO_HESAP, 0),
+            ISNULL(SD.OTV_ORAN, 0),
+            ISNULL(SD.OTV_TUTAR, 0),
+            ISNULL(SD.KDV_TOPTAN, 20),
+            ISNULL(SD.TEVKIF, 0),
+            ISNULL(SD.KUR, 1),
+            0,
+            ISNULL(SD.FIYAT_FARKI, 0),
+            ISNULL(SD.SERINO_ZORUNLU, 0),
+            @cariPersonelId,
+            @baseSatirNo + ROW_NUMBER() OVER (ORDER BY SD.ID ASC),
+            0, 0, N'',
+            0, 0, 0,
+            ISNULL(SD.TOPLAM_SATIR_ISKONTOSU, 0),
+            ISNULL(SD.TOPLAM_FIS_ISKONTOSU, 0),
+            ISNULL(SD.TOPLAM_OTV, 0),
+            ISNULL(SD.TOPLAM_KDV_MATRAHI, 0),
+            ISNULL(SD.TOPLAM_KDV, 0),
+            ISNULL(SD.TOPLAM_TEVKIF, 0),
+            ISNULL(SD.HESAPLANAN_FIYAT, ISNULL(SD.FIYAT, 0)),
+            0, 0, 0, 0, 0,
+            N'', 0, ISNULL(SD.FIYAT, 0), GETDATE(), 0,
+            ISNULL(SD.ACIKLAMA, N''), ISNULL(SD.KOD, N''), N'', 0, N'${fisTuru}', 0,
+            ISNULL(SD.AMBALAJ_BIRIM, ISNULL(SD.STOK_BIRIM, 1012)),
+            ISNULL(SD.AMBALAJ_MIKTAR, ISNULL(SD.MIKTAR_FIS, 1)),
+            ISNULL(SD.AMBALAJ_CARPAN, 1), N'',
+            0, 0, 0,
+            0, 0, 0, N'',
+            0, 0, 0, 0, 0,
+            0, 0, 0, N'',
+            GETDATE(), 0, 0, 0, 0
+          FROM SIPARIS_DETAY SD WITH(NOLOCK)
+          WHERE SD.SIPARIS = @sipId;
+
+          IF OBJECT_ID('dbo.FIS_DETAY_BELGE_DETAY', 'U') IS NOT NULL
+          BEGIN
+            INSERT INTO FIS_DETAY_BELGE_DETAY (
+              ID, FIS, FIS_DETAY, BELGEID, BELGE_DETAY,
+              MIKTAR_FIS, MIKTAR_BEDELSIZ, KAB, SATIR,
+              MIKTAR_FIS_KONTROL, MIKTAR_BEDELSIZ_KONTROL, KAB_KONTROL
+            )
+            SELECT
+              @fisId + @detCount + ROW_NUMBER() OVER (ORDER BY SD.ID ASC),
+              @fisId,
+              @fisId + ROW_NUMBER() OVER (ORDER BY SD.ID ASC),
+              @sipId,
+              SD.ID,
+              ISNULL(SD.MIKTAR_FIS, 1),
+              ISNULL(SD.MIKTAR_BEDELSIZ, 0),
+              ISNULL(SD.KAB, 0),
+              @baseSatirNo + ROW_NUMBER() OVER (ORDER BY SD.ID ASC),
+              ISNULL(SD.MIKTAR_FIS, 1),
+              ISNULL(SD.MIKTAR_BEDELSIZ, 0),
+              ISNULL(SD.KAB, 0)
+            FROM SIPARIS_DETAY SD WITH(NOLOCK)
+            WHERE SD.SIPARIS = @sipId;
+          END;
+
+          DECLARE @finId bigint = @fisId + (@detCount * 2) + 1;
+          DECLARE @finDetId bigint = @fisId + (@detCount * 2) + 2;
+
+          INSERT INTO FINANS (
+            ID, PROJE, LOKASYON, KASA_AD, BELGENO, TARIH, ISLEM_TARIHI, FIS, BAGLI_FINANS, MOBIL_MI
+          ) VALUES (
+            @finId, @projeId, @lokId, @kasaId, @belgeNo, GETDATE(), GETDATE(), @fisId, NULL, 0
+          );
+          IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @finId)
+            INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@finId, 'FINANS', 0);
+
+          INSERT INTO FINANS_DETAY (
+            ID, FINANS, FINANS_ISLEM_TURU, DOVIZ_AD, KUR,
+            KART_BORCLU, KART_ALACAKLI, TUTAR, SECIM, TAHSILID,
+            FIS, VADE_TARIHI, FK_PERSONEL, ACIKLAMA, TAKSIT_SAYISI,
+            ISLEM_TARIHI, YENIDEN_TAKSIT, CARI_ADRES
+          ) VALUES (
+            @finDetId, @finId, ${finIslemTuru}, @dovizId, 1,
+            @cariId, @fisId, @genelToplam, 0, 0,
+            @fisId, CAST(GETDATE() AS DATE), @cariPersonelId, LEFT(@fisAciklama, 250), 1,
+            GETDATE(), 1, @cariAdresId
+          );
+          IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @finDetId)
+            INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@finDetId, 'FINANS_DETAY', 0);
+
+          UPDATE SIPARIS
+          SET ONAYLI = 1,
+              FIS = @fisId,
+              ACIKLAMA = LEFT(ISNULL(ACIKLAMA, N'') + N' [Fatura: ' + @belgeNo + N']', 100)
+          WHERE ID = @sipId;
+        END
+        ELSE
+        BEGIN
+          UPDATE SIPARIS
+          SET ONAYLI = 1,
+              ACIKLAMA = LEFT(ISNULL(ACIKLAMA, N'') + N' [Fatura: ' + @belgeNo + N']', 100)
+          WHERE BELGENO = N'${safeDocNo}' OR CAST(ID AS nvarchar(50)) = N'${safeDocNo}';
+        END;
 
         COMMIT TRANSACTION;
-        SELECT '${safeDocNo}' AS docNo, '${safeInvNo}' AS invoiceNo;
+        SELECT '${safeDocNo}' AS docNo, @belgeNo AS invoiceNo;
       END TRY
       BEGIN CATCH
         ROLLBACK TRANSACTION;
@@ -1625,7 +1914,7 @@ export const erpQueries = {
     `;
 
     const res = await executeJsonQuery(sqlScript);
-    return { docNo, invoiceNo: safeInvNo };
+    return { docNo, invoiceNo: res[0]?.invoiceNo || safeInvNo };
   },
 
   // 6. CANLI CARİ HESAP EKSTRESİ (MÜŞTERİ HESAP HAREKETLERİ)
