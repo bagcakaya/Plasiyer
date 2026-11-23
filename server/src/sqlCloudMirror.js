@@ -3,6 +3,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import { get, put } from '@vercel/blob';
+import { resolveIncomingSqlConfig } from './db.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,7 +12,8 @@ if (!process.env.BLOB_READ_WRITE_TOKEN) {
   dotenv.config({ path: path.resolve(__dirname, '../../.env.local') });
 }
 
-function parseCleanDbParts(cfg = {}) {
+function parseCleanDbParts(rawCfg = {}) {
+  const cfg = resolveIncomingSqlConfig(rawCfg || {}) || {};
   let host = String(cfg.sqlHost || cfg.server || '')
     .trim()
     .replace(/^https?:\/\//i, '')

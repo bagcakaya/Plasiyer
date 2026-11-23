@@ -134,7 +134,7 @@ function isBlockedCloudSsrfHost(rawHost) {
   return false;
 }
 
-// Yazma uç noktaları için oturum / SQL bağlamı doğrulayıcı
+// Yazma ve okuma uç noktaları için oturum / SQL bağlamı doğrulayıcı
 function hasValidWriteAuthorization(req) {
   if (!process.env.VERCEL) return true; // Yerel köprü (localhost:4000) kendi makinesinde çalışır
   if (verifyAdminAuthHeader(req)) return true;
@@ -147,7 +147,6 @@ function hasValidWriteAuthorization(req) {
   if (req.headers['x-plasiyer-auth']) return true;
   const activeSql = sqlContext.getStore();
   if (activeSql && activeSql.sqlHost && activeSql.sqlPassword) return true;
-  if (req.body?.companyCode || req.query?.company) return true;
   return false;
 }
 
@@ -219,6 +218,12 @@ app.get('/api/health', (req, res) => {
 
 // Termal Fiş Yazıcıya (1 Numaralı Yazıcı) Doğrudan Gönderim
 app.post('/api/print/thermal', async (req, res) => {
+  if (!hasValidWriteAuthorization(req)) {
+    return res.status(401).json({
+      success: false,
+      message: 'Yetkisiz yazdırma isteği.',
+    });
+  }
   try {
     const payload = req.body || {};
     if (payload.dryRun) {
@@ -1629,12 +1634,19 @@ app.get('/api/registry/license-status', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Firma Kodu gereklidir.' });
     }
     const status = await cloudRegistry.getCompanyLicenseStatus(companyCode);
+    const authCheck = await verifyFirmOrAdminAuth(req, companyCode);
     res.json({
       success: true,
-      ...status,
-      matchedServerConfig: status.matchedServerConfig
-        ? protectSqlConfigForClient(status.matchedServerConfig)
-        : undefined,
+      foundCompany: status.foundCompany,
+      companyCode: status.companyCode,
+      licenseExpireDate: status.licenseExpireDate,
+      licenseExpired: status.licenseExpired,
+      error: status.error,
+      // SQL sunucu yapılandırmasını yalnızca doğrulanmış oturumlara döndür (anonim sorgularda gizle)
+      matchedServerConfig:
+        authCheck.authorized && status.matchedServerConfig
+          ? protectSqlConfigForClient(status.matchedServerConfig)
+          : undefined,
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });

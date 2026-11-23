@@ -452,7 +452,7 @@ export async function testDirectSqlConnection(rawConfig) {
 }
 
 /**
- * PowerShell Fallback SQL Runner (Yalnızca Yerel Windows Sunucu İçin)
+ * PowerShell Fallback SQL Runner (Yalnızca Yerel Windows Sunucu İçin - Base64 Env Korumalı, Komut Enjeksiyonuna %100 Kapalı)
  */
 async function executeJsonQueryViaPowerShell(query, dbName = DB_NAME) {
   if (process.platform !== 'win32' || process.env.VERCEL) {
@@ -461,13 +461,13 @@ async function executeJsonQueryViaPowerShell(query, dbName = DB_NAME) {
 
   const psScript = `
     Add-Type -AssemblyName System.Web.Extensions;
-    $conn = New-Object System.Data.SqlClient.SqlConnection("Server=${DB_SERVER};Database=${dbName};Integrated Security=True;TrustServerCertificate=True;");
+    $sqlText = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:ERP12_PS_SQL_B64));
+    $connStr = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:ERP12_PS_CONN_B64));
+    $conn = New-Object System.Data.SqlClient.SqlConnection($connStr);
     $conn.Open();
     $cmd = $conn.CreateCommand();
     $cmd.CommandTimeout = 45;
-    $cmd.CommandText = @'
-${query}
-'@;
+    $cmd.CommandText = $sqlText;
     $reader = $cmd.ExecuteReader();
     $dt = New-Object System.Data.DataTable;
     $dt.Load($reader);
@@ -488,12 +488,18 @@ ${query}
     Write-Output ($ser.Serialize($rows));
   `;
 
+  const connStr = `Server=${DB_SERVER};Database=${dbName};Integrated Security=True;TrustServerCertificate=True;`;
   const { stdout } = await execFilePromise(
     'powershell.exe',
-    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript],
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', psScript],
     {
       maxBuffer: 30 * 1024 * 1024,
       encoding: 'utf8',
+      env: {
+        ...process.env,
+        ERP12_PS_SQL_B64: Buffer.from(String(query || ''), 'utf8').toString('base64'),
+        ERP12_PS_CONN_B64: Buffer.from(connStr, 'utf8').toString('base64'),
+      },
     }
   );
 
@@ -508,22 +514,30 @@ async function executeNonQueryViaPowerShell(query, dbName = DB_NAME) {
   }
 
   const psScript = `
-    $conn = New-Object System.Data.SqlClient.SqlConnection("Server=${DB_SERVER};Database=${dbName};Integrated Security=True;TrustServerCertificate=True;");
+    $sqlText = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:ERP12_PS_SQL_B64));
+    $connStr = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($env:ERP12_PS_CONN_B64));
+    $conn = New-Object System.Data.SqlClient.SqlConnection($connStr);
     $conn.Open();
     $cmd = $conn.CreateCommand();
     $cmd.CommandTimeout = 45;
-    $cmd.CommandText = @'
-${query}
-'@;
+    $cmd.CommandText = $sqlText;
     $affected = $cmd.ExecuteNonQuery();
     $conn.Close();
     Write-Output $affected;
   `;
 
+  const connStr = `Server=${DB_SERVER};Database=${dbName};Integrated Security=True;TrustServerCertificate=True;`;
   const { stdout } = await execFilePromise(
     'powershell.exe',
-    ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psScript],
-    { encoding: 'utf8' }
+    ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', psScript],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        ERP12_PS_SQL_B64: Buffer.from(String(query || ''), 'utf8').toString('base64'),
+        ERP12_PS_CONN_B64: Buffer.from(connStr, 'utf8').toString('base64'),
+      },
+    }
   );
   return parseInt(stdout.trim(), 10);
 }
