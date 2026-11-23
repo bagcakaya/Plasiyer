@@ -167,13 +167,32 @@ export const imageService = {
     let ext = '.jpg';
 
     if (matches && matches.length === 3) {
-      const mime = matches[1];
+      const mime = matches[1].toLowerCase();
       if (mime.includes('png')) ext = '.png';
       else if (mime.includes('webp')) ext = '.webp';
+      else if (mime.includes('jpeg') || mime.includes('jpg')) ext = '.jpg';
+      else {
+        throw new Error('Yalnızca JPEG, PNG veya WebP formatında görsel yüklenebilir.');
+      }
       buffer = Buffer.from(matches[2], 'base64');
     } else {
       // Doğrudan base64 string
       buffer = Buffer.from(base64Data, 'base64');
+    }
+
+    if (!buffer || buffer.length < 16 || buffer.length > 8 * 1024 * 1024) {
+      throw new Error('Görsel boyutu geçersiz (Maksimum 8 MB).');
+    }
+
+    // Magic-byte (Dosya imzası) doğrulaması: JPEG (FF D8), PNG (89 50 4E 47), WebP (RIFF....WEBP)
+    const isJpeg = buffer[0] === 0xff && buffer[1] === 0xd8;
+    const isPng =
+      buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47;
+    const isWebp =
+      buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+    if (!isJpeg && !isPng && !isWebp) {
+      throw new Error('Geçersiz görsel dosyası imzası.');
     }
 
     const cleanCode = String(productCode).trim().replace(/[^a-zA-Z0-9_-]/g, '_');

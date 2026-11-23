@@ -745,6 +745,8 @@ app.get('/api/products/erp-image/:idOrCode', async (req, res) => {
 
   const sendImageBuffer = (imgObj) => {
     res.setHeader('Content-Type', imgObj.contentType || 'image/jpeg');
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('Content-Security-Policy', "default-src 'none'");
     res.setHeader(
       'Cache-Control',
       'public, max-age=31536000, s-maxage=31536000, stale-while-revalidate=86400, immutable'

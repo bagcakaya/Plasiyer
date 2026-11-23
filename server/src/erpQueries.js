@@ -2130,15 +2130,17 @@ export const erpQueries = {
     }
 
     const customer = custRows[0];
-    const customerId = customer.id;
+    const customerId = Number(customer.id) || 0;
 
-    // 2. Hareketleri Çek
+    // 2. Hareketleri Çek (Sadece YYYY-MM-DD formatındaki güvenli tarihleri kabul et)
     let dateFilter = '';
-    if (startDate) {
-      dateFilter += ` AND FD.ISLEM_TARIHI >= '${startDate.replace(/'/g, "''")}'`;
+    const cleanStart = String(startDate || '').trim();
+    const cleanEnd = String(endDate || '').trim();
+    if (/^\d{4}-\d{2}-\d{2}$/.test(cleanStart)) {
+      dateFilter += ` AND FD.ISLEM_TARIHI >= '${cleanStart}'`;
     }
-    if (endDate) {
-      dateFilter += ` AND FD.ISLEM_TARIHI <= '${endDate.replace(/'/g, "''")} 23:59:59'`;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(cleanEnd)) {
+      dateFilter += ` AND FD.ISLEM_TARIHI <= '${cleanEnd} 23:59:59'`;
     }
 
     const movesQuery = `
