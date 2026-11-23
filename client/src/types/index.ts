@@ -608,6 +608,7 @@ export interface ErpLocation {
   itemCount: number;
   totalQuantity: number;
   assignedRepNames?: string;
+  assignedRepCodes?: string[];
   hotSaleEnabled?: boolean;
   orderEnabled?: boolean;
 }

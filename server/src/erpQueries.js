@@ -3115,7 +3115,10 @@ export const erpQueries = {
       repRows = await executeJsonQuery(`
         SELECT
           CAST(CP.LOKASYON AS varchar(50)) AS locId,
-          LTRIM(RTRIM(ISNULL(C.AD, ''))) AS repName
+          LTRIM(RTRIM(ISNULL(C.AD, ''))) AS repName,
+          LTRIM(RTRIM(ISNULL(CAST(CP.PERSONEL_NO AS varchar(50)), ''))) AS personelNo,
+          LTRIM(RTRIM(ISNULL(C.KOD, ''))) AS cariKod,
+          CAST(C.ID AS varchar(50)) AS cariId
         FROM CARI_PERSONEL CP WITH(NOLOCK)
         INNER JOIN CARI C WITH(NOLOCK) ON C.ID = CP.CARI AND C.AKTIF = 1 AND C.CARI_TUR = 2
         WHERE CP.LOKASYON IS NOT NULL AND CP.LOKASYON > 0
@@ -3125,13 +3128,22 @@ export const erpQueries = {
     }
 
     const repsByLoc = new Map();
+    const repCodesByLoc = new Map();
     for (const r of repRows) {
       const lid = String(r.locId || '');
       const rName = String(r.repName || '').trim();
-      if (!lid || !rName) continue;
-      const list = repsByLoc.get(lid) || [];
-      if (!list.includes(rName)) list.push(rName);
-      repsByLoc.set(lid, list);
+      if (!lid) continue;
+      if (rName) {
+        const list = repsByLoc.get(lid) || [];
+        if (!list.includes(rName)) list.push(rName);
+        repsByLoc.set(lid, list);
+      }
+      const codeSet = repCodesByLoc.get(lid) || new Set();
+      [r.personelNo, r.cariKod, r.cariId].forEach((val) => {
+        const clean = String(val ?? '').trim().toUpperCase();
+        if (clean && clean !== '0') codeSet.add(clean);
+      });
+      repCodesByLoc.set(lid, codeSet);
     }
 
     const plateRegex = /^\d{2}\s*[A-ZÇĞİÖŞÜ]{1,4}\s*\d{2,5}$/i;
@@ -3169,6 +3181,7 @@ export const erpQueries = {
         itemCount: Number(row.itemCount || 0),
         totalQuantity: Number(Number(row.totalQuantity || 0).toFixed(2)),
         assignedRepNames: (repsByLoc.get(String(row.id)) || []).join(', '),
+        assignedRepCodes: Array.from(repCodesByLoc.get(String(row.id)) || []),
         hotSaleEnabled: Boolean(row.hotSaleEnabled),
         orderEnabled: Boolean(row.orderEnabled),
       };

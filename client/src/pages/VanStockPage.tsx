@@ -257,10 +257,10 @@ export const VanStockPage: React.FC = () => {
                 <span className="text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
                   {activeHeaderTitle}
                 </span>
-                {!isEditingPlate && (
+                {!isEditingPlate && erpLocations.length > 1 && (
                   <button
                     onClick={() => {
-                      setPlateInput(vanPlate);
+                      setPlateInput(activeLocation?.name || vanPlate);
                       setIsEditingPlate(true);
                     }}
                     className="text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
@@ -270,7 +270,7 @@ export const VanStockPage: React.FC = () => {
                   </button>
                 )}
               </div>
-              {isEditingPlate ? (
+              {isEditingPlate && erpLocations.length > 1 ? (
                 <div className="flex items-center gap-2 mt-1">
                   <input
                     type="text"
@@ -297,7 +297,7 @@ export const VanStockPage: React.FC = () => {
               ) : (
                 <div className="flex flex-wrap items-center gap-2 mt-0.5">
                   <span className="text-lg font-black text-slate-900 dark:text-white tracking-wide bg-slate-100 dark:bg-slate-800 px-2.5 py-0.5 rounded-lg border border-slate-300 dark:border-slate-700 font-mono">
-                    {vanPlate}
+                    {activeLocation?.name || vanPlate}
                   </span>
                   <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
                     {activeCodeBadge}
@@ -309,18 +309,20 @@ export const VanStockPage: React.FC = () => {
 
           {/* Sağ Üst: Araç/Şube Ekle + Yenile + Satış Modu Butonları */}
           <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setIsAddLocationOpen((prev) => !prev)}
-              className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition active:scale-95"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Araç / Şube Ekle</span>
-            </button>
+            {erpLocations.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setIsAddLocationOpen((prev) => !prev)}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition active:scale-95"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Araç / Şube Ekle</span>
+              </button>
+            )}
 
             <button
               type="button"
-              onClick={() => refreshLocations(vanPlate)}
+              onClick={() => refreshLocations(activeLocation?.name || vanPlate)}
               disabled={isLoadingLocationStocks}
               className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition disabled:opacity-50"
               title="ERP12 Araç & Şube Stoklarını Yenile"
@@ -362,18 +364,26 @@ export const VanStockPage: React.FC = () => {
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
               <MapPin className="w-3.5 h-3.5 text-amber-500" />
-              <span>Kayıtlı Araçlar, Şubeler & Depolar ({erpLocations.length || 1})</span>
+              <span>
+                {erpLocations.length === 1
+                  ? 'Tanımlı Araç / Şube Deponuz'
+                  : `Kayıtlı Araçlar, Şubeler & Depolar (${erpLocations.length || 1})`}
+              </span>
             </span>
-            <span className="text-[11px] text-slate-400">
-              Stoklarını görmek veya işlem yapmak istediğiniz aracı/şubeyi seçin
-            </span>
+            {erpLocations.length > 1 && (
+              <span className="text-[11px] text-slate-400">
+                Stoklarını görmek veya işlem yapmak istediğiniz aracı/şubeyi seçin
+              </span>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
             {erpLocations.map((loc) => {
+              const currentActiveName = (activeLocation?.name || vanPlate || '').trim().toUpperCase();
               const isSelected =
-                loc.name.trim().toUpperCase() === (vanPlate || '').trim().toUpperCase() ||
-                loc.plate.trim().toUpperCase() === (vanPlate || '').trim().toUpperCase();
+                erpLocations.length === 1 ||
+                loc.name.trim().toUpperCase() === currentActiveName ||
+                loc.plate.trim().toUpperCase() === currentActiveName;
               const locIcon =
                 loc.type === 'merkez' ? (
                   <Warehouse className="w-4 h-4 shrink-0" />
@@ -441,15 +451,17 @@ export const VanStockPage: React.FC = () => {
               );
             })}
 
-            {/* Hızlı + Yeni Araç / Şube Ekle Kartı */}
-            <button
-              type="button"
-              onClick={() => setIsAddLocationOpen(true)}
-              className="p-3 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 dark:hover:border-emerald-500 text-slate-500 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition flex items-center justify-center gap-2 min-h-[76px]"
-            >
-              <Plus className="w-4 h-4" />
-              <span className="text-xs font-bold">+ Yeni Araç veya Şube Ekle</span>
-            </button>
+            {/* Hızlı + Yeni Araç / Şube Ekle Kartı (Sadece çoklu lokasyon modunda görünür) */}
+            {erpLocations.length > 1 && (
+              <button
+                type="button"
+                onClick={() => setIsAddLocationOpen(true)}
+                className="p-3 rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-700 hover:border-emerald-500 dark:hover:border-emerald-500 text-slate-500 dark:text-slate-400 hover:text-emerald-600 dark:hover:text-emerald-400 transition flex items-center justify-center gap-2 min-h-[76px]"
+              >
+                <Plus className="w-4 h-4" />
+                <span className="text-xs font-bold">+ Yeni Araç veya Şube Ekle</span>
+              </button>
+            )}
           </div>
         </div>
 

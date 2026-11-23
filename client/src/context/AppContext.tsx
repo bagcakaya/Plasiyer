@@ -621,7 +621,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [vanPlate, setVanPlateState] = useState<string>(() => {
     return localStorage.getItem('plasiyer_van_plate') || '25 ADY 050';
   });
-  const [erpLocations, setErpLocations] = useState<ErpLocation[]>(() => {
+  const [allErpLocations, setErpLocations] = useState<ErpLocation[]>(() => {
     try {
       const saved = localStorage.getItem('plasiyer_erp_locations_v1');
       if (saved) {
@@ -639,6 +639,69 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const vanLoadings = useLiveQuery(() => db.vanLoadings.reverse().toArray(), []) || [];
   const vanAudits = useLiveQuery(() => db.vanAudits.reverse().toArray(), []) || [];
 
+  const findAssignedLocationForUser = (locs: ErpLocation[]): ErpLocation | null => {
+    if (!locs || locs.length === 0) return null;
+    const repCodeUpper = (
+      currentUser?.salesRepCode ||
+      currentUser?.code ||
+      salesRep.code ||
+      ''
+    )
+      .trim()
+      .toUpperCase();
+    const userLocUpper = (currentUser?.locationName || '').trim().toUpperCase();
+    const repNameUpper = (currentUser?.name || salesRep.name || '').trim().toUpperCase();
+
+    if (repCodeUpper) {
+      const byCode = locs.find(
+        (l) =>
+          Array.isArray(l.assignedRepCodes) &&
+          l.assignedRepCodes.some((c) => c.trim().toUpperCase() === repCodeUpper)
+      );
+      if (byCode) return byCode;
+    }
+
+    if (userLocUpper) {
+      const byLocName = locs.find(
+        (l) =>
+          l.name.trim().toUpperCase() === userLocUpper ||
+          l.plate.trim().toUpperCase() === userLocUpper
+      );
+      if (byLocName) return byLocName;
+    }
+
+    if (repNameUpper) {
+      const byRepName = locs.find((l) => {
+        if (!l.assignedRepNames) return false;
+        const names = l.assignedRepNames
+          .split(',')
+          .map((n) => n.trim().toUpperCase())
+          .filter(Boolean);
+        return names.includes(repNameUpper);
+      });
+      if (byRepName) return byRepName;
+    }
+
+    return null;
+  };
+
+  // Giriş yapan personelin kendisine tanımlı şubesi/aracı varsa sadece kendi şubesini/aracını göster
+  const erpLocations = useMemo<ErpLocation[]>(() => {
+    const assigned = findAssignedLocationForUser(allErpLocations);
+    if (assigned) {
+      return [assigned];
+    }
+    return allErpLocations;
+  }, [
+    allErpLocations,
+    currentUser?.salesRepCode,
+    currentUser?.code,
+    currentUser?.locationName,
+    currentUser?.name,
+    salesRep.code,
+    salesRep.name,
+  ]);
+
   const activeLocation = useMemo<ErpLocation | null>(() => {
     const cleanPlate = (vanPlate || '').trim().toUpperCase();
     return (
@@ -647,8 +710,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           loc.name.trim().toUpperCase() === cleanPlate ||
           loc.plate.trim().toUpperCase() === cleanPlate ||
           loc.id === cleanPlate
-      ) || null
+      ) ||
+      erpLocations[0] ||
+      null
     );
+  }, [erpLocations, vanPlate]);
+
+  // Giriş yapan personelin tek bir tanımlı şubesi/aracı varsa vanPlate'i otomatik ona sabitle
+  useEffect(() => {
+    if (erpLocations.length === 1) {
+      const assignedLoc = erpLocations[0];
+      if (assignedLoc && assignedLoc.name && assignedLoc.name !== vanPlate) {
+        setVanPlateState(assignedLoc.name);
+        localStorage.setItem('plasiyer_van_plate', assignedLoc.name);
+        loadStocksForLocation(assignedLoc, serverConfig);
+      }
+    }
   }, [erpLocations, vanPlate]);
 
   const setSaleMode = (mode: SaleMode) => {
@@ -706,22 +783,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           // ignore
         }
 
-        const desiredRaw = (overrideSelectedName || vanPlate || '').trim();
-        const desiredUpper = desiredRaw.toUpperCase();
-        let matched = locs.find(
-          (l) =>
-            l.name.trim().toUpperCase() === desiredUpper ||
-            l.plate.trim().toUpperCase() === desiredUpper ||
-            l.id === desiredRaw
-        );
+        // Öncelikle giriş yapan personelin kendi şubesi/aracı varsa onu seç
+        let matched = findAssignedLocationForUser(locs);
 
-        if (!matched && currentUser?.locationName) {
-          const userLocUpper = currentUser.locationName.trim().toUpperCase();
-          matched = locs.find(
-            (l) =>
-              l.name.trim().toUpperCase() === userLocUpper ||
-              l.plate.trim().toUpperCase() === userLocUpper
-          );
+        if (!matched && overrideSelectedName) {
+          const desiredRaw = overrideSelectedName.trim();
+          const desiredUpper = desiredRaw.toUpperCase();
+          matched =
+            locs.find(
+              (l) =>
+                l.name.trim().toUpperCase() === desiredUpper ||
+                l.plate.trim().toUpperCase() === desiredUpper ||
+                l.id === desiredRaw
+            ) || null;
+        }
+
+        if (!matched) {
+          const desiredRaw = (vanPlate || '').trim();
+          const desiredUpper = desiredRaw.toUpperCase();
+          matched =
+            locs.find(
+              (l) =>
+                l.name.trim().toUpperCase() === desiredUpper ||
+                l.plate.trim().toUpperCase() === desiredUpper ||
+                l.id === desiredRaw
+            ) || null;
         }
 
         if (!matched) {
