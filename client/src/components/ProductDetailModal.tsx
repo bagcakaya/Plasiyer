@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { 
-  X, ShoppingBag, Plus, Minus, Check, TrendingDown, Barcode, Camera 
+  X, ShoppingBag, Plus, Minus, Check, TrendingDown, Barcode, Camera, Maximize2 
 } from 'lucide-react';
 import type { Product, Customer } from '../types';
 import { useApp } from '../context/AppContext';
@@ -26,18 +26,32 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
   const [quantityInput, setQuantityInput] = useState('1');
   const [addedAnimation, setAddedAnimation] = useState(false);
   const [isPhotoModalOpen, setIsPhotoModalOpen] = useState(false);
+  const [isFullscreenImageOpen, setIsFullscreenImageOpen] = useState(false);
   const [localImage, setLocalImage] = useState<string | undefined>(product?.image);
 
   useEffect(() => {
     setLocalImage(product?.image);
+    setIsFullscreenImageOpen(false);
   }, [product]);
 
   useEffect(() => {
     if (isOpen && product) {
       setSelectedQuantity(1);
       setQuantityInput('1');
+      setIsFullscreenImageOpen(false);
     }
   }, [product?.id, isOpen]);
+
+  useEffect(() => {
+    if (!isFullscreenImageOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setIsFullscreenImageOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isFullscreenImageOpen]);
 
   useEffect(() => {
     if (!isOpen || typeof document === 'undefined') return;
@@ -149,7 +163,9 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
       <div className="bg-white dark:bg-slate-900 w-full sm:max-w-md h-[100dvh] max-h-[100dvh] sm:h-auto sm:max-h-[92vh] rounded-none sm:rounded-3xl shadow-2xl border-0 sm:border border-slate-200 dark:border-slate-800 overflow-hidden overscroll-none flex flex-col">
         {/* Görsel Alanı & Kapat Butonu (iPhone Çentik / Dynamic Island Uyumlu Esnek Tek Ekran Başlığı) */}
         <div
-          className={`relative min-h-[8.25rem] h-[26dvh] max-h-[15.5rem] sm:h-56 sm:max-h-none overflow-hidden group shrink-0 ${
+          onClick={() => setIsFullscreenImageOpen(true)}
+          title="Tam ekran görüntülemek için fotoğrafa dokunun"
+          className={`relative min-h-[8.25rem] h-[26dvh] max-h-[15.5rem] sm:h-56 sm:max-h-none overflow-hidden group shrink-0 cursor-zoom-in ${
             hasRealPhoto ? 'bg-white' : 'bg-slate-100 dark:bg-slate-800'
           }`}
         >
@@ -175,10 +191,19 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
             }`}
           />
 
+          {/* Tam Ekran Büyütme İpucu */}
+          <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 pointer-events-none bg-black/50 text-white/90 text-[10px] font-semibold px-2.5 py-0.5 rounded-full backdrop-blur-xs flex items-center gap-1 opacity-85 group-hover:opacity-100 transition">
+            <Maximize2 className="w-3 h-3" />
+            <span>Tam Ekran</span>
+          </div>
+
           {/* Fotoğraf Ekle / Değiştir Butonu */}
           <button
             type="button"
-            onClick={() => setIsPhotoModalOpen(true)}
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsPhotoModalOpen(true);
+            }}
             className="absolute top-[calc(env(safe-area-inset-top,0px)+0.625rem)] sm:top-3 right-14 py-1.5 px-3 rounded-full bg-black/60 hover:bg-black/85 text-white backdrop-blur-md transition flex items-center gap-1.5 text-xs font-semibold shadow-md active:scale-95"
             title="Ürün Fotoğrafı Çek / Yükle"
           >
@@ -189,7 +214,10 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           {/* Kapat Butonu */}
           <button
             type="button"
-            onClick={onClose}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+            }}
             className="absolute top-[calc(env(safe-area-inset-top,0px)+0.5rem)] sm:top-3 right-3 p-2 rounded-full bg-black/55 hover:bg-black/80 text-white backdrop-blur-xs transition active:scale-95"
           >
             <X className="w-5 h-5" />
@@ -395,6 +423,48 @@ export const ProductDetailModal: React.FC<ProductDetailModalProps> = ({
           </button>
         </div>
       </div>
+
+      {/* Tam Ekran Ürün Fotoğrafı Görüntüleyici (Herhangi bir yere veya Çarpıya tıklanınca kapanır) */}
+      {isFullscreenImageOpen && (
+        <div
+          onClick={() => setIsFullscreenImageOpen(false)}
+          className="fixed inset-0 z-[160] bg-black/95 backdrop-blur-md flex flex-col items-center justify-center p-3 sm:p-6 cursor-zoom-out select-none animate-in fade-in"
+        >
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              setIsFullscreenImageOpen(false);
+            }}
+            className="absolute top-[calc(env(safe-area-inset-top,0px)+0.875rem)] right-4 p-2.5 rounded-full bg-white/15 hover:bg-white/30 text-white backdrop-blur-md transition active:scale-95 shadow-lg z-10"
+            title="Kapat"
+          >
+            <X className="w-6 h-6" />
+          </button>
+
+          <div className="relative w-full h-full max-w-5xl max-h-[84dvh] flex items-center justify-center">
+            <img
+              src={imageUrl}
+              alt={product.name}
+              onError={(e) =>
+                handleProductImageError(
+                  e,
+                  fallbackHeroUrl,
+                  'max-w-full max-h-full object-contain rounded-2xl shadow-2xl'
+                )
+              }
+              className={`max-w-full max-h-full object-contain rounded-2xl shadow-2xl ${
+                hasRealPhoto ? 'bg-white p-2 sm:p-4' : ''
+              }`}
+            />
+          </div>
+
+          <div className="mt-3 text-center max-w-lg px-4 pointer-events-none">
+            <p className="text-white font-bold text-sm sm:text-base line-clamp-2">{product.name}</p>
+            <p className="text-white/60 text-xs mt-0.5">Kapatmak için ekranda herhangi bir yere veya sağ üstteki çarpıya dokunun</p>
+          </div>
+        </div>
+      )}
 
       {/* Ürün Fotoğrafı Yönetim Modalı */}
       <ProductPhotoModal
