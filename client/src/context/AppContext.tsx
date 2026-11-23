@@ -246,7 +246,7 @@ const DEFAULT_SERVER_CONFIG: ServerConfig = {
   apiUrl: typeof window !== 'undefined' && isRemoteHost() ? 'demo' : `http://${typeof window !== 'undefined' ? window.location.hostname || 'localhost' : 'localhost'}:4000/api`,
   companyCode: '01',
   period: '2026',
-  autoSync: typeof window !== 'undefined' && !isRemoteHost(),
+  autoSync: true,
 };
 
 const makeIssuerCacheKey = (cfg?: Partial<ServerConfig>): string => {
@@ -1909,8 +1909,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 2. Yalnızca seçili ürünleri sepetten çıkar; işareti kaldırılan ürünler sepette kalmaya devam etsin
       setRawCart((prev) => prev.filter((item) => !item.isGift && item.selected === false));
 
-      // 3. Eğer online isek ve otomatik senkronizasyon açıksa hemen ERP12'ye gönder
-      if (isOnline && serverConfig.autoSync && !isDemoMode(serverConfig)) {
+      // 3. Eğer online isek hemen ERP12'ye gönder
+      if (isOnline && !isDemoMode(serverConfig)) {
         try {
           await syncService.pushPendingOrdersToERP(serverConfig);
         } catch {

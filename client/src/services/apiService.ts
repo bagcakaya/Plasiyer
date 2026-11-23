@@ -472,6 +472,28 @@ export const apiService = {
     return data.location as ErpLocation;
   },
 
+  // ERP12'deki Siparişleri (SIPARIS + SIPARIS_DETAY) Çek
+  async fetchOrders(config: ServerConfig): Promise<Order[]> {
+    if (isDemoMode(config)) {
+      return [];
+    }
+    try {
+      const baseUrl = await resolveApiBaseUrlAsync(config, true);
+      const response = await fetch(`${baseUrl}/orders?company=${encodeURIComponent(config.companyCode || '01')}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...buildSqlHeaders(config),
+        },
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return Array.isArray(data?.orders) ? (data.orders as Order[]) : [];
+    } catch {
+      return [];
+    }
+  },
+
   // ERP12'ye Siparişi İlet
   async sendOrder(config: ServerConfig, order: Order): Promise<{ docNo: string }> {
     if (isDemoMode(config)) {

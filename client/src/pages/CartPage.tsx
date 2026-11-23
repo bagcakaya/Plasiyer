@@ -898,15 +898,24 @@ export const CartPage: React.FC = () => {
                   Sepette Kalanlar ({cart.length})
                 </button>
               )}
-              <button
-                onClick={() => {
-                  setOrderSuccessModal(null);
-                  setActiveTab('orders');
-                }}
-                className="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-white text-xs font-bold py-2.5 rounded-xl transition"
-              >
-                Siparişleri Gör
-              </button>
+              {orderSuccessModal.docType === 'order' ? (
+                <button
+                  onClick={() => {
+                    setOrderSuccessModal(null);
+                    setActiveTab('orders');
+                  }}
+                  className="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-white text-xs font-bold py-2.5 rounded-xl transition"
+                >
+                  Siparişleri Gör
+                </button>
+              ) : (
+                <button
+                  onClick={() => setOrderSuccessModal(null)}
+                  className="flex-1 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-white text-xs font-bold py-2.5 rounded-xl transition"
+                >
+                  Tamam
+                </button>
+              )}
               <button
                 onClick={() => {
                   setOrderSuccessModal(null);

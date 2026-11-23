@@ -718,11 +718,29 @@ app.delete('/api/products/:idOrCode/image', async (req, res) => {
   }
 });
 
+// 3.0 ERP12 SIPARIS TABLOSUNDAKİ SİPARİŞLERİ PLASİYER SİPARİŞ HAVUZUNA ÇEK
+app.get('/api/orders', async (req, res) => {
+  try {
+    const orders = await erpQueries.getOrders();
+    res.json({ orders });
+  } catch (err) {
+    console.error('Sipariş listesi çekme hatası:', err.message);
+    res.json({ orders: [] });
+  }
+});
+
 // 3. MOBİLDEN GELEN SİPARİŞİ ERP12'YE KAYDET & CANLI BİLDİRİM GÖNDER
 app.post('/api/orders', async (req, res) => {
   try {
     const { companyCode, period, order } = req.body;
-    if (!order || !order.customerCode || !order.items || order.items.length === 0) {
+    const isDirectErpDoc =
+      order?.documentType === 'receipt' || order?.documentType === 'invoice';
+    if (
+      !order ||
+      (!order.customerCode && !isDirectErpDoc) ||
+      !order.items ||
+      order.items.length === 0
+    ) {
       return res.status(400).json({ error: 'Geçersiz sipariş verisi' });
     }
 

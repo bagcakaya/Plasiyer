@@ -1547,6 +1547,24 @@ export const erpQueries = {
           `;
         }).join('\n')}
 
+        IF OBJECT_ID('dbo.SEQUNCES_DEGISIKLIK', 'U') IS NOT NULL
+        BEGIN
+          DECLARE @aktifSipKodPc bigint = 0;
+          DECLARE @aktifSipKullanici bigint = ISNULL(@cariPersonelId, 0);
+          SELECT TOP 1
+            @aktifSipKodPc = ISNULL(KOD_PC, 0),
+            @aktifSipKullanici = CASE WHEN ISNULL(KULLANICI, 0) > 0 THEN KULLANICI ELSE ISNULL(@cariPersonelId, 0) END
+          FROM SEQUNCES_DEGISIKLIK WITH(NOLOCK)
+          WHERE ISNULL(KOD_PC, 0) > 0
+          ORDER BY ID DESC;
+
+          IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND @aktifSipKodPc > 0
+            UPDATE SEQUNCES SET KOD_PC = @aktifSipKodPc WHERE ID BETWEEN @orderId AND @detId;
+
+          INSERT INTO SEQUNCES_DEGISIKLIK (KOD_PC, SEQUNCES, KULLANICI, ISLEM, TARIH, TABLO)
+          VALUES (@aktifSipKodPc, @orderId, @aktifSipKullanici, 1, GETDATE(), 'SIPARIS');
+        END;
+
         COMMIT TRANSACTION;
         SELECT '${docNo}' AS docNo;
         `}
@@ -3296,6 +3314,133 @@ export const erpQueries = {
       all.find((l) => l.name.toUpperCase() === safeName.toUpperCase()) ||
       all[all.length - 1];
     return created;
+  },
+
+  // 13. ERP12 SIPARIS TABLOSUNDAKİ SİPARİŞLERİ VE DETAYLARINI PLASİYER SİPARİŞ HAVUZUNA ÇEKME
+  async getOrders() {
+    const [sipRows, sipDetRows] = await Promise.all([
+      executeJsonQuery(`
+        SELECT TOP 100
+          CAST(S.ID AS varchar(30)) AS erpId,
+          'order' AS documentType,
+          LTRIM(RTRIM(ISNULL(S.BELGENO, ''))) AS docNo,
+          CONVERT(varchar(23), S.SIPARIS_TARIHI, 126) AS orderDateIso,
+          CONVERT(varchar(10), ISNULL(S.TERMIN_TARIHI, S.SIPARIS_TARIHI), 120) AS deliveryDate,
+          CAST(S.CARI AS varchar(30)) AS customerId,
+          LTRIM(RTRIM(ISNULL(C.KOD, ''))) AS customerCode,
+          LTRIM(RTRIM(ISNULL(C.AD, ''))) AS customerName,
+          CAST(ISNULL(CP.PERSONEL_NO, S.CARI_PERSONEL) AS varchar(30)) AS salesRepCode,
+          LTRIM(RTRIM(ISNULL(P.AD, ''))) AS salesRepName,
+          ISNULL(S.SATIR_TOPLAM, 0) AS subtotal,
+          ISNULL(S.SATIR_ISKONTO_TOPLAM, 0) AS totalDiscount,
+          ISNULL(S.KDV_TOPLAM, 0) AS totalVat,
+          ISNULL(S.GENELTOPLAM, 0) AS grandTotal,
+          LTRIM(RTRIM(ISNULL(S.ACIKLAMA, ''))) AS notes,
+          CAST(ISNULL(S.FIS, 0) AS varchar(30)) AS fisId,
+          LTRIM(RTRIM(ISNULL(L.AD, 'Merkez'))) AS locationName
+        FROM SIPARIS S WITH(NOLOCK)
+        LEFT JOIN CARI C WITH(NOLOCK) ON C.ID = S.CARI
+        LEFT JOIN CARI P WITH(NOLOCK) ON P.ID = S.CARI_PERSONEL AND P.CARI_TUR = 2
+        LEFT JOIN CARI_PERSONEL CP WITH(NOLOCK) ON CP.CARI = S.CARI_PERSONEL
+        LEFT JOIN LOKASYON L WITH(NOLOCK) ON L.ID = S.LOKASYON
+        WHERE ISNULL(S.AKTIF, 1) = 1
+          AND ISNULL(S.SIPARIS_TURU, 2) = 2
+        ORDER BY S.ID DESC
+      `).catch(() => []),
+      executeJsonQuery(`
+        SELECT
+          CAST(SD.SIPARIS AS varchar(30)) AS erpId,
+          CAST(SD.STOK AS varchar(30)) AS productId,
+          LTRIM(RTRIM(ISNULL(SD.KOD, ISNULL(ST.KOD, '')))) AS productCode,
+          LTRIM(RTRIM(ISNULL(ST.AD, ISNULL(SD.KOD, 'Ürün')))) AS productName,
+          LTRIM(RTRIM(ISNULL(SB.AD, 'ADET'))) AS unit,
+          ISNULL(SD.MIKTAR_FIS, 1) AS quantity,
+          ISNULL(SD.DAHIL_FIYAT, ISNULL(SD.FIYAT, 0)) AS unitPrice,
+          ISNULL(SD.ISKONTO_HESAP, 0) AS discountPercent,
+          ISNULL(SD.KDV_TOPTAN, 20) AS vatRate,
+          ISNULL(SD.DAHIL_TUTAR, 0) AS totalAmount,
+          ISNULL(SD.TOPLAM_KDV, 0) AS vatAmount,
+          ISNULL(SD.DAHIL_TUTAR, 0) AS grandTotal
+        FROM SIPARIS_DETAY SD WITH(NOLOCK)
+        INNER JOIN (
+          SELECT TOP 100 ID FROM SIPARIS WITH(NOLOCK)
+          WHERE ISNULL(AKTIF, 1) = 1 AND ISNULL(SIPARIS_TURU, 2) = 2
+          ORDER BY ID DESC
+        ) S ON S.ID = SD.SIPARIS
+        LEFT JOIN STOK ST WITH(NOLOCK) ON ST.ID = SD.STOK
+        LEFT JOIN STOK_BIRIM SB WITH(NOLOCK) ON SB.ID = SD.STOK_BIRIM
+        ORDER BY SD.ID ASC
+      `).catch(() => []),
+    ]);
+
+    const itemsByOrderId = new Map();
+    if (Array.isArray(sipDetRows)) {
+      for (const det of sipDetRows) {
+        const oid = String(det.erpId || '').trim();
+        if (!oid) continue;
+        if (!itemsByOrderId.has(oid)) itemsByOrderId.set(oid, []);
+        const qty = Number(det.quantity || 1);
+        const unitPrice = Number(det.unitPrice || 0);
+        const disc = Number(det.discountPercent || 0);
+        const netPrice = Number((unitPrice * (1 - (disc > 0 && disc < 100 ? disc : 0) / 100)).toFixed(4));
+        const grandTotal = Number(det.grandTotal || Number((netPrice * qty).toFixed(2)));
+        const vatRate = Number(det.vatRate ?? 20);
+        const vatAmount = Number(det.vatAmount || Number((grandTotal - grandTotal / (1 + vatRate / 100)).toFixed(2)));
+        itemsByOrderId.get(oid).push({
+          productId: String(det.productId || det.productCode || ''),
+          productCode: String(det.productCode || ''),
+          productName: String(det.productName || det.productCode || 'Ürün'),
+          unit: String(det.unit || 'ADET'),
+          quantity: qty,
+          unitPrice,
+          discountPercent: disc,
+          vatRate,
+          netPrice,
+          totalAmount: grandTotal,
+          vatAmount,
+          grandTotal,
+        });
+      }
+    }
+
+    return (sipRows || []).map((row) => {
+      const erpId = String(row.erpId || '').trim();
+      const docNo = String(row.docNo || `ERP-${erpId}`).trim();
+      const rawIso = String(row.orderDateIso || '').trim();
+      const orderDate = rawIso
+        ? rawIso.includes('+') || rawIso.endsWith('Z')
+          ? rawIso
+          : `${rawIso}+03:00`
+        : new Date().toISOString();
+      const locName = String(row.locationName || 'Merkez').trim();
+      const isHot = locName.toUpperCase() !== 'MERKEZ';
+      const isInvoiced = Number(row.fisId || 0) > 0;
+
+      return {
+        tempId: docNo,
+        erp12DocNo: docNo,
+        documentType: 'order',
+        customerId: String(row.customerId || ''),
+        customerCode: String(row.customerCode || ''),
+        customerName: String(row.customerName || 'CARİ'),
+        salesRepCode: String(row.salesRepCode && row.salesRepCode !== '0' ? row.salesRepCode : ''),
+        salesRepName: String(row.salesRepName || '').trim() || undefined,
+        orderDate,
+        deliveryDate: String(row.deliveryDate || orderDate.slice(0, 10)),
+        notes: String(row.notes || ''),
+        items: itemsByOrderId.get(erpId) || [],
+        subtotal: Number(row.subtotal || 0),
+        totalDiscount: Number(row.totalDiscount || 0),
+        totalVat: Number(row.totalVat || 0),
+        grandTotal: Number(row.grandTotal || 0),
+        saleType: isHot ? 'hot' : 'cold',
+        vanPlate: isHot ? locName : undefined,
+        status: 'synced',
+        invoiceStatus: isInvoiced ? 'invoiced' : 'pending',
+        createdAt: orderDate,
+        syncedAt: orderDate,
+      };
+    });
   },
 };
 

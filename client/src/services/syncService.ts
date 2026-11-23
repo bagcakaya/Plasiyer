@@ -33,11 +33,17 @@ export const syncService = {
       }
 
       // Canlı API'den verileri çek (Gzip ve SQL bağlantı havuzuyla son derece hızlı)
-      const [customers, products, companyInfo] = await Promise.all([
+      const [customers, products, companyInfo, remoteOrders] = await Promise.all([
         apiService.fetchCustomers(config, salesRepCode),
         apiService.fetchProducts(config),
         apiService.fetchCompanyInfo(config).catch(() => null),
+        apiService.fetchOrders(config).catch(() => []),
       ]);
+
+      // ERP12'deki siparişleri yerel sipariş havuzuna (db.orders) eşitle
+      if (Array.isArray(remoteOrders) && remoteOrders.length > 0) {
+        await this.mergeRemoteOrdersIntoDb(remoteOrders);
+      }
 
       // IndexedDB'yi güncelle (Diferansiyel ve Atomik: Arayüz titremesi veya sıfırlanma olmadan doğrudan güncelleme)
       await db.transaction('rw', [db.customers, db.products], async () => {
@@ -113,6 +119,54 @@ export const syncService = {
         success: false,
         error: err.message || 'Veri çekilirken bir hata oluştu.',
       };
+    }
+  },
+
+  async mergeRemoteOrdersIntoDb(remoteOrders: any[]): Promise<void> {
+    if (!Array.isArray(remoteOrders) || remoteOrders.length === 0) return;
+    await db.transaction('rw', db.orders, async () => {
+      const localOrders = await db.orders.toArray();
+      const byDocNo = new Map<string, (typeof localOrders)[number]>();
+      for (const loc of localOrders) {
+        if (loc.erp12DocNo) byDocNo.set(loc.erp12DocNo.trim(), loc);
+        if (loc.tempId) byDocNo.set(loc.tempId.trim(), loc);
+      }
+
+      for (const rem of remoteOrders) {
+        const key1 = (rem.erp12DocNo || '').trim();
+        const key2 = (rem.tempId || '').trim();
+        const existing = (key1 && byDocNo.get(key1)) || (key2 && byDocNo.get(key2));
+        if (existing && existing.id) {
+          await db.orders.update(existing.id, {
+            status: 'synced',
+            erp12DocNo: rem.erp12DocNo || existing.erp12DocNo,
+            invoiceStatus: rem.invoiceStatus || existing.invoiceStatus,
+            orderDate: rem.orderDate || existing.orderDate,
+            createdAt: rem.createdAt || existing.createdAt,
+            grandTotal: rem.grandTotal ?? existing.grandTotal,
+            subtotal: rem.subtotal ?? existing.subtotal,
+            totalVat: rem.totalVat ?? existing.totalVat,
+            items: Array.isArray(rem.items) && rem.items.length > 0 ? rem.items : existing.items,
+          });
+        } else {
+          const addedId = await db.orders.add(rem);
+          const addedObj = { ...rem, id: addedId };
+          if (key1) byDocNo.set(key1, addedObj);
+          if (key2) byDocNo.set(key2, addedObj);
+        }
+      }
+    });
+  },
+
+  async pullOrdersFromERP(config: ServerConfig): Promise<void> {
+    if (isDemoMode(config)) return;
+    try {
+      const remoteOrders = await apiService.fetchOrders(config);
+      if (Array.isArray(remoteOrders) && remoteOrders.length > 0) {
+        await this.mergeRemoteOrdersIntoDb(remoteOrders);
+      }
+    } catch {
+      // ignore offline
     }
   },
 

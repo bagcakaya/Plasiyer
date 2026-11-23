@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { useApp } from '../context/AppContext';
+import { syncService } from '../services/syncService';
 import type { Order, ReturnRecord } from '../types';
 import { 
   Clock, 
@@ -57,8 +58,13 @@ export const OrdersQueuePage: React.FC = () => {
     setActiveTab,
     openPrintSlip,
     openCollectionModal,
-    openReturnModal
+    openReturnModal,
+    serverConfig
   } = useApp();
+
+  useEffect(() => {
+    syncService.pullOrdersFromERP(serverConfig);
+  }, [serverConfig]);
 
   const [activeTabSub, setActiveTabSub] = useState<'orders' | 'collections' | 'returns'>('orders');
   const [activeFilter, setActiveFilter] = useState<'all' | 'pending' | 'synced'>('all');
