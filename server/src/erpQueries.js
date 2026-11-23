@@ -1440,10 +1440,24 @@ export const erpQueries = {
 
         IF OBJECT_ID('dbo.SEQUNCES_DEGISIKLIK', 'U') IS NOT NULL
         BEGIN
+          DECLARE @aktifKodPc bigint = 0;
+          DECLARE @aktifKullanici bigint = ISNULL(@cariPersonelId, 0);
+          SELECT TOP 1
+            @aktifKodPc = ISNULL(KOD_PC, 0),
+            @aktifKullanici = CASE WHEN ISNULL(KULLANICI, 0) > 0 THEN KULLANICI ELSE ISNULL(@cariPersonelId, 0) END
+          FROM SEQUNCES_DEGISIKLIK WITH(NOLOCK)
+          WHERE ISNULL(KOD_PC, 0) > 0
+          ORDER BY ID DESC;
+
+          IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND @aktifKodPc > 0
+            UPDATE SEQUNCES SET KOD_PC = @aktifKodPc WHERE ID BETWEEN @fisId AND @finDetId;
+
           INSERT INTO SEQUNCES_DEGISIKLIK (KOD_PC, SEQUNCES, KULLANICI, ISLEM, TARIH, TABLO)
-          VALUES (0, @fisId, ISNULL(@cariPersonelId, 0), 1, GETDATE(), 'FIS');
+          VALUES (@aktifKodPc, @fisId, @aktifKullanici, 1, GETDATE(), 'FIS');
           INSERT INTO SEQUNCES_DEGISIKLIK (KOD_PC, SEQUNCES, KULLANICI, ISLEM, TARIH, TABLO)
-          VALUES (0, @finDetId, ISNULL(@cariPersonelId, 0), 1, GETDATE(), 'FINANS_DETAY');
+          VALUES (@aktifKodPc, @finId, @aktifKullanici, 1, GETDATE(), 'FINANS');
+          INSERT INTO SEQUNCES_DEGISIKLIK (KOD_PC, SEQUNCES, KULLANICI, ISLEM, TARIH, TABLO)
+          VALUES (@aktifKodPc, @finDetId, @aktifKullanici, 1, GETDATE(), 'FINANS_DETAY');
         END;
 
         COMMIT TRANSACTION;
