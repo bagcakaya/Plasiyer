@@ -232,6 +232,7 @@ export function resolveIncomingSqlConfig(cfg) {
         sqlUser: cfg.sqlUser || decoded.sqlUser,
         sqlPassword: decoded.sqlPassword,
         password: decoded.sqlPassword,
+        _verifiedToken: true,
       };
     }
   }

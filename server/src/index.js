@@ -134,8 +134,8 @@ function isBlockedCloudSsrfHost(rawHost) {
   return false;
 }
 
-// Yazma ve okuma uç noktaları için oturum / SQL bağlamı doğrulayıcı
-function hasValidWriteAuthorization(req) {
+// Yazma ve okuma uç noktaları için kriptografik oturum / SQL bağlamı doğrulayıcı
+async function hasValidWriteAuthorization(req) {
   if (!process.env.VERCEL) return true; // Yerel köprü (localhost:4000) kendi makinesinde çalışır
   if (verifyAdminAuthHeader(req)) return true;
   const tokenHeader =
@@ -144,9 +144,35 @@ function hasValidWriteAuthorization(req) {
       ? req.headers.authorization.slice(7).trim()
       : '');
   if (tokenHeader && verifySessionToken(String(tokenHeader))) return true;
-  if (req.headers['x-plasiyer-auth']) return true;
+
   const activeSql = sqlContext.getStore();
-  if (activeSql && activeSql.sqlHost && activeSql.sqlPassword) return true;
+  // Sunucu tarafından AES-256-GCM ile imzalanmış geçerli bir 'enc:...' token'ı çözüldüyse doğrulanmıştır
+  if (activeSql && activeSql._verifiedToken && activeSql.sqlHost && activeSql.sqlPassword) {
+    return true;
+  }
+
+  // X-Plasiyer-Auth başlığı varsa gerçekten kayıtlı kullanıcı mı kontrol et
+  if (req.headers['x-plasiyer-auth']) {
+    const firmAuth = await verifyFirmOrAdminAuth(req);
+    if (firmAuth.authorized) return true;
+  }
+
+  // Geriye dönük uyumluluk: Eski istemciden açık metin X-SQL-Config geldiyse kayıtlı bir firmaya ait olup olmadığını doğrula
+  if (activeSql && activeSql.sqlHost && activeSql.sqlPassword) {
+    try {
+      const reg = await cloudRegistry.getFullRegistry();
+      const matched = (reg?.profiles || []).some(
+        (p) =>
+          String(p.sqlHost || '').trim().toLowerCase() ===
+            String(activeSql.sqlHost || '').trim().toLowerCase() &&
+          String(p.sqlPassword || '') === String(activeSql.sqlPassword || '')
+      );
+      if (matched) return true;
+    } catch {
+      // ignore registry error
+    }
+  }
+
   return false;
 }
 
@@ -218,7 +244,7 @@ app.get('/api/health', (req, res) => {
 
 // Termal Fiş Yazıcıya (1 Numaralı Yazıcı) Doğrudan Gönderim
 app.post('/api/print/thermal', async (req, res) => {
-  if (!hasValidWriteAuthorization(req)) {
+  if (!(await hasValidWriteAuthorization(req))) {
     return res.status(401).json({
       success: false,
       message: 'Yetkisiz yazdırma isteği.',
@@ -434,6 +460,9 @@ app.post('/api/sql/test', async (req, res) => {
 
 // 0.1 DÜZENLEYEN FİRMA SABİTLERİ GETİR (ERP12 FIRMASABITLERI / RAP_FIRMASABITLERI)
 app.get('/api/company-info', async (req, res) => {
+  if (!(await hasValidWriteAuthorization(req))) {
+    return res.status(401).json({ error: 'Yetkisiz erişim' });
+  }
   const activeCfg = sqlContext.getStore();
   try {
     const info = await erpQueries.getCompanyInfo();
@@ -488,6 +517,9 @@ app.get('/api/notifications/stream', (req, res) => {
 
 // 1. CARİ LİSTESİ VE BAKİYELERİ GETİR
 app.get('/api/customers', async (req, res) => {
+  if (!(await hasValidWriteAuthorization(req))) {
+    return res.status(401).json({ error: 'Yetkisiz erişim' });
+  }
   const start = Date.now();
   const activeCfg = sqlContext.getStore();
   try {
@@ -513,6 +545,9 @@ app.get('/api/customers', async (req, res) => {
 
 // 1.1 CARİ HESAP EKSTRESİ GETİR (CANLI ERP12 HAREKETLERİ)
 app.get('/api/customers/:idOrCode/statement', async (req, res) => {
+  if (!(await hasValidWriteAuthorization(req))) {
+    return res.status(401).json({ error: 'Yetkisiz erişim' });
+  }
   const activeCfg = sqlContext.getStore();
   try {
     const { idOrCode } = req.params;
@@ -576,6 +611,9 @@ app.get('/api/customers/:idOrCode/statement', async (req, res) => {
 
 // 1.2 CARİ GEÇMİŞ YILLAR DAHİL TÜM ÜRÜN VE İŞLEM DETAYLARI
 app.get('/api/customers/:idOrCode/history', async (req, res) => {
+  if (!(await hasValidWriteAuthorization(req))) {
+    return res.status(401).json({ error: 'Yetkisiz erişim' });
+  }
   const start = Date.now();
   const activeCfg = sqlContext.getStore();
   try {
@@ -633,6 +671,9 @@ app.get('/api/customers/:idOrCode/history', async (req, res) => {
 
 // 2. STOK LİSTESİ VE GÜNCEL MEVCUTLARI GETİR
 app.get('/api/products', async (req, res) => {
+  if (!(await hasValidWriteAuthorization(req))) {
+    return res.status(401).json({ error: 'Yetkisiz erişim' });
+  }
   const start = Date.now();
   const activeCfg = sqlContext.getStore();
   try {
@@ -782,6 +823,9 @@ app.get('/api/products/erp-image/:idOrCode', async (req, res) => {
 
 // 2.1 STOK GRUPLARI LİSTESİ (STOK_GRUP)
 app.get('/api/stock-groups', async (req, res) => {
+  if (!(await hasValidWriteAuthorization(req))) {
+    return res.status(401).json({ error: 'Yetkisiz erişim' });
+  }
   const activeCfg = sqlContext.getStore();
   try {
     const groups = await erpQueries.getStockGroups();
@@ -803,7 +847,7 @@ app.get('/api/stock-groups', async (req, res) => {
 
 // 2.1 ÜRÜN FOTOĞRAFI YÜKLE / ÇEK & ERP12 İLE SENKRON ET
 app.post('/api/products/:idOrCode/image', async (req, res) => {
-  if (!hasValidWriteAuthorization(req)) {
+  if (!(await hasValidWriteAuthorization(req))) {
     return res.status(401).json({ error: 'Yetkisiz işlem isteği' });
   }
   try {
@@ -837,7 +881,7 @@ app.post('/api/products/:idOrCode/image', async (req, res) => {
 
 // 2.2 ÜRÜN FOTOĞRAFINI SİL
 app.delete('/api/products/:idOrCode/image', async (req, res) => {
-  if (!hasValidWriteAuthorization(req)) {
+  if (!(await hasValidWriteAuthorization(req))) {
     return res.status(401).json({ error: 'Yetkisiz işlem isteği' });
   }
   try {
@@ -866,6 +910,9 @@ app.delete('/api/products/:idOrCode/image', async (req, res) => {
 
 // 3.0 ERP12 SIPARIS TABLOSUNDAKİ SİPARİŞLERİ PLASİYER SİPARİŞ HAVUZUNA ÇEK
 app.get('/api/orders', async (req, res) => {
+  if (!(await hasValidWriteAuthorization(req))) {
+    return res.status(401).json({ orders: [] });
+  }
   try {
     const orders = await erpQueries.getOrders();
     res.json({ orders });
@@ -877,7 +924,7 @@ app.get('/api/orders', async (req, res) => {
 
 // 3. MOBİLDEN GELEN SİPARİŞİ ERP12'YE KAYDET & CANLI BİLDİRİM GÖNDER
 app.post('/api/orders', async (req, res) => {
-  if (!hasValidWriteAuthorization(req)) {
+  if (!(await hasValidWriteAuthorization(req))) {
     return res.status(401).json({ error: 'Yetkisiz sipariş isteği' });
   }
   try {
@@ -952,7 +999,7 @@ app.post('/api/orders', async (req, res) => {
 
 // 4. MOBİLDEN GELEN TAHSİLATI ERP12'YE KAYDET & CANLI BİLDİRİM GÖNDER
 app.post('/api/collections', async (req, res) => {
-  if (!hasValidWriteAuthorization(req)) {
+  if (!(await hasValidWriteAuthorization(req))) {
     return res.status(401).json({ error: 'Yetkisiz tahsilat isteği' });
   }
   try {
@@ -1014,6 +1061,9 @@ app.post('/api/collections', async (req, res) => {
 
 // 4.1 ERP12 AKTİF BANKALAR VE POS KARTLARI (BANKA + BANKA_POS) LİSTESİ
 app.get('/api/bank-pos-cards', async (req, res) => {
+  if (!(await hasValidWriteAuthorization(req))) {
+    return res.status(401).json({ posCards: [] });
+  }
   try {
     const posCards = await erpQueries.getBankPosCards();
     res.json({ posCards });
@@ -1025,7 +1075,7 @@ app.get('/api/bank-pos-cards', async (req, res) => {
 
 // 5. SİPARİŞİ ERP12'DE ONAYLA & FATURALAŞTIRMA SEVKİ YAP
 app.post('/api/orders/:docNo/invoice', async (req, res) => {
-  if (!hasValidWriteAuthorization(req)) {
+  if (!(await hasValidWriteAuthorization(req))) {
     return res.status(401).json({ error: 'Yetkisiz faturalaştırma isteği' });
   }
   try {
@@ -1060,7 +1110,7 @@ app.post('/api/orders/:docNo/invoice', async (req, res) => {
 
 // 6. MOBİLDEN GELEN İADE & DEĞİŞİM FİŞİNİ ERP12'YE KAYDET & CANLI BİLDİRİM GÖNDER
 app.post('/api/returns', async (req, res) => {
-  if (!hasValidWriteAuthorization(req)) {
+  if (!(await hasValidWriteAuthorization(req))) {
     return res.status(401).json({ error: 'Yetkisiz iade isteği' });
   }
   try {
@@ -1149,6 +1199,9 @@ app.get('/api/campaigns', (req, res) => {
 
 // 7.B. ÇOKLU ARAÇ & ŞUBE (LOKASYON) LİSTESİ, LOKASYON STOKLARI VE YENİ ARAÇ/ŞUBE EKLEME
 app.get('/api/locations', async (req, res) => {
+  if (!(await hasValidWriteAuthorization(req))) {
+    return res.status(401).json({ error: 'Yetkisiz erişim', locations: [] });
+  }
   try {
     const companyCode = String(req.query.company || req.query.companyCode || '').trim().toUpperCase();
     let activeCtx = sqlContext.getStore();
@@ -1167,6 +1220,9 @@ app.get('/api/locations', async (req, res) => {
 });
 
 app.get('/api/locations/stocks', async (req, res) => {
+  if (!(await hasValidWriteAuthorization(req))) {
+    return res.status(401).json({ error: 'Yetkisiz erişim', stocks: [] });
+  }
   try {
     const companyCode = String(req.query.company || req.query.companyCode || '').trim().toUpperCase();
     const locationParam = String(req.query.location || '').trim();
@@ -1186,7 +1242,7 @@ app.get('/api/locations/stocks', async (req, res) => {
 });
 
 app.post('/api/locations', async (req, res) => {
-  if (!hasValidWriteAuthorization(req)) {
+  if (!(await hasValidWriteAuthorization(req))) {
     return res.status(401).json({ error: 'Yetkisiz lokasyon ekleme isteği' });
   }
   try {
@@ -1539,7 +1595,11 @@ app.get('/api/registry', async (req, res) => {
   try {
     await syncAllCompaniesErpPlasiyers();
     const data = await cloudRegistry.getFullRegistry();
-    res.json({ success: true, ...data });
+    res.json({
+      success: true,
+      ...data,
+      profiles: (data.profiles || []).map((p) => protectSqlConfigForClient(p)),
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1557,7 +1617,11 @@ app.post('/api/registry/sync', async (req, res) => {
     });
     await syncAllCompaniesErpPlasiyers();
     const fresh = await cloudRegistry.getFullRegistry();
-    res.json({ success: true, ...fresh });
+    res.json({
+      success: true,
+      ...fresh,
+      profiles: (fresh.profiles || []).map((p) => protectSqlConfigForClient(p)),
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1606,6 +1670,10 @@ app.post('/api/registry/companies', async (req, res) => {
     res.json({
       success: true,
       ...saved,
+      profile: saved?.profile ? protectSqlConfigForClient(saved.profile) : undefined,
+      profiles: Array.isArray(saved?.profiles)
+        ? saved.profiles.map((p) => protectSqlConfigForClient(p))
+        : undefined,
       erpPlasiyers,
       companyAccounts,
       accounts: allAccounts.length > 0 ? allAccounts : undefined,
