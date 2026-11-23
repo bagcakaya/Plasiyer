@@ -20,7 +20,6 @@ import {
   Building2,
   Warehouse,
   RefreshCw,
-  UserCheck,
   MapPin,
   X
 } from 'lucide-react';
@@ -303,12 +302,6 @@ export const VanStockPage: React.FC = () => {
                   <span className="text-xs text-slate-500 dark:text-slate-400 font-medium">
                     {activeCodeBadge}
                   </span>
-                  {activeLocation?.assignedRepNames && (
-                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 px-2 py-0.5 rounded-md border border-indigo-500/20">
-                      <UserCheck className="w-3 h-3" />
-                      {activeLocation.assignedRepNames}
-                    </span>
-                  )}
                 </div>
               )}
             </div>
@@ -425,12 +418,6 @@ export const VanStockPage: React.FC = () => {
                         </div>
                       </div>
                     </div>
-
-                    {loc.assignedRepNames && (
-                      <div className="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium truncate">
-                        Plasiyer: {loc.assignedRepNames}
-                      </div>
-                    )}
                   </div>
 
                   <div className="text-right shrink-0">

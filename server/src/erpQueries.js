@@ -3109,7 +3109,7 @@ export const erpQueries = {
       rows = await executeJsonQuery(fallbackQuery).catch(() => []);
     }
 
-    // Hangi lokasyona hangi personeller atanmış (CARI_PERSONEL.LOKASYON)
+    // Hangi lokasyona hangi personeller atanmış (CARI_PERSONEL.LOKASYON - Sadece CARI_TUR = 2 Personeller)
     let repRows = [];
     try {
       repRows = await executeJsonQuery(`
@@ -3117,7 +3117,7 @@ export const erpQueries = {
           CAST(CP.LOKASYON AS varchar(50)) AS locId,
           LTRIM(RTRIM(ISNULL(C.AD, ''))) AS repName
         FROM CARI_PERSONEL CP WITH(NOLOCK)
-        INNER JOIN CARI C WITH(NOLOCK) ON C.ID = CP.CARI AND C.AKTIF = 1
+        INNER JOIN CARI C WITH(NOLOCK) ON C.ID = CP.CARI AND C.AKTIF = 1 AND C.CARI_TUR = 2
         WHERE CP.LOKASYON IS NOT NULL AND CP.LOKASYON > 0
       `);
     } catch {
