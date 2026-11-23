@@ -111,7 +111,7 @@ interface AppContextType {
     deliveryDate?: string,
     notes?: string,
     documentType?: 'order' | 'receipt' | 'invoice'
-  ) => Promise<{ success: boolean; orderId?: number; error?: string }>;
+  ) => Promise<{ success: boolean; orderId?: number; erp12DocNo?: string; error?: string }>;
   
   // Navigation / Tab
   activeTab: 'customers' | 'catalog' | 'cart' | 'orders' | 'routes' | 'settings' | 'van_stock';
@@ -1786,16 +1786,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setRawCart([]);
   };
 
-  // Siparişi / Satış Fişini / Satış Faturasını Onayla & IndexedDB + ERP12'ye Kaydet
+  // Siparişi (IndexedDB + ERP12) veya Satış Fişini / Satış Faturasını (Sadece ERP12) Kaydet
   const submitCurrentOrder = async (
     deliveryDate?: string,
     notes?: string,
     documentType: 'order' | 'receipt' | 'invoice' = 'order'
   ) => {
     const activeCust = userRole === 'customer' ? currentCustomerUser : selectedCustomer;
+    const isDirectErpDoc = documentType === 'receipt' || documentType === 'invoice';
 
-    if (!activeCust) {
-      return { success: false, error: 'Lütfen işlem için bir cari (müşteri) seçiniz.' };
+    if (!activeCust && !isDirectErpDoc) {
+      return { success: false, error: 'Lütfen sipariş için bir cari (müşteri) seçiniz.' };
     }
     if (cart.length === 0) {
       return { success: false, error: 'Sepetiniz boş. Lütfen ürün ekleyiniz.' };
@@ -1821,11 +1822,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         const availability = await vanStockService.checkVanStockAvailability(selectedCartItems);
         if (!availability.isAvailable) {
           const shortageNames = availability.shortages
-            .map(s => `${s.productName} (İstenen: ${s.requested}, Araçta: ${s.inVan})`)
+            .map((s) => `${s.productName} (İstenen: ${s.requested}, Araçta: ${s.inVan})`)
             .join(', ');
-          return { 
-            success: false, 
-            error: `Sıcak Satış için araçta yetersiz stok: ${shortageNames}. Lütfen miktarları düzenleyin veya Soğuk Satış moduna geçin.` 
+          return {
+            success: false,
+            error: `Sıcak Satış için araçta yetersiz stok: ${shortageNames}. Lütfen miktarları düzenleyin veya Soğuk Satış moduna geçin.`,
           };
         }
 
@@ -1835,15 +1836,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const activeRepCode =
         (currentUser?.salesRepCode || currentUser?.code || salesRep.code || '').trim() ||
-        (activeCust.salesRepCode && activeCust.salesRepCode !== '0' ? activeCust.salesRepCode : '');
+        (activeCust?.salesRepCode && activeCust.salesRepCode !== '0'
+          ? activeCust.salesRepCode
+          : '');
       const activeRepName = (currentUser?.name || salesRep.name || '').trim();
 
       const newOrder: Order = {
         tempId,
         documentType,
-        customerId: activeCust.id,
-        customerCode: activeCust.code,
-        customerName: activeCust.name,
+        customerId: activeCust?.id || '',
+        customerCode: activeCust?.code || '',
+        customerName: activeCust?.name || 'PERAKENDE SATIŞ',
         salesRepCode: activeRepCode,
         salesRepName: activeRepName || undefined,
         orderDate: now.toISOString(),
@@ -1861,8 +1864,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         totalCampaignSavings: cartSummary.totalCampaignSavings,
         appliedCampaigns: cartSummary.appliedCampaigns,
         saleType: userRole === 'plasiyer' ? saleMode : 'cold',
-        vanPlate: (userRole === 'plasiyer' && saleMode === 'hot') ? vanPlate : undefined,
-        vanWarehouseCode: (userRole === 'plasiyer' && saleMode === 'hot') ? '02 ARAÇ DEPOSU' : undefined,
+        vanPlate: userRole === 'plasiyer' && saleMode === 'hot' ? vanPlate : undefined,
+        vanWarehouseCode:
+          userRole === 'plasiyer' && saleMode === 'hot' ? '02 ARAÇ DEPOSU' : undefined,
         ...(documentType === 'invoice'
           ? {
               invoiceStatus: 'invoiced',
@@ -1874,25 +1878,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         createdAt: now.toISOString(),
       };
 
-      // 1. IndexedDB'ye kaydet
-      const orderId = await db.orders.add(newOrder);
+      // FİŞ OLUŞTUR veya FATURA OLUŞTUR: Sadece ERP12'ye gönder (Plasiyer yerel siparişlerine kaydetme)
+      if (isDirectErpDoc) {
+        const erpRes = await apiService.sendOrder(serverConfig, newOrder);
 
-      // 1.b. Satış Fişi veya Satış Faturası kesildiyse cari bakiyesine (borç) anında yansıt
-      if (documentType === 'receipt' || documentType === 'invoice') {
-        const cust = await db.customers.get(activeCust.id);
-        if (cust) {
-          const newBal = Number(((cust.balance || 0) + cartSummary.grandTotal).toFixed(2));
-          await db.customers.update(activeCust.id, { balance: newBal });
-          if (selectedCustomer && selectedCustomer.id === activeCust.id) {
-            setSelectedCustomer({ ...selectedCustomer, balance: newBal });
+        if (activeCust?.id) {
+          const cust = await db.customers.get(activeCust.id);
+          if (cust) {
+            const newBal = Number(((cust.balance || 0) + cartSummary.grandTotal).toFixed(2));
+            await db.customers.update(activeCust.id, { balance: newBal });
+            if (selectedCustomer && selectedCustomer.id === activeCust.id) {
+              setSelectedCustomer({ ...selectedCustomer, balance: newBal });
+            }
           }
         }
+
+        // Seçili ürünleri sepetten çıkar
+        setRawCart((prev) => prev.filter((item) => !item.isGift && item.selected === false));
+        soundNotification.playOrderChime();
+
+        return {
+          success: true,
+          erp12DocNo: erpRes.docNo || tempId,
+        };
       }
+
+      // SİPARİŞ ONAYLA: 1. IndexedDB'ye kaydet
+      const orderId = await db.orders.add(newOrder);
 
       // 2. Yalnızca seçili ürünleri sepetten çıkar; işareti kaldırılan ürünler sepette kalmaya devam etsin
       setRawCart((prev) => prev.filter((item) => !item.isGift && item.selected === false));
 
-      // 3. Eğer online isek ve otomatik senkronizasyon açıksa hemen ERP12'ye gönder (Fiş/Fatura belge numarasını almak için bekle)
+      // 3. Eğer online isek ve otomatik senkronizasyon açıksa hemen ERP12'ye gönder
       if (isOnline && serverConfig.autoSync && !isDemoMode(serverConfig)) {
         try {
           await syncService.pushPendingOrdersToERP(serverConfig);

@@ -257,6 +257,7 @@ export const CartPage: React.FC = () => {
     show: boolean;
     orderId?: number;
     tempId?: string;
+    erp12DocNo?: string;
     savedOrder?: Order | null;
     docType?: 'order' | 'receipt' | 'invoice';
   } | null>(null);
@@ -271,8 +272,8 @@ export const CartPage: React.FC = () => {
   }, [activeCustomer]);
 
   const handleSubmit = async (docType: 'order' | 'receipt' | 'invoice' = 'order') => {
-    if (!activeCustomer) {
-      setErrorMessage('Lütfen önce bir müşteri (cari) seçiniz.');
+    if (!activeCustomer && docType === 'order') {
+      setErrorMessage('Lütfen sipariş için önce bir müşteri (cari) seçiniz.');
       return;
     }
     if (cart.length === 0) {
@@ -290,19 +291,17 @@ export const CartPage: React.FC = () => {
 
     if (result.success) {
       let savedOrder: Order | null = null;
-      if (result.orderId) {
+      if (docType === 'order' && result.orderId) {
         savedOrder = (await db.orders.get(result.orderId)) || null;
       }
       setOrderSuccessModal({
         show: true,
         orderId: result.orderId,
+        erp12DocNo: result.erp12DocNo,
         savedOrder,
         docType,
       });
       setOrderNotes('');
-      if ((docType === 'receipt' || docType === 'invoice') && savedOrder) {
-        openPrintSlip({ type: 'order', orderData: savedOrder });
-      }
     } else {
       setErrorMessage(result.error || 'İşlem kaydedilirken bir hata oluştu.');
     }
@@ -715,30 +714,49 @@ export const CartPage: React.FC = () => {
             <button
               type="button"
               onClick={openCustomerSelectModal}
-              className="w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white bg-amber-600 hover:bg-amber-700 cursor-pointer"
+              disabled={isSubmitting}
+              className="w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white bg-amber-600 hover:bg-amber-700 cursor-pointer disabled:opacity-50"
             >
               <UserPlus className="w-4 h-4" />
               <span>Siparişi Onaylamak İçin Cari Seç</span>
             </button>
 
-            {/* 2. Fiş Yazdırmak İçin Cari Seç */}
+            {/* 2. Fiş Oluştur (Sadece ERP12 Satış Fişi - FIS_TURU=20) */}
             <button
               type="button"
-              onClick={openCustomerSelectModal}
-              className="w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white bg-emerald-600 hover:bg-emerald-700 cursor-pointer"
+              onClick={() => handleSubmit('receipt')}
+              disabled={isSubmitting}
+              className={`w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white cursor-pointer ${
+                isSubmitting
+                  ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
+                  : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
+              }`}
             >
               <Receipt className="w-4 h-4" />
-              <span>Fiş Yazdırmak İçin Cari Seç</span>
+              <span>
+                {isSubmitting && submittingDocType === 'receipt'
+                  ? 'Satış Fişi ERP12’ye Gönderiliyor...'
+                  : 'Fiş Oluştur'}
+              </span>
             </button>
 
-            {/* 3. Fatura Yazdırmak İçin Cari Seç */}
+            {/* 3. Fatura Oluştur (Sadece ERP12 Satış Faturası - FIS_TURU=2) */}
             <button
               type="button"
-              onClick={openCustomerSelectModal}
-              className="w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white bg-indigo-600 hover:bg-indigo-700 cursor-pointer"
+              onClick={() => handleSubmit('invoice')}
+              disabled={isSubmitting}
+              className={`w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white cursor-pointer ${
+                isSubmitting
+                  ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
+                  : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/20'
+              }`}
             >
               <FileCheck className="w-4 h-4" />
-              <span>Fatura Yazdırmak İçin Cari Seç</span>
+              <span>
+                {isSubmitting && submittingDocType === 'invoice'
+                  ? 'Satış Faturası ERP12’ye Gönderiliyor...'
+                  : 'Fatura Oluştur'}
+              </span>
             </button>
           </div>
         ) : (
@@ -776,13 +794,13 @@ export const CartPage: React.FC = () => {
 
             {userRole === 'plasiyer' && (
               <>
-                {/* 2. Fiş Yazdır (ERP12 Satış Fişi - FIS_TURU=20) */}
+                {/* 2. Fiş Oluştur (Sadece ERP12 Satış Fişi - FIS_TURU=20) */}
                 <button
                   type="button"
                   onClick={() => handleSubmit('receipt')}
-                  disabled={isSubmitting || !activeCustomer}
+                  disabled={isSubmitting}
                   className={`w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white cursor-pointer ${
-                    isSubmitting || !activeCustomer
+                    isSubmitting
                       ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
                       : 'bg-emerald-600 hover:bg-emerald-700 shadow-emerald-500/20'
                   }`}
@@ -790,18 +808,18 @@ export const CartPage: React.FC = () => {
                   <Receipt className="w-4 h-4" />
                   <span>
                     {isSubmitting && submittingDocType === 'receipt'
-                      ? 'Satış Fişi ERP12’ye Yazılıyor...'
-                      : 'Fiş Yazdır'}
+                      ? 'Satış Fişi ERP12’ye Gönderiliyor...'
+                      : 'Fiş Oluştur'}
                   </span>
                 </button>
 
-                {/* 3. Fatura Yazdır (ERP12 Satış Faturası - FIS_TURU=2) */}
+                {/* 3. Fatura Oluştur (Sadece ERP12 Satış Faturası - FIS_TURU=2) */}
                 <button
                   type="button"
                   onClick={() => handleSubmit('invoice')}
-                  disabled={isSubmitting || !activeCustomer}
+                  disabled={isSubmitting}
                   className={`w-full py-3.5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 shadow-md transition active:scale-95 text-white cursor-pointer ${
-                    isSubmitting || !activeCustomer
+                    isSubmitting
                       ? 'bg-slate-300 dark:bg-slate-800 text-slate-500 cursor-not-allowed'
                       : 'bg-indigo-600 hover:bg-indigo-700 shadow-indigo-500/20'
                   }`}
@@ -809,8 +827,8 @@ export const CartPage: React.FC = () => {
                   <FileCheck className="w-4 h-4" />
                   <span>
                     {isSubmitting && submittingDocType === 'invoice'
-                      ? 'Satış Faturası ERP12’ye Yazılıyor...'
-                      : 'Fatura Yazdır'}
+                      ? 'Satış Faturası ERP12’ye Gönderiliyor...'
+                      : 'Fatura Oluştur'}
                   </span>
                 </button>
               </>
@@ -828,16 +846,20 @@ export const CartPage: React.FC = () => {
             </div>
             <h3 className="text-base font-bold">
               {orderSuccessModal.docType === 'receipt'
-                ? 'Satış Fişi Başarıyla Oluşturuldu!'
+                ? 'Satış Fişi ERP12’ye Gönderildi!'
                 : orderSuccessModal.docType === 'invoice'
-                ? 'Satış Faturası Başarıyla Oluşturuldu!'
+                ? 'Satış Faturası ERP12’ye Gönderildi!'
                 : 'Sipariş Başarıyla Alındı!'}
             </h3>
             <p className="text-xs text-slate-500 dark:text-slate-400">
               {orderSuccessModal.docType === 'receipt'
-                ? 'Seçtiğiniz ürünler ERP12 (Fiş → Satış Fişi) ve Plasiyer sistemine kaydedildi.'
+                ? `Seçtiğiniz ürünler sadece ERP12 (Fiş → Satış Fişi) sistemine kaydedildi.${
+                    orderSuccessModal.erp12DocNo ? ` (Belge No: ${orderSuccessModal.erp12DocNo})` : ''
+                  }`
                 : orderSuccessModal.docType === 'invoice'
-                ? 'Seçtiğiniz ürünler ERP12 (Fatura → Satış Faturası) ve Plasiyer sistemine kaydedildi.'
+                ? `Seçtiğiniz ürünler sadece ERP12 (Fatura → Satış Faturası) sistemine kaydedildi.${
+                    orderSuccessModal.erp12DocNo ? ` (Belge No: ${orderSuccessModal.erp12DocNo})` : ''
+                  }`
                 : isOnline
                 ? 'Seçtiğiniz ürünler siparişe dönüştürülerek sisteme iletildi. Yetkili onayının ardından faturalandırma ve sevkiyat başlayacaktır.'
                 : 'Seçtiğiniz ürünler cihaz hafızasına kaydedildi. İnternet bağlantısı sağlandığında otomatik senkronize edilecektir.'}

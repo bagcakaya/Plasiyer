@@ -1162,7 +1162,14 @@ export const erpQueries = {
           SELECT TOP 1 @cariId = ID FROM CARI WITH(NOLOCK) WHERE LTRIM(RTRIM(KOD)) = '${safeCustCode}';
         IF @cariId IS NULL AND '${safeCustName}' <> ''
           SELECT TOP 1 @cariId = ID FROM CARI WITH(NOLOCK) WHERE LTRIM(RTRIM(AD)) = '${safeCustName}';
-        IF @cariId IS NULL SELECT TOP 1 @cariId = ID FROM CARI WITH(NOLOCK) WHERE AKTIF = 1 ORDER BY ID ASC;
+        IF @cariId IS NULL
+          SELECT TOP 1 @cariId = ID FROM CARI WITH(NOLOCK)
+          WHERE ISNULL(AKTIF, 1) = 1 AND ISNULL(CARI_TUR, 1) = 1
+          ORDER BY CASE
+            WHEN UPPER(AD) LIKE N'%PERAKENDE%' OR UPPER(AD) LIKE N'%PAREKENDE%' OR UPPER(AD) LIKE N'%MUHTEL%' OR UPPER(AD) LIKE N'%PEŞİN%' OR UPPER(AD) LIKE N'%GENEL%' THEN 0
+            ELSE 1
+          END, ID ASC;
+        IF @cariId IS NULL SELECT TOP 1 @cariId = ID FROM CARI WITH(NOLOCK) WHERE ISNULL(AKTIF, 1) = 1 ORDER BY ID ASC;
 
         DECLARE @cariAdresId bigint;
         SELECT TOP 1 @cariAdresId = ID FROM CARI_ADRES WITH(NOLOCK) WHERE CARI = @cariId ORDER BY ID ASC;
