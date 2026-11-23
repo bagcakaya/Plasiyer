@@ -8,7 +8,9 @@ import {
   ChevronRight,
   LayoutGrid,
   X,
-  ArrowRight,
+  ArrowLeft,
+  Search,
+  Percent,
   Sparkles,
   Check,
 } from 'lucide-react';
@@ -53,6 +55,7 @@ export const CategoryStoriesBar: React.FC = () => {
   const [failedImages, setFailedImages] = useState<Record<string, boolean>>({});
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [drawerActiveMainId, setDrawerActiveMainId] = useState<string>('');
+  const [drawerSearchTerm, setDrawerSearchTerm] = useState<string>('');
 
   // Ana Kategoriler PC Mouse ile sürükleyerek kaydırma state'leri
   const [isMouseDown, setIsMouseDown] = useState(false);
@@ -103,25 +106,11 @@ export const CategoryStoriesBar: React.FC = () => {
     return parentMain || null;
   }, [categoryTree, selectedCategory]);
 
-  // Drawer açıldığında sol menüde seçili ana kategoriyi hazırla
-  useEffect(() => {
-    if (isDrawerOpen) {
-      if (activeMainCategoryNode) {
-        setDrawerActiveMainId(activeMainCategoryNode.id);
-      } else if (categoryTree.length > 0 && !drawerActiveMainId) {
-        setDrawerActiveMainId(categoryTree[0].id);
-      }
-    }
-  }, [isDrawerOpen, activeMainCategoryNode, categoryTree, drawerActiveMainId]);
-
+  // Drawer içerisinde üzerinde olunan Ana Kategori (boşsa Ana Kategoriler 2'li kart ızgarası gösterilir)
   const drawerSelectedMainNode = useMemo<MainCategoryNode | null>(() => {
-    if (categoryTree.length === 0) return null;
-    return (
-      categoryTree.find((m) => m.id === drawerActiveMainId) ||
-      activeMainCategoryNode ||
-      categoryTree[0]
-    );
-  }, [categoryTree, drawerActiveMainId, activeMainCategoryNode]);
+    if (!drawerActiveMainId || categoryTree.length === 0) return null;
+    return categoryTree.find((m) => m.id === drawerActiveMainId) || null;
+  }, [categoryTree, drawerActiveMainId]);
 
   const updateScrollArrows = () => {
     if (!mainScrollRef.current) return;
@@ -297,11 +286,15 @@ export const CategoryStoriesBar: React.FC = () => {
       <div className="relative w-full bg-white dark:bg-slate-900 border-b border-slate-200/90 dark:border-slate-800/90 select-none">
         {/* 1. KADEME: HEPSİBURADA ANA KATEGORİLER ŞERİDİ */}
         <div className="relative flex items-center">
-          {/* Sol Sabit "Kategoriler" Rehber Butonu (Hepsiburada Mobil 2-Sütunlu Kategori Çekmecesini Açar) */}
+          {/* Sol Sabit "Kategoriler" Rehber Butonu (Görsel-1 Trendyol Tarzı 2-Sütunlu Kategori & Alt Kategori Ekranını Açar) */}
           <div className="pl-2.5 pr-1.5 py-2.5 shrink-0 border-r border-slate-100 dark:border-slate-800/80 bg-white/95 dark:bg-slate-900/95 z-10">
             <button
               type="button"
-              onClick={() => setIsDrawerOpen(true)}
+              onClick={() => {
+                setDrawerActiveMainId('');
+                setDrawerSearchTerm('');
+                setIsDrawerOpen(true);
+              }}
               className="flex flex-col items-center justify-center gap-1 w-[62px] sm:w-[70px] group focus:outline-none active:scale-95 transition-transform"
               title="Tüm Kategoriler ve Alt Kategoriler"
             >
@@ -590,31 +583,56 @@ export const CategoryStoriesBar: React.FC = () => {
                     isSubMouseDown ? 'cursor-grabbing' : 'cursor-grab scroll-smooth'
                   }`}
                 >
-                  {/* Ana Kategorinin Tüm Ürünleri Chip'i */}
+                  {/* Ana Kategorinin Tüm Ürünleri Kartı (Görsel-1 Tarzı) */}
                   <button
                     type="button"
                     onClick={(e) =>
                       handleSelectSubCategory(activeMainCategoryNode.id, 'all', e.currentTarget)
                     }
-                    className={`shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-extrabold transition active:scale-95 ${
+                    className={`shrink-0 w-[144px] sm:w-[164px] h-[68px] sm:h-[74px] rounded-2xl p-2.5 relative overflow-hidden flex items-start justify-between text-left transition-all active:scale-95 ${
                       selectedSubCategory === 'all'
-                        ? 'bg-[#FF6000] border-[#FF6000] text-white shadow-sm shadow-orange-500/25'
-                        : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 hover:border-orange-400'
+                        ? 'bg-[#FF6000] text-white shadow-md shadow-orange-500/25 ring-2 ring-[#FF6000]/30'
+                        : 'bg-[#EFEFEF] hover:bg-[#E5E5E5] dark:bg-slate-800/90 dark:hover:bg-slate-800 text-slate-900 dark:text-white'
                     }`}
                   >
-                    <span>Tümü</span>
-                    <span
-                      className={`text-[10px] px-1.5 py-0.2 rounded-full font-black ${
-                        selectedSubCategory === 'all'
-                          ? 'bg-white/25 text-white'
-                          : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-                      }`}
-                    >
-                      {activeMainCategoryNode.count}
-                    </span>
+                    <div className="z-10 flex flex-col justify-between h-full max-w-[65%]">
+                      <div className="text-xs font-extrabold leading-tight line-clamp-2">
+                        Tüm {activeMainCategoryNode.shortName}
+                      </div>
+                      <div
+                        className={`text-[10px] font-bold ${
+                          selectedSubCategory === 'all'
+                            ? 'text-orange-100'
+                            : 'text-slate-500 dark:text-slate-400'
+                        }`}
+                      >
+                        {activeMainCategoryNode.count} Ürün
+                      </div>
+                    </div>
+                    <div className="w-12 h-12 flex items-end justify-end shrink-0 self-end">
+                      {activeMainCategoryNode.image && !failedImages[activeMainCategoryNode.id] ? (
+                        <img
+                          src={resolveMediaAssetUrl(activeMainCategoryNode.image)}
+                          alt={activeMainCategoryNode.name}
+                          loading="lazy"
+                          draggable={false}
+                          className={`w-full h-full object-contain object-right-bottom pointer-events-none ${
+                            selectedSubCategory === 'all'
+                              ? 'rounded-lg bg-white p-0.5'
+                              : 'mix-blend-multiply dark:mix-blend-normal'
+                          }`}
+                        />
+                      ) : (
+                        <Layers
+                          className={`w-7 h-7 ${
+                            selectedSubCategory === 'all' ? 'text-white/80' : 'text-[#FF6000]'
+                          }`}
+                        />
+                      )}
+                    </div>
                   </button>
 
-                  {/* Alt Kategori Kartları */}
+                  {/* Alt Kategori Kartları (Görsel-1 Tarzı Yatay Kart: Sol Üst Başlık, Sağ Alt Görsel) */}
                   {activeMainCategoryNode.subCategories.map((sub) => {
                     const isSubActive = selectedSubCategory === sub.id;
                     const hasSubImg = Boolean(sub.image && !failedImages[`sub-${sub.id}`]);
@@ -626,13 +644,28 @@ export const CategoryStoriesBar: React.FC = () => {
                         onClick={(e) =>
                           handleSelectSubCategory(activeMainCategoryNode.id, sub, e.currentTarget)
                         }
-                        className={`shrink-0 flex items-center gap-2 pl-1.5 pr-3 py-1 rounded-xl border text-left transition active:scale-95 ${
+                        className={`shrink-0 w-[156px] sm:w-[178px] h-[68px] sm:h-[74px] rounded-2xl p-2.5 relative overflow-hidden flex items-start justify-between text-left transition-all active:scale-95 group ${
                           isSubActive
-                            ? 'bg-[#FF6000] border-[#FF6000] text-white shadow-sm shadow-orange-500/25'
-                            : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 hover:border-orange-400'
+                            ? 'bg-orange-50 dark:bg-orange-950/40 border-2 border-[#FF6000] text-slate-900 dark:text-white shadow-sm'
+                            : 'bg-[#EFEFEF] hover:bg-[#E5E5E5] dark:bg-slate-800/90 dark:hover:bg-slate-800 text-slate-900 dark:text-white border border-transparent'
                         }`}
                       >
-                        <div className="w-8 h-8 rounded-lg bg-white overflow-hidden shrink-0 border border-slate-100 dark:border-slate-700 flex items-center justify-center">
+                        <div className="z-10 flex flex-col justify-between h-full max-w-[62%] pr-1">
+                          <div
+                            className={`text-[11px] sm:text-xs font-bold leading-snug line-clamp-2 ${
+                              isSubActive
+                                ? 'text-[#FF6000] dark:text-orange-400 font-extrabold'
+                                : 'text-slate-800 dark:text-slate-100'
+                            }`}
+                          >
+                            {sub.name}
+                          </div>
+                          <div className="text-[10px] font-semibold text-slate-500 dark:text-slate-400">
+                            {sub.count} Ürün
+                          </div>
+                        </div>
+
+                        <div className="w-13 h-13 sm:w-14 sm:h-14 shrink-0 self-end flex items-end justify-end">
                           {hasSubImg ? (
                             <img
                               src={resolveMediaAssetUrl(sub.image)}
@@ -645,28 +678,13 @@ export const CategoryStoriesBar: React.FC = () => {
                                   [`sub-${sub.id}`]: true,
                                 }))
                               }
-                              className="w-full h-full object-contain p-0.5 bg-white pointer-events-none"
+                              className="w-full h-full object-contain object-right-bottom mix-blend-multiply dark:mix-blend-normal pointer-events-none transition-transform duration-300 group-hover:scale-105"
                             />
                           ) : (
-                            <span className="text-[11px] font-black text-[#FF6000]">
+                            <span className="text-base font-black text-[#FF6000]/80">
                               {sub.name.charAt(0)}
                             </span>
                           )}
-                        </div>
-
-                        <div className="min-w-0">
-                          <div className="text-[11px] font-extrabold leading-tight whitespace-nowrap">
-                            {sub.name}
-                          </div>
-                          <div
-                            className={`text-[10px] font-semibold leading-tight ${
-                              isSubActive
-                                ? 'text-orange-100'
-                                : 'text-slate-400 dark:text-slate-500'
-                            }`}
-                          >
-                            {sub.count} Ürün
-                          </div>
                         </div>
                       </button>
                     );
@@ -686,7 +704,7 @@ export const CategoryStoriesBar: React.FC = () => {
         )}
       </div>
 
-      {/* HEPSİBURADA MOBİL 2-SÜTUNLU TAM EKRAN KATEGORİ & ALT KATEGORİ REHBERİ (DRAWER) */}
+      {/* GÖRSEL-1 (TRENDYOL TARZI) 2-SÜTUNLU KATEGORİ & ALT KATEGORİ KARTLARI EKRANI */}
       {isDrawerOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/70 backdrop-blur-xs flex flex-col justify-end sm:justify-center sm:items-center animate-fadeIn"
@@ -694,115 +712,117 @@ export const CategoryStoriesBar: React.FC = () => {
         >
           <div
             onClick={(e) => e.stopPropagation()}
-            className="w-full sm:max-w-3xl h-[86dvh] sm:h-[82vh] bg-white dark:bg-slate-950 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden"
+            className="w-full sm:max-w-2xl h-[90dvh] sm:h-[86vh] bg-white dark:bg-slate-950 rounded-t-3xl sm:rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col overflow-hidden"
           >
-            {/* Üst Başlık (Hepsiburada Turuncu Vurgulu) */}
-            <div className="shrink-0 px-4 py-3.5 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between bg-white dark:bg-slate-900">
-              <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-[#FF6000] text-white flex items-center justify-center shadow-sm shadow-orange-500/30">
-                  <LayoutGrid className="w-5 h-5" />
-                </div>
-                <div>
-                  <h3 className="font-black text-sm sm:text-base text-slate-900 dark:text-white leading-tight">
-                    Kategoriler &amp; Alt Kategoriler
-                  </h3>
-                  <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                    Soldan ana kategori, sağdan alt kategori seçin
-                  </p>
-                </div>
+            {/* Üst Arama & Navigasyon Çubuğu (Görsel-1 Tarzı: Geri Oku + Yuvarlak Arama Barı + Kapat) */}
+            <div className="shrink-0 px-3.5 py-3 border-b border-slate-100 dark:border-slate-800/80 flex items-center gap-2.5 bg-white dark:bg-slate-900">
+              <button
+                type="button"
+                onClick={() => {
+                  if (drawerSelectedMainNode) {
+                    setDrawerActiveMainId('');
+                    setDrawerSearchTerm('');
+                  } else {
+                    setIsDrawerOpen(false);
+                  }
+                }}
+                className="w-9 h-9 rounded-full hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-200 flex items-center justify-center shrink-0 transition active:scale-95"
+                title={drawerSelectedMainNode ? 'Ana Kategorilere Dön' : 'Kapat'}
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-[#FF6000] absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={drawerSearchTerm}
+                  onChange={(e) => setDrawerSearchTerm(e.target.value)}
+                  placeholder="Marka, ürün veya kategori ara"
+                  className="w-full bg-[#F3F3F3] dark:bg-slate-800 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 rounded-full pl-9 pr-8 py-2 text-xs sm:text-sm font-medium focus:outline-none focus:ring-2 focus:ring-[#FF6000]/40"
+                />
+                {drawerSearchTerm && (
+                  <button
+                    type="button"
+                    onClick={() => setDrawerSearchTerm('')}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1 rounded-full text-slate-400 hover:text-slate-700 dark:hover:text-slate-200"
+                  >
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                )}
               </div>
 
               <button
                 type="button"
                 onClick={() => setIsDrawerOpen(false)}
-                className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white transition"
+                className="w-9 h-9 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 hover:text-slate-800 dark:hover:text-white flex items-center justify-center shrink-0 transition"
+                title="Kapat"
               >
                 <X className="w-5 h-5" />
               </button>
             </div>
 
-            {/* Gövde: Sol Sütun = Ana Kategoriler, Sağ Sütun = Alt Kategoriler Izgarası */}
-            <div className="flex-1 min-h-0 flex overflow-hidden">
-              {/* Sol Sütun: Ana Kategoriler */}
-              <div className="w-[36%] sm:w-[32%] bg-slate-100/90 dark:bg-slate-900/90 border-r border-slate-200 dark:border-slate-800 overflow-y-auto divide-y divide-slate-200/60 dark:divide-slate-800/60">
-                <button
-                  type="button"
-                  onClick={() => {
+            {/* Kaydırılabilir İçerik Gövdesi (Görsel-1 2'li Kart Izgarası) */}
+            <div className="flex-1 min-h-0 overflow-y-auto p-3.5 sm:p-4 space-y-3.5 bg-white dark:bg-slate-950">
+              {/* Üst Şeftali / Turuncu Bilgi & Tümünü Gör Kartı (Görsel-1 "Sana Özel Kategoriler" Bannerı) */}
+              <button
+                type="button"
+                onClick={() => {
+                  if (drawerSelectedMainNode) {
+                    setSelectedCategory(drawerSelectedMainNode.id);
+                    setSelectedSubCategory('all');
+                  } else {
                     handleSelectMainCategory('all');
-                    setIsDrawerOpen(false);
-                  }}
-                  className={`w-full text-left px-3 py-3 flex items-center gap-2 transition relative ${
-                    !activeMainCategoryNode
-                      ? 'bg-white dark:bg-slate-950 font-black text-[#FF6000]'
-                      : 'text-slate-700 dark:text-slate-300 font-semibold hover:bg-white/60 dark:hover:bg-slate-800/50'
-                  }`}
-                >
-                  {!activeMainCategoryNode && (
-                    <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-[#FF6000]" />
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <div className="text-xs leading-snug truncate">Tüm Ürünler</div>
-                    <div className="text-[10px] text-slate-400 font-normal">
-                      {totalProductCount} Ürün
-                    </div>
+                  }
+                  if (activeTab !== 'catalog') setActiveTab('catalog');
+                  setIsDrawerOpen(false);
+                }}
+                className="w-full px-4 py-3 rounded-2xl bg-gradient-to-r from-[#FFE5D9] via-[#FFF0E6] to-[#FFD8C2] dark:from-orange-950/70 dark:via-slate-900 dark:to-orange-900/50 border border-orange-200/60 dark:border-orange-800/40 flex items-center justify-between gap-3 text-left transition active:scale-[0.99] shadow-2xs relative overflow-hidden"
+              >
+                <div className="min-w-0 z-10">
+                  <div className="text-xs sm:text-sm font-extrabold text-slate-900 dark:text-white flex items-center gap-1">
+                    <span className="truncate">
+                      {drawerSelectedMainNode
+                        ? `${drawerSelectedMainNode.name} Kategorisi`
+                        : 'Sana Özel Kategoriler & Tüm Ürünler'}
+                    </span>
+                    <ChevronRight className="w-4 h-4 text-slate-700 dark:text-orange-300 shrink-0" />
                   </div>
-                </button>
+                  <div className="text-[11px] text-slate-600 dark:text-slate-300 font-medium mt-0.5">
+                    {drawerSelectedMainNode
+                      ? `Tüm ${drawerSelectedMainNode.name} ürünlerini gör (${drawerSelectedMainNode.count} Ürün)`
+                      : `İlgini çekebilecek tüm kategoriler ve ${totalProductCount.toLocaleString('tr-TR')} ürün`}
+                  </div>
+                </div>
 
-                {categoryTree.map((mainCat) => {
-                  const isActive = drawerSelectedMainNode?.id === mainCat.id;
-                  const hasImg = Boolean(mainCat.image && !failedImages[mainCat.id]);
+                {/* Sağ Turuncu % Etiket Rozeti (Görsel-1'deki gibi) */}
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#FF6000] to-orange-600 text-white flex items-center justify-center shrink-0 shadow-md shadow-orange-500/30 -rotate-12">
+                  <Percent className="w-5 h-5 stroke-[2.75]" />
+                </div>
+              </button>
 
-                  return (
+              {/* Eğer Bir Ana Kategoriye Tıklanmışsa: Üst Geri Dönüş Barı & Alt Kategoriler 2'li Görsel-1 Izgarası */}
+              {drawerSelectedMainNode && !drawerSearchTerm.trim() ? (
+                <div className="space-y-3 animate-fadeIn">
+                  <div className="flex items-center justify-between gap-2">
                     <button
-                      key={mainCat.id}
                       type="button"
-                      onClick={() => setDrawerActiveMainId(mainCat.id)}
-                      className={`w-full text-left px-2.5 py-3 flex items-center gap-2 transition relative ${
-                        isActive
-                          ? 'bg-white dark:bg-slate-950 font-extrabold text-[#FF6000] dark:text-orange-400 shadow-2xs'
-                          : 'text-slate-700 dark:text-slate-300 font-semibold hover:bg-white/60 dark:hover:bg-slate-800/50'
-                      }`}
+                      onClick={() => setDrawerActiveMainId('')}
+                      className="inline-flex items-center gap-1.5 text-xs font-extrabold text-[#FF6000] dark:text-orange-400 hover:underline"
                     >
-                      {isActive && (
-                        <span className="absolute left-0 top-1.5 bottom-1.5 w-1 rounded-r-full bg-[#FF6000]" />
-                      )}
-                      <div className="w-8 h-8 rounded-lg bg-white border border-slate-200/80 dark:border-slate-700 shrink-0 overflow-hidden flex items-center justify-center">
-                        {hasImg ? (
-                          <img
-                            src={resolveMediaAssetUrl(mainCat.image)}
-                            alt={mainCat.name}
-                            loading="lazy"
-                            onError={() =>
-                              setFailedImages((prev) => ({ ...prev, [mainCat.id]: true }))
-                            }
-                            className="w-full h-full object-contain p-0.5 bg-white"
-                          />
-                        ) : (
-                          <span className="text-xs font-black text-[#FF6000]">
-                            {mainCat.initialLetter}
-                          </span>
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="text-[11px] sm:text-xs leading-tight line-clamp-2">
-                          {mainCat.name}
-                        </div>
-                        <div className="text-[9px] text-slate-400 font-medium mt-0.5">
-                          {mainCat.subCategories.length > 0
-                            ? `${mainCat.subCategories.length} Alt • ${mainCat.count}`
-                            : `${mainCat.count} Ürün`}
-                        </div>
-                      </div>
+                      <ArrowLeft className="w-3.5 h-3.5" />
+                      <span>Tüm Ana Kategoriler</span>
                     </button>
-                  );
-                })}
-              </div>
 
-              {/* Sağ Sütun: Seçili Ana Kategorinin Alt Kategorileri */}
-              <div className="flex-1 bg-white dark:bg-slate-950 overflow-y-auto p-3.5 sm:p-4 space-y-3.5">
-                {drawerSelectedMainNode && (
-                  <>
-                    {/* Üst Ana Kategori Tümünü Gör Kartı */}
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
+                      {drawerSelectedMainNode.name} • Alt Kategoriler (
+                      {drawerSelectedMainNode.subCategories.length})
+                    </span>
+                  </div>
+
+                  {/* Alt Kategoriler: Görsel-1 2 Sütunlu Yatay Kart Izgarası */}
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* İlk Kart: Bu Ana Kategorinin Tüm Ürünleri */}
                     <button
                       type="button"
                       onClick={() => {
@@ -811,111 +831,268 @@ export const CategoryStoriesBar: React.FC = () => {
                         if (activeTab !== 'catalog') setActiveTab('catalog');
                         setIsDrawerOpen(false);
                       }}
-                      className="w-full p-3 rounded-2xl bg-gradient-to-r from-[#FF6000] to-orange-500 text-white shadow-md shadow-orange-500/20 flex items-center justify-between gap-2 text-left transition active:scale-[0.99]"
+                      className={`h-[104px] sm:h-[116px] rounded-2xl p-3.5 relative overflow-hidden flex items-start justify-between text-left transition-all active:scale-[0.98] group ${
+                        activeMainCategoryNode?.id === drawerSelectedMainNode.id &&
+                        selectedSubCategory === 'all'
+                          ? 'bg-orange-50 dark:bg-orange-950/40 ring-2 ring-[#FF6000]'
+                          : 'bg-[#EFEFEF] hover:bg-[#E6E6E6] dark:bg-slate-800/90 dark:hover:bg-slate-800'
+                      }`}
                     >
-                      <div className="min-w-0">
-                        <div className="text-xs sm:text-sm font-black truncate">
-                          {drawerSelectedMainNode.name}
+                      <div className="z-10 flex flex-col justify-between h-full max-w-[58%] pr-1">
+                        <div className="text-[13px] sm:text-[15px] font-bold text-slate-900 dark:text-white leading-snug line-clamp-2">
+                          Tüm {drawerSelectedMainNode.name}
                         </div>
-                        <div className="text-[11px] text-orange-100 font-semibold mt-0.5">
-                          Tüm {drawerSelectedMainNode.name} Ürünlerini Gör (
-                          {drawerSelectedMainNode.count} Ürün)
+                        <div className="text-[11px] font-semibold text-[#FF6000] dark:text-orange-400">
+                          {drawerSelectedMainNode.count} Ürün
                         </div>
                       </div>
-                      <div className="w-8 h-8 rounded-xl bg-white/20 flex items-center justify-center shrink-0">
-                        <ArrowRight className="w-4 h-4 text-white" />
+
+                      <div className="w-[78px] h-[78px] sm:w-[92px] sm:h-[92px] self-end shrink-0 flex items-end justify-end">
+                        {drawerSelectedMainNode.image &&
+                        !failedImages[drawerSelectedMainNode.id] ? (
+                          <img
+                            src={resolveMediaAssetUrl(drawerSelectedMainNode.image)}
+                            alt={drawerSelectedMainNode.name}
+                            loading="lazy"
+                            onError={() =>
+                              setFailedImages((prev) => ({
+                                ...prev,
+                                [drawerSelectedMainNode.id]: true,
+                              }))
+                            }
+                            className="w-full h-full object-contain object-right-bottom mix-blend-multiply dark:mix-blend-normal transition-transform duration-300 group-hover:scale-105"
+                          />
+                        ) : (
+                          <span className="text-2xl font-black text-[#FF6000]/70">
+                            {drawerSelectedMainNode.initialLetter}
+                          </span>
+                        )}
                       </div>
                     </button>
 
-                    {/* Alt Kategoriler Başlığı */}
-                    {drawerSelectedMainNode.subCategories.length > 0 ? (
-                      <div className="space-y-2.5">
-                        <div className="flex items-center justify-between">
-                          <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500">
-                            Alt Kategoriler ({drawerSelectedMainNode.subCategories.length})
-                          </span>
-                        </div>
+                    {/* Alt Kategori Kartları (Görsel-1 Tarzı: Sol Üst Başlık, Sağ Alt Büyük Görsel) */}
+                    {drawerSelectedMainNode.subCategories.map((sub) => {
+                      const isSubSelected =
+                        activeMainCategoryNode?.id === drawerSelectedMainNode.id &&
+                        selectedSubCategory === sub.id;
+                      const hasSubImg = Boolean(
+                        sub.image && !failedImages[`drawer-sub-${sub.id}`]
+                      );
 
-                        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                          {drawerSelectedMainNode.subCategories.map((sub) => {
-                            const isSubSelected =
-                              activeMainCategoryNode?.id === drawerSelectedMainNode.id &&
-                              selectedSubCategory === sub.id;
-                            const hasSubImg = Boolean(
-                              sub.image && !failedImages[`drawer-sub-${sub.id}`]
-                            );
+                      return (
+                        <button
+                          key={sub.id}
+                          type="button"
+                          onClick={() => {
+                            setSelectedCategory(drawerSelectedMainNode.id);
+                            setSelectedSubCategory(sub.id);
+                            if (activeTab !== 'catalog') setActiveTab('catalog');
+                            setIsDrawerOpen(false);
+                          }}
+                          className={`h-[104px] sm:h-[116px] rounded-2xl p-3.5 relative overflow-hidden flex items-start justify-between text-left transition-all active:scale-[0.98] group ${
+                            isSubSelected
+                              ? 'bg-orange-50 dark:bg-orange-950/40 ring-2 ring-[#FF6000]'
+                              : 'bg-[#EFEFEF] hover:bg-[#E6E6E6] dark:bg-slate-800/90 dark:hover:bg-slate-800'
+                          }`}
+                        >
+                          {isSubSelected && (
+                            <span className="absolute top-2 right-2 z-20 w-5 h-5 rounded-full bg-[#FF6000] text-white flex items-center justify-center shadow-xs">
+                              <Check className="w-3 h-3" />
+                            </span>
+                          )}
 
-                            return (
-                              <button
-                                key={sub.id}
-                                type="button"
-                                onClick={() => {
-                                  setSelectedCategory(drawerSelectedMainNode.id);
-                                  setSelectedSubCategory(sub.id);
+                          <div className="z-10 flex flex-col justify-between h-full max-w-[58%] pr-1">
+                            <div className="text-[13px] sm:text-[15px] font-bold text-slate-900 dark:text-white leading-snug line-clamp-2">
+                              {sub.name}
+                            </div>
+                            <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                              {sub.count} Ürün
+                            </div>
+                          </div>
+
+                          <div className="w-[78px] h-[78px] sm:w-[92px] sm:h-[92px] self-end shrink-0 flex items-end justify-end">
+                            {hasSubImg ? (
+                              <img
+                                src={resolveMediaAssetUrl(sub.image)}
+                                alt={sub.name}
+                                loading="lazy"
+                                onError={() =>
+                                  setFailedImages((prev) => ({
+                                    ...prev,
+                                    [`drawer-sub-${sub.id}`]: true,
+                                  }))
+                                }
+                                className="w-full h-full object-contain object-right-bottom mix-blend-multiply dark:mix-blend-normal transition-transform duration-300 group-hover:scale-105"
+                              />
+                            ) : (
+                              <span className="text-2xl font-black text-[#FF6000]/70">
+                                {sub.name.charAt(0)}
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                /* Ana Kategoriler (veya Arama Sonuçları): Görsel-1 2 Sütunlu Yatay Kart Izgarası */
+                (() => {
+                  const q = drawerSearchTerm.trim().toLocaleLowerCase('tr-TR');
+                  const filteredMainCats = q
+                    ? categoryTree.filter(
+                        (m) =>
+                          m.name.toLocaleLowerCase('tr-TR').includes(q) ||
+                          m.subCategories.some((s) =>
+                            s.name.toLocaleLowerCase('tr-TR').includes(q)
+                          )
+                      )
+                    : categoryTree;
+
+                  const matchingSubCats: { main: MainCategoryNode; sub: SubCategoryNode }[] = [];
+                  if (q) {
+                    for (const m of categoryTree) {
+                      for (const s of m.subCategories) {
+                        if (s.name.toLocaleLowerCase('tr-TR').includes(q)) {
+                          matchingSubCats.push({ main: m, sub: s });
+                        }
+                      }
+                    }
+                  }
+
+                  return (
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-2 gap-3">
+                        {filteredMainCats.map((mainCat) => {
+                          const isSelected = activeMainCategoryNode?.id === mainCat.id;
+                          const hasImg = Boolean(mainCat.image && !failedImages[mainCat.id]);
+
+                          return (
+                            <button
+                              key={mainCat.id}
+                              type="button"
+                              onClick={() => {
+                                if (mainCat.subCategories.length > 0) {
+                                  setDrawerActiveMainId(mainCat.id);
+                                  setDrawerSearchTerm('');
+                                } else {
+                                  setSelectedCategory(mainCat.id);
+                                  setSelectedSubCategory('all');
                                   if (activeTab !== 'catalog') setActiveTab('catalog');
                                   setIsDrawerOpen(false);
-                                }}
-                                className={`p-2.5 rounded-2xl border flex flex-col items-center text-center gap-2 transition active:scale-95 relative ${
-                                  isSubSelected
-                                    ? 'bg-orange-50 dark:bg-orange-950/30 border-[#FF6000] ring-2 ring-[#FF6000]/20'
-                                    : 'bg-slate-50/70 dark:bg-slate-900/70 border-slate-200/80 dark:border-slate-800 hover:border-orange-300'
-                                }`}
-                              >
-                                {isSubSelected && (
-                                  <span className="absolute top-1.5 right-1.5 w-4 h-4 rounded-full bg-[#FF6000] text-white flex items-center justify-center">
-                                    <Check className="w-2.5 h-2.5" />
+                                }
+                              }}
+                              className={`h-[104px] sm:h-[116px] rounded-2xl p-3.5 relative overflow-hidden flex items-start justify-between text-left transition-all active:scale-[0.98] group ${
+                                isSelected
+                                  ? 'bg-orange-50 dark:bg-orange-950/40 ring-2 ring-[#FF6000]'
+                                  : 'bg-[#EFEFEF] hover:bg-[#E6E6E6] dark:bg-slate-800/90 dark:hover:bg-slate-800'
+                              }`}
+                            >
+                              {/* Sol Üst: Kategori Başlığı + Alt Kırılım/Ürün Sayısı */}
+                              <div className="z-10 flex flex-col justify-between h-full max-w-[58%] pr-1">
+                                <div className="text-[13px] sm:text-[15px] font-bold text-slate-900 dark:text-white leading-snug line-clamp-2">
+                                  {mainCat.name}
+                                </div>
+                                <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                                  {mainCat.subCategories.length > 0
+                                    ? `${mainCat.subCategories.length} Alt • ${mainCat.count} Ürün`
+                                    : `${mainCat.count} Ürün`}
+                                </div>
+                              </div>
+
+                              {/* Sağ Alt: Büyük Kategori Görseli (Görsel-1 Tarzı) */}
+                              <div className="w-[78px] h-[78px] sm:w-[92px] sm:h-[92px] self-end shrink-0 flex items-end justify-end">
+                                {hasImg ? (
+                                  <img
+                                    src={resolveMediaAssetUrl(mainCat.image)}
+                                    alt={mainCat.name}
+                                    loading="lazy"
+                                    onError={() =>
+                                      setFailedImages((prev) => ({
+                                        ...prev,
+                                        [mainCat.id]: true,
+                                      }))
+                                    }
+                                    className="w-full h-full object-contain object-right-bottom mix-blend-multiply dark:mix-blend-normal transition-transform duration-300 group-hover:scale-105"
+                                  />
+                                ) : (
+                                  <span className="text-2xl font-black text-[#FF6000]/70">
+                                    {mainCat.initialLetter}
                                   </span>
                                 )}
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
 
-                                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-white border border-slate-100 dark:border-slate-800 overflow-hidden flex items-center justify-center shadow-2xs">
-                                  {hasSubImg ? (
-                                    <img
-                                      src={resolveMediaAssetUrl(sub.image)}
-                                      alt={sub.name}
-                                      loading="lazy"
-                                      onError={() =>
-                                        setFailedImages((prev) => ({
-                                          ...prev,
-                                          [`drawer-sub-${sub.id}`]: true,
-                                        }))
-                                      }
-                                      className="w-full h-full object-contain p-1 bg-white"
-                                    />
-                                  ) : (
-                                    <span className="text-lg font-black text-[#FF6000]">
-                                      {sub.name.charAt(0)}
-                                    </span>
-                                  )}
-                                </div>
+                      {/* Arama Yapıldıysa Eşleşen Alt Kategorileri de Görsel-1 Kartlarıyla Göster */}
+                      {matchingSubCats.length > 0 && (
+                        <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
+                          <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-400 dark:text-slate-500 block">
+                            Eşleşen Alt Kategoriler ({matchingSubCats.length})
+                          </span>
+                          <div className="grid grid-cols-2 gap-3">
+                            {matchingSubCats.map(({ main, sub }) => {
+                              const hasSubImg = Boolean(
+                                sub.image && !failedImages[`drawer-sub-${sub.id}`]
+                              );
+                              return (
+                                <button
+                                  key={`${main.id}-${sub.id}`}
+                                  type="button"
+                                  onClick={() => {
+                                    setSelectedCategory(main.id);
+                                    setSelectedSubCategory(sub.id);
+                                    if (activeTab !== 'catalog') setActiveTab('catalog');
+                                    setIsDrawerOpen(false);
+                                  }}
+                                  className="h-[104px] sm:h-[116px] rounded-2xl p-3.5 bg-[#EFEFEF] hover:bg-[#E6E6E6] dark:bg-slate-800/90 dark:hover:bg-slate-800 relative overflow-hidden flex items-start justify-between text-left transition-all active:scale-[0.98] group"
+                                >
+                                  <div className="z-10 flex flex-col justify-between h-full max-w-[58%] pr-1">
+                                    <div>
+                                      <div className="text-[10px] font-bold text-[#FF6000] truncate">
+                                        {main.name}
+                                      </div>
+                                      <div className="text-[13px] sm:text-[14px] font-bold text-slate-900 dark:text-white leading-snug line-clamp-2 mt-0.5">
+                                        {sub.name}
+                                      </div>
+                                    </div>
+                                    <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                                      {sub.count} Ürün
+                                    </div>
+                                  </div>
 
-                                <div className="w-full min-w-0">
-                                  <div className="font-extrabold text-[11px] text-slate-900 dark:text-white leading-tight line-clamp-2">
-                                    {sub.name}
+                                  <div className="w-[76px] h-[76px] sm:w-[88px] sm:h-[88px] self-end shrink-0 flex items-end justify-end">
+                                    {hasSubImg ? (
+                                      <img
+                                        src={resolveMediaAssetUrl(sub.image)}
+                                        alt={sub.name}
+                                        loading="lazy"
+                                        onError={() =>
+                                          setFailedImages((prev) => ({
+                                            ...prev,
+                                            [`drawer-sub-${sub.id}`]: true,
+                                          }))
+                                        }
+                                        className="w-full h-full object-contain object-right-bottom mix-blend-multiply dark:mix-blend-normal transition-transform duration-300 group-hover:scale-105"
+                                      />
+                                    ) : (
+                                      <span className="text-2xl font-black text-[#FF6000]/70">
+                                        {sub.name.charAt(0)}
+                                      </span>
+                                    )}
                                   </div>
-                                  <div className="text-[10px] font-semibold text-slate-400 dark:text-slate-500 mt-0.5">
-                                    {sub.count} Ürün
-                                  </div>
-                                </div>
-                              </button>
-                            );
-                          })}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-                      </div>
-                    ) : (
-                      <div className="p-6 rounded-2xl border border-dashed border-slate-200 dark:border-slate-800 text-center space-y-2">
-                        <p className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                          Bu ana kategoride alt kırılım bulunmuyor.
-                        </p>
-                        <p className="text-[11px] text-slate-400">
-                          Yukarıdaki turuncu butona dokunarak bu kategorideki tüm{' '}
-                          <strong>{drawerSelectedMainNode.count}</strong> ürünü
-                          listeleyebilirsiniz.
-                        </p>
-                      </div>
-                    )}
-                  </>
-                )}
-              </div>
+                      )}
+                    </div>
+                  );
+                })()
+              )}
             </div>
           </div>
         </div>
