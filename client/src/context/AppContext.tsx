@@ -1341,7 +1341,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
     let eventSource: EventSource | null = null;
     try {
-      const streamUrl = `${resolveApiBaseUrl(serverConfig)}/notifications/stream`;
+      const streamUrl = `${resolveApiBaseUrl(serverConfig)}/notifications/stream?company=${encodeURIComponent(serverConfig.companyCode || '01')}`;
       eventSource = new EventSource(streamUrl);
 
       eventSource.onmessage = (event) => {

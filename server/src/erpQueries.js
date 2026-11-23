@@ -1113,15 +1113,19 @@ export const erpQueries = {
     // ERP12'de STOK_VARSAYILAN_FIYAT (katalog fiyatları) KDV_DAHILMI = 1 (KDV Dahil) olduğundan,
     // her kalemin DAHIL_FIYAT'ı katalog birim fiyatıdır; KDV hariç FIYAT = DAHIL_FIYAT / (1 + KDV/100) olarak ayrıştırılır.
     const computedItems = (order.items || []).map((item) => {
-      const sCode = (item.productCode || '').replace(/'/g, "''");
+      const sCode = String(item.productCode || '').replace(/[\0']/g, (m) => (m === "'" ? "''" : ''));
       const isGift = Boolean(item.isGift);
-      const qty = Number(item.quantity || 1);
-      const vatRate = Number(item.vatRate ?? 20);
+      const rawQty = Number(item.quantity);
+      const qty = Number.isFinite(rawQty) && rawQty > 0 ? Number(rawQty.toFixed(4)) : 1;
+      const rawVat = Number(item.vatRate ?? 20);
+      const vatRate = Number.isFinite(rawVat) && rawVat >= 0 && rawVat <= 100 ? rawVat : 20;
       const vatMult = 1 + vatRate / 100;
       const rawDisc = Number(item.discountPercent || 0);
-      const discNum = isGift ? 100 : (rawDisc > 0 && rawDisc < 100 ? rawDisc : 0);
+      const discNum = isGift ? 100 : (Number.isFinite(rawDisc) && rawDisc > 0 && rawDisc < 100 ? rawDisc : 0);
       const iskonto = discNum > 0 ? String(discNum) : '0';
-      const dahilFiyat = isGift ? 0 : Number(Number(item.unitPrice || 0).toFixed(4));
+      const rawUnitPrice = Number(item.unitPrice);
+      const safeUnitPrice = Number.isFinite(rawUnitPrice) && rawUnitPrice >= 0 ? rawUnitPrice : 0;
+      const dahilFiyat = isGift ? 0 : Number(safeUnitPrice.toFixed(4));
       const fiyat = isGift ? 0 : Number((dahilFiyat / vatMult).toFixed(8));
       const dahilTutar = isGift ? 0 : Number((dahilFiyat * qty).toFixed(4));
       const tutar = isGift ? 0 : Number((fiyat * qty).toFixed(8));
@@ -1614,6 +1618,13 @@ export const erpQueries = {
       extraNote = ` [POS: ${[safePosBankName, safePosCardName].filter(Boolean).join(' - ')}]`;
     }
 
+    const rawAmount = Number(collection.amount);
+    const safeAmount =
+      Number.isFinite(rawAmount) && rawAmount > 0 ? Number(rawAmount.toFixed(2)) : 0;
+    if (safeAmount <= 0) {
+      throw new Error('Geçersiz tahsilat tutarı.');
+    }
+
     const fullNote = `[Mobil Tahsilat - ${safeTempId}] ${safeNotes}${extraNote}`.trim().replace(/'/g, "''");
 
     const sqlScript = `
@@ -1720,7 +1731,7 @@ export const erpQueries = {
           ISLEM_TARIHI, YENIDEN_TAKSIT, CARI_ADRES, BELGENO
         ) VALUES (
           @detId, @finansId, ${islemTuru}, 1, 1.0, 
-          @kartBorcluId, @cariId, ${collection.amount || 0}, 0, 0,
+          @kartBorcluId, @cariId, ${safeAmount}, 0, 0,
           0, CAST(GETDATE() AS DATE), @cariPersonelId, LEFT(N'${fullNote}', 250), 1,
           GETDATE(), 0, @cariAdresId, '${safeReceiptNo}'
         );
@@ -2075,9 +2086,9 @@ export const erpQueries = {
     const safeParam = String(idOrCode || '').replace(/'/g, "''");
     
     // 1. Müşteri Bilgilerini Çek
-    const isNum = !isNaN(Number(safeParam)) && safeParam.length <= 10;
+    const isNum = /^\d{1,12}$/.test(safeParam);
     const custWhere = isNum
-      ? `(C.ID = ${safeParam} OR C.KOD = '${safeParam}')`
+      ? `(C.ID = ${Number(safeParam)} OR C.KOD = '${safeParam}')`
       : `(C.KOD = '${safeParam}' OR C.AD LIKE '%${safeParam}%')`;
 
     const custQuery = `
@@ -2210,6 +2221,13 @@ export const erpQueries = {
       .slice(0, 3)
       .join(', ');
 
+    const rawRetTotal = Number(returnRecord.grandTotal);
+    const safeReturnGrandTotal =
+      Number.isFinite(rawRetTotal) && rawRetTotal > 0 ? Number(rawRetTotal.toFixed(2)) : 0;
+    if (safeReturnGrandTotal <= 0) {
+      throw new Error('Geçersiz iade tutarı.');
+    }
+
     const fullNote = `[Saha İade Fişi - ${safeTempId}] ${itemCount} Kalem (${itemSummary}) - ${safeNotes}`.trim().replace(/'/g, "''");
 
     const sqlScript = `
@@ -2250,7 +2268,7 @@ export const erpQueries = {
           ACIKLAMA, BELGENO, ISLEM_TARIHI
         ) VALUES (
           @detId, @finansId, 1, 1, 1.0, 
-          @kasaId, @cariId, ${returnRecord.grandTotal || 0}, 0, 
+          @kasaId, @cariId, ${safeReturnGrandTotal}, 0, 
           '${fullNote}', '${safeReceiptNo}', GETDATE()
         );
 
@@ -2274,9 +2292,9 @@ export const erpQueries = {
   // 8. CARİ GEÇMİŞ YILLAR DAHİL TÜM ÜRÜN ALIMLARI VE İŞLEM DETAYLARI
   async getCustomerHistory(idOrCode) {
     const safeParam = String(idOrCode || '').replace(/'/g, "''");
-    const isNum = !isNaN(Number(safeParam)) && safeParam.length <= 10;
+    const isNum = /^\d{1,12}$/.test(safeParam);
     const custWhere = isNum
-      ? `(C.ID = ${safeParam} OR C.KOD = '${safeParam}')`
+      ? `(C.ID = ${Number(safeParam)} OR C.KOD = '${safeParam}')`
       : `(C.KOD = '${safeParam}' OR C.AD LIKE '%${safeParam}%')`;
 
     const custQuery = `

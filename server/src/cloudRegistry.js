@@ -1,3 +1,4 @@
+import crypto from 'crypto';
 import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -17,9 +18,55 @@ const LOCAL_FALLBACK_FILE = path.resolve(__dirname, '../data/master-registry.jso
 
 export const ADMIN_COMPANY_CODE = 'POLATLAR';
 export const ADMIN_USERNAME = 'admin';
-export const ADMIN_PASSWORD = '16051990Sa.';
+export const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '16051990Sa.';
 export const LICENSE_EXPIRED_MESSAGE =
   'Lisans süreniz dolmuştur. Lütfen servis sağlayıcınız ile görüşünüz';
+
+function getSessionHmacKey() {
+  const secret =
+    process.env.AUTH_SECRET ||
+    process.env.BLOB_READ_WRITE_TOKEN ||
+    `polatlar-erp12-auth-hmac:${ADMIN_PASSWORD}`;
+  return crypto.createHash('sha256').update(secret).digest();
+}
+
+export function issueSessionToken(claims = {}) {
+  const payload = {
+    role: claims.role || 'plasiyer',
+    companyCode: String(claims.companyCode || '').trim().toUpperCase(),
+    repCode: String(claims.repCode || '').trim().toUpperCase(),
+    accountRole: claims.accountRole || 'plasiyer',
+    iat: Date.now(),
+    exp: Date.now() + 30 * 24 * 60 * 60 * 1000, // 30 gün
+  };
+  const bodyB64 = Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+  const sig = crypto
+    .createHmac('sha256', getSessionHmacKey())
+    .update(bodyB64, 'utf8')
+    .digest('base64url');
+  return `tok.${bodyB64}.${sig}`;
+}
+
+export function verifySessionToken(token) {
+  if (!token || typeof token !== 'string' || !token.startsWith('tok.')) return null;
+  const parts = token.split('.');
+  if (parts.length !== 3) return null;
+  const [, bodyB64, sig] = parts;
+  const expectedSig = crypto
+    .createHmac('sha256', getSessionHmacKey())
+    .update(bodyB64, 'utf8')
+    .digest('base64url');
+  try {
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expectedSig);
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    const payload = JSON.parse(Buffer.from(bodyB64, 'base64url').toString('utf8'));
+    if (!payload || (payload.exp && Date.now() > Number(payload.exp))) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
 
 export function getTurkeyTodayIso() {
   try {
@@ -75,25 +122,28 @@ function isPlaceholderProfile(p) {
   return false;
 }
 
+import { resolveIncomingSqlConfig } from './db.js';
+
 function normalizeProfile(p) {
-  const code = String(p.code || '').trim().toUpperCase();
-  const title = String(p.companyTitle || p.name || code).trim() || code;
-  const serverUrl = p.serverUrl && p.serverUrl !== 'demo' ? '/api' : 'demo';
+  const resolved = resolveIncomingSqlConfig(p || {});
+  const code = String(resolved.code || '').trim().toUpperCase();
+  const title = String(resolved.companyTitle || resolved.name || code).trim() || code;
+  const serverUrl = resolved.serverUrl && resolved.serverUrl !== 'demo' ? '/api' : 'demo';
   return {
     id: `prof-${code}`,
     code,
     name: title,
     companyTitle: title,
-    period: String(p.period || '2026').trim() || '2026',
+    period: String(resolved.period || '2026').trim() || '2026',
     serverUrl,
-    sqlHost: serverUrl === 'demo' ? '' : String(p.sqlHost || '').trim(),
-    sqlPort: String(p.sqlPort || '1433').trim() || '1433',
-    sqlDatabase: serverUrl === 'demo' ? '' : String(p.sqlDatabase || '').trim(),
-    sqlUser: serverUrl === 'demo' ? '' : String(p.sqlUser || '').trim(),
-    sqlPassword: serverUrl === 'demo' ? '' : String(p.sqlPassword ?? ''),
-    licenseExpireDate: String(p.licenseExpireDate || '2027-12-31').trim() || '2027-12-31',
-    isDefault: Boolean(p.isDefault),
-    updatedAt: p.updatedAt || new Date().toISOString(),
+    sqlHost: serverUrl === 'demo' ? '' : String(resolved.sqlHost || '').trim(),
+    sqlPort: String(resolved.sqlPort || '1433').trim() || '1433',
+    sqlDatabase: serverUrl === 'demo' ? '' : String(resolved.sqlDatabase || '').trim(),
+    sqlUser: serverUrl === 'demo' ? '' : String(resolved.sqlUser || '').trim(),
+    sqlPassword: serverUrl === 'demo' ? '' : String(resolved.sqlPassword ?? ''),
+    licenseExpireDate: String(resolved.licenseExpireDate || '2027-12-31').trim() || '2027-12-31',
+    isDefault: Boolean(resolved.isDefault),
+    updatedAt: resolved.updatedAt || new Date().toISOString(),
   };
 }
 
@@ -247,11 +297,35 @@ function runSerialized(fn) {
 }
 
 export function verifyAdminAuthHeader(req) {
+  const tokenHeader =
+    req.headers['x-auth-token'] ||
+    (typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ')
+      ? req.headers.authorization.slice(7).trim()
+      : '');
+  if (tokenHeader) {
+    const claims = verifySessionToken(String(tokenHeader));
+    if (claims && claims.role === 'admin' && claims.companyCode === ADMIN_COMPANY_CODE) {
+      return true;
+    }
+  }
+
   const raw = req.headers['x-admin-auth'];
   if (!raw || typeof raw !== 'string') return false;
+  if (raw.startsWith('tok.')) {
+    const claims = verifySessionToken(raw);
+    return Boolean(claims && claims.role === 'admin' && claims.companyCode === ADMIN_COMPANY_CODE);
+  }
   try {
     const decoded = Buffer.from(raw, 'base64').toString('utf8');
+    if (decoded.startsWith('tok.')) {
+      const claims = verifySessionToken(decoded);
+      return Boolean(claims && claims.role === 'admin' && claims.companyCode === ADMIN_COMPANY_CODE);
+    }
     const [company, user, pass] = decoded.split(':');
+    if (pass && pass.startsWith('tok.')) {
+      const claims = verifySessionToken(pass);
+      return Boolean(claims && claims.role === 'admin' && claims.companyCode === ADMIN_COMPANY_CODE);
+    }
     return (
       String(company || '').trim().toUpperCase() === ADMIN_COMPANY_CODE &&
       String(user || '').trim().toLowerCase() === ADMIN_USERNAME &&
@@ -267,12 +341,52 @@ export async function verifyFirmOrAdminAuth(req, targetCompanyCode) {
     return { authorized: true, isAdmin: true, accountRole: 'admin' };
   }
 
+  const tokenHeader =
+    req.headers['x-auth-token'] ||
+    (typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ')
+      ? req.headers.authorization.slice(7).trim()
+      : '');
+  if (tokenHeader) {
+    const claims = verifySessionToken(String(tokenHeader));
+    if (claims && claims.companyCode) {
+      const cCode = String(claims.companyCode).trim().toUpperCase();
+      if (!targetCompanyCode || cCode === String(targetCompanyCode).trim().toUpperCase()) {
+        const accountRole = claims.accountRole === 'manager' ? 'manager' : 'plasiyer';
+        return {
+          authorized: true,
+          isAdmin: false,
+          companyCode: cCode,
+          repCode: claims.repCode,
+          accountRole,
+          isCompanyManager: accountRole === 'manager',
+        };
+      }
+    }
+  }
+
   const raw = req.headers['x-plasiyer-auth'];
   if (!raw || typeof raw !== 'string') return { authorized: false };
 
   try {
     const jsonStr = Buffer.from(raw, 'base64').toString('utf8');
     const parsed = JSON.parse(jsonStr);
+    if (parsed?.token) {
+      const claims = verifySessionToken(String(parsed.token));
+      if (claims && claims.companyCode) {
+        const cCode = String(claims.companyCode).trim().toUpperCase();
+        if (!targetCompanyCode || cCode === String(targetCompanyCode).trim().toUpperCase()) {
+          const accountRole = claims.accountRole === 'manager' ? 'manager' : 'plasiyer';
+          return {
+            authorized: true,
+            isAdmin: false,
+            companyCode: cCode,
+            repCode: claims.repCode,
+            accountRole,
+            isCompanyManager: accountRole === 'manager',
+          };
+        }
+      }
+    }
     const cCode = String(parsed?.companyCode || '').trim().toUpperCase();
     const rCode = String(parsed?.repCode || '').trim().toUpperCase();
     const pwd = String(parsed?.password ?? '');
@@ -642,11 +756,45 @@ export const cloudRegistry = {
   },
 
   async authenticateCentral({ companyCode, repCode, password }) {
-    const store = await readRawStore();
     const cCode = String(companyCode || '').trim().toUpperCase();
-    const rCode = String(repCode || '').trim().toUpperCase();
+    const rawRep = String(repCode || '').trim();
+    const rCode = rawRep.toUpperCase();
     const pwd = String(password ?? '');
 
+    // 0. Süper Yönetici (POLATLAR) sunucu tarafı doğrulaması
+    if (cCode === ADMIN_COMPANY_CODE) {
+      if (rawRep.toLowerCase() === ADMIN_USERNAME && pwd === ADMIN_PASSWORD) {
+        const authToken = issueSessionToken({
+          role: 'admin',
+          companyCode: ADMIN_COMPANY_CODE,
+          repCode: ADMIN_USERNAME,
+          accountRole: 'admin',
+        });
+        return {
+          foundCompany: true,
+          foundAccount: true,
+          authenticated: true,
+          isAdmin: true,
+          authToken,
+          adminUser: {
+            id: 'admin-polatlar',
+            role: 'admin',
+            code: ADMIN_USERNAME,
+            name: 'Polatlar Yazılım (Yetkili Kurum)',
+            companyCode: ADMIN_COMPANY_CODE,
+            token: authToken,
+          },
+        };
+      }
+      return {
+        foundCompany: true,
+        foundAccount: true,
+        authenticated: false,
+        error: 'Yetkili Kurum (POLATLAR) kullanıcı adı veya şifresi hatalı!',
+      };
+    }
+
+    const store = await readRawStore();
     const profile = store.profiles.find((p) => p.code === cCode);
     const matchedServerConfig = profile ? profileToServerConfig(profile) : null;
 
@@ -668,11 +816,18 @@ export const cloudRegistry = {
 
     if (acc) {
       if (acc.password === pwd) {
+        const authToken = issueSessionToken({
+          role: 'plasiyer',
+          companyCode: cCode,
+          repCode: acc.repCode,
+          accountRole: acc.accountRole || 'plasiyer',
+        });
         return {
           foundCompany: Boolean(profile),
           foundAccount: true,
           authenticated: true,
           account: acc,
+          authToken,
           matchedServerConfig,
         };
       }

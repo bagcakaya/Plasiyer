@@ -88,10 +88,14 @@ export function formatSqlError(err, host, port, database, user) {
 export function getActiveSqlConfig() {
   const ctx = sqlContext.getStore();
   if (ctx && ctx.sqlHost && String(ctx.sqlHost).trim() !== '') {
-    const { cleanHost, parsedPort, instanceName } = parseHostAndPort(ctx.sqlHost, ctx.sqlPort);
-    const database = String(ctx.sqlDatabase || DB_NAME).trim();
-    const user = String(ctx.sqlUser ?? '').trim();
-    const password = String(ctx.sqlPassword ?? '');
+    const resolvedCtx = resolveIncomingSqlConfig(ctx);
+    const { cleanHost, parsedPort, instanceName } = parseHostAndPort(
+      resolvedCtx.sqlHost,
+      resolvedCtx.sqlPort
+    );
+    const database = String(resolvedCtx.sqlDatabase || DB_NAME).trim();
+    const user = String(resolvedCtx.sqlUser ?? '').trim();
+    const password = String(resolvedCtx.sqlPassword ?? '');
 
     // Eğer localhost ise ve kullanıcı adı boş bırakıldıysa varsayılan yerel yapılandırmayı kullan
     if (isLocalServer(cleanHost) && !user && database === DB_NAME) {
@@ -119,11 +123,16 @@ export function getActiveDbKey() {
 
 const UNIVERSAL_TOKEN_SECRET_KEY = crypto
   .createHash('sha256')
+  .update(process.env.AUTH_SECRET || 'polatlar-erp12-img-secret-v1')
+  .digest();
+
+const LEGACY_TOKEN_SECRET_KEY = crypto
+  .createHash('sha256')
   .update('polatlar-erp12-img-secret-v1')
   .digest();
 
 function getCandidateTokenKeys() {
-  const keys = [UNIVERSAL_TOKEN_SECRET_KEY];
+  const keys = [UNIVERSAL_TOKEN_SECRET_KEY, LEGACY_TOKEN_SECRET_KEY];
   if (process.env.BLOB_READ_WRITE_TOKEN) {
     keys.push(
       crypto.createHash('sha256').update(process.env.BLOB_READ_WRITE_TOKEN).digest()
@@ -133,7 +142,7 @@ function getCandidateTokenKeys() {
 }
 
 export function encodeSqlConfigToken(customCfg) {
-  const cfg = customCfg || getActiveSqlConfig();
+  const cfg = resolveIncomingSqlConfig(customCfg || getActiveSqlConfig());
   if (!cfg || (!cfg.server && !cfg.sqlHost)) return '';
   try {
     const payload = JSON.stringify({
@@ -155,8 +164,9 @@ export function encodeSqlConfigToken(customCfg) {
 
 export function decodeSqlConfigToken(token) {
   if (!token || typeof token !== 'string') return null;
+  const cleanToken = token.startsWith('enc:') ? token.slice(4) : token;
   try {
-    const buf = Buffer.from(token, 'base64url');
+    const buf = Buffer.from(cleanToken, 'base64url');
     if (buf.length < 29) return null;
     const iv = buf.subarray(0, 12);
     const tag = buf.subarray(12, 28);
@@ -185,6 +195,47 @@ export function decodeSqlConfigToken(token) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Tarayıcıya (localStorage / matchedServerConfig) gönderilen SQL şifresini AES-256-GCM ile şifreler
+ */
+export function protectSqlConfigForClient(cfg) {
+  if (!cfg || typeof cfg !== 'object') return cfg;
+  const host = String(cfg.sqlHost || cfg.server || '').trim();
+  const pwd = String(cfg.sqlPassword ?? cfg.password ?? '');
+  if (!host || !pwd || pwd.startsWith('enc:')) {
+    return cfg;
+  }
+  const token = encodeSqlConfigToken(cfg);
+  if (!token) return cfg;
+  return {
+    ...cfg,
+    sqlPassword: `enc:${token}`,
+  };
+}
+
+/**
+ * İstemciden gelen X-SQL-Config veya body içindeki 'enc:...' şifreli SQL şifresini sunucu tarafında çözer
+ */
+export function resolveIncomingSqlConfig(cfg) {
+  if (!cfg || typeof cfg !== 'object') return cfg;
+  const pwd = String(cfg.sqlPassword ?? cfg.password ?? '');
+  if (pwd.startsWith('enc:')) {
+    const decoded = decodeSqlConfigToken(pwd.slice(4));
+    if (decoded) {
+      return {
+        ...cfg,
+        sqlHost: cfg.sqlHost || decoded.sqlHost,
+        sqlPort: cfg.sqlPort || decoded.sqlPort,
+        sqlDatabase: cfg.sqlDatabase || decoded.sqlDatabase,
+        sqlUser: cfg.sqlUser || decoded.sqlUser,
+        sqlPassword: decoded.sqlPassword,
+        password: decoded.sqlPassword,
+      };
+    }
+  }
+  return cfg;
 }
 
 function buildMssqlConfig(cfg) {
@@ -285,13 +336,14 @@ async function getDefaultPool() {
  * Doğrudan Girilen SQL Server Ayarlarını Canlı Test Et
  */
 export async function testDirectSqlConnection(rawConfig) {
+  const resolvedConfig = resolveIncomingSqlConfig(rawConfig || {});
   const { cleanHost, parsedPort, instanceName } = parseHostAndPort(
-    rawConfig?.sqlHost,
-    rawConfig?.sqlPort
+    resolvedConfig?.sqlHost,
+    resolvedConfig?.sqlPort
   );
-  const database = String(rawConfig?.sqlDatabase || DB_NAME).trim();
-  const user = String(rawConfig?.sqlUser || '').trim();
-  const password = String(rawConfig?.sqlPassword || '');
+  const database = String(resolvedConfig?.sqlDatabase || DB_NAME).trim();
+  const user = String(resolvedConfig?.sqlUser || '').trim();
+  const password = String(resolvedConfig?.sqlPassword || '');
 
   // Yerel Windows Auth fallback kontrolü
   if (isLocalServer(cleanHost) && !user && process.platform === 'win32' && !process.env.VERCEL) {

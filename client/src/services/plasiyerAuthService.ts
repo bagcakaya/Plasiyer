@@ -13,10 +13,25 @@ const PROFILES_STORAGE_KEY = 'plasiyer_company_profiles';
 const SERVER_CONFIG_KEY = 'plasiyer_server_config';
 const REP_STORAGE_KEY = 'plasiyer_rep';
 const AUTH_USER_KEY = 'plasiyer_auth_user';
+const AUTH_TOKEN_KEY = 'plasiyer_auth_token';
+const ADMIN_SESSION_CRED_KEY = 'plasiyer_admin_session_cred';
 
 export const ADMIN_COMPANY_CODE = 'POLATLAR';
 export const ADMIN_USERNAME = 'admin';
-const ADMIN_PASSWORD = '16051990Sa.';
+// Süper yönetici şifresi istemci kodunda AÇIK METİN OLARAK TUTULMAZ (Tek yönlü SHA-256 özeti)
+const ADMIN_CREDENTIAL_SHA256 =
+  '7a392f0eac4fd9dce75fddd1c075cee0c76bc64898e5bbaa86b1d4eb54355305';
+
+async function computeSha256Hex(input: string): Promise<string> {
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    const data = new TextEncoder().encode(input);
+    const hashBuf = await crypto.subtle.digest('SHA-256', data);
+    return Array.from(new Uint8Array(hashBuf))
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+  }
+  return '';
+}
 
 export const LICENSE_EXPIRED_MESSAGE =
   'Lisans süreniz dolmuştur. Lütfen servis sağlayıcınız ile görüşünüz';
@@ -115,11 +130,21 @@ export const plasiyerAuthService = {
   },
 
   buildAdminHeaders(): Record<string, string> {
-    return {
-      'X-Admin-Auth': encodeBase64Utf8(
-        `${ADMIN_COMPANY_CODE}:${ADMIN_USERNAME}:${ADMIN_PASSWORD}`
-      ),
-    };
+    if (typeof window === 'undefined') return {};
+    const token =
+      localStorage.getItem(AUTH_TOKEN_KEY) || sessionStorage.getItem(AUTH_TOKEN_KEY) || '';
+    const sessionCred = sessionStorage.getItem(ADMIN_SESSION_CRED_KEY) || '';
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers['X-Auth-Token'] = token;
+      headers['X-Admin-Auth'] = encodeBase64Utf8(
+        `${ADMIN_COMPANY_CODE}:${ADMIN_USERNAME}:${token}`
+      );
+    }
+    if (sessionCred) {
+      headers['X-Admin-Auth'] = sessionCred;
+    }
+    return headers;
   },
 
   buildRegistryAuthHeaders(overrideCompanyCode?: string): Record<string, string> {
@@ -128,9 +153,19 @@ export const plasiyerAuthService = {
       const role = localStorage.getItem('b2b_user_role');
       const authRaw = localStorage.getItem(AUTH_USER_KEY);
       const authUser = authRaw ? (JSON.parse(authRaw) as AuthUser) : null;
+      const token =
+        localStorage.getItem(AUTH_TOKEN_KEY) ||
+        sessionStorage.getItem(AUTH_TOKEN_KEY) ||
+        authUser?.token ||
+        '';
 
       if (role === 'admin' || authUser?.role === 'admin') {
         return this.buildAdminHeaders();
+      }
+
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['X-Auth-Token'] = token;
       }
 
       const cCode = (overrideCompanyCode || authUser?.companyCode || '').trim().toUpperCase();
@@ -139,18 +174,18 @@ export const plasiyerAuthService = {
         const localAcc = this.getLocalAccounts().find(
           (a) => a.companyCode.toUpperCase() === cCode && a.repCode.toUpperCase() === rCode
         );
-        if (localAcc?.password) {
-          return {
-            'X-Plasiyer-Auth': encodeBase64Utf8(
-              JSON.stringify({
-                companyCode: cCode,
-                repCode: rCode,
-                password: localAcc.password,
-              })
-            ),
-          };
+        if (localAcc?.password || token) {
+          headers['X-Plasiyer-Auth'] = encodeBase64Utf8(
+            JSON.stringify({
+              companyCode: cCode,
+              repCode: rCode,
+              password: localAcc?.password || '',
+              token: token || undefined,
+            })
+          );
         }
       }
+      return headers;
     } catch {
       // ignore storage errors
     }
@@ -1065,9 +1100,51 @@ export const plasiyerAuthService = {
       return { success: false, error: 'Lütfen Şifrenizi giriniz.' };
     }
 
-    // 0. YETKİLİ KURUM (POLATLAR YAZILIM) SÜPER ADMİN GİRİŞ KONTROLÜ
+    // 0. YETKİLİ KURUM (POLATLAR YAZILIM) SÜPER ADMİN GİRİŞ KONTROLÜ (Sunucu + SHA-256 Doğrulamalı)
     if (cCode === ADMIN_COMPANY_CODE) {
-      if (rawUser.toLowerCase() === ADMIN_USERNAME && pwd === ADMIN_PASSWORD) {
+      let serverToken = '';
+      if (typeof navigator === 'undefined' || navigator.onLine) {
+        try {
+          const adminRes = await this.fetchRegistryApi('/authenticate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              companyCode: cCode,
+              repCode: rawUser,
+              password: pwd,
+            }),
+          });
+          if (adminRes.ok) {
+            const adminData = await adminRes.json();
+            if (adminData?.authenticated && adminData?.isAdmin) {
+              serverToken = adminData.authToken || '';
+            } else if (adminData?.found) {
+              return {
+                success: false,
+                error:
+                  adminData.error || 'Yetkili Kurum (POLATLAR) kullanıcı adı veya şifresi hatalı!',
+              };
+            }
+          }
+        } catch {
+          // Çevrimdışıysa yerel SHA-256 doğrulamasına düş
+        }
+      }
+
+      const digest = await computeSha256Hex(
+        `${ADMIN_COMPANY_CODE}:${rawUser.toLowerCase()}:${pwd}`
+      );
+      if (serverToken || (rawUser.toLowerCase() === ADMIN_USERNAME && digest === ADMIN_CREDENTIAL_SHA256)) {
+        if (typeof window !== 'undefined') {
+          if (serverToken) {
+            localStorage.setItem(AUTH_TOKEN_KEY, serverToken);
+            sessionStorage.setItem(AUTH_TOKEN_KEY, serverToken);
+          }
+          sessionStorage.setItem(
+            ADMIN_SESSION_CRED_KEY,
+            encodeBase64Utf8(`${ADMIN_COMPANY_CODE}:${ADMIN_USERNAME}:${pwd}`)
+          );
+        }
         return {
           success: true,
           isAdmin: true,
@@ -1077,6 +1154,7 @@ export const plasiyerAuthService = {
             code: ADMIN_USERNAME,
             name: 'Polatlar Yazılım (Yetkili Kurum)',
             companyCode: ADMIN_COMPANY_CODE,
+            token: serverToken || undefined,
           },
         };
       }
@@ -1113,6 +1191,10 @@ export const plasiyerAuthService = {
           }
 
           if (cloudData?.authenticated && cloudData?.account) {
+            if (cloudData.authToken && typeof window !== 'undefined') {
+              localStorage.setItem(AUTH_TOKEN_KEY, cloudData.authToken);
+              sessionStorage.setItem(AUTH_TOKEN_KEY, cloudData.authToken);
+            }
             const remoteCfg = (cloudData.matchedServerConfig as ServerConfig | null) || null;
             if (remoteCfg?.companyCode) {
               localStorage.setItem(SERVER_CONFIG_KEY, JSON.stringify(remoteCfg));

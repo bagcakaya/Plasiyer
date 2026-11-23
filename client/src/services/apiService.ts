@@ -264,17 +264,27 @@ const encodeUtf8Base64 = (str: string): string => {
 };
 
 export const buildSqlHeaders = (config?: ServerConfig): Record<string, string> => {
-  if (!config || !config.sqlHost || !config.sqlHost.trim()) return {};
+  const headers: Record<string, string> = {};
+  if (typeof window !== 'undefined') {
+    const token =
+      localStorage.getItem('plasiyer_auth_token') ||
+      sessionStorage.getItem('plasiyer_auth_token') ||
+      '';
+    if (token) {
+      headers['X-Auth-Token'] = token;
+    }
+  }
+  if (!config || !config.sqlHost || !config.sqlHost.trim()) return headers;
   const payload = {
+    companyCode: (config.companyCode || '').trim().toUpperCase(),
     sqlHost: config.sqlHost.trim(),
     sqlPort: (config.sqlPort || '1433').trim(),
     sqlDatabase: (config.sqlDatabase || '').trim(),
     sqlUser: (config.sqlUser || '').trim(),
     sqlPassword: config.sqlPassword ?? '',
   };
-  return {
-    'X-SQL-Config': encodeUtf8Base64(JSON.stringify(payload)),
-  };
+  headers['X-SQL-Config'] = encodeUtf8Base64(JSON.stringify(payload));
+  return headers;
 };
 
 export const handleFetchError = (err: any): Error => {

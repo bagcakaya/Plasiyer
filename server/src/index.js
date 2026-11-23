@@ -12,6 +12,8 @@ import {
   executeNonQuery,
   sqlContext,
   decodeSqlConfigToken,
+  protectSqlConfigForClient,
+  resolveIncomingSqlConfig,
 } from './db.js';
 import { imageService } from './imageService.js';
 import { thermalPrintService } from './thermalPrintService.js';
@@ -19,6 +21,8 @@ import {
   cloudRegistry,
   verifyAdminAuthHeader,
   verifyFirmOrAdminAuth,
+  issueSessionToken,
+  verifySessionToken,
 } from './cloudRegistry.js';
 import { sqlCloudMirror } from './sqlCloudMirror.js';
 import { sqlCloudRelay, verifyRelayRequest } from './sqlCloudRelay.js';
@@ -37,20 +41,118 @@ const PORT = process.env.PORT || 4000;
 app.use(compression());
 app.use(cors());
 
-// Chrome Private Network Access (PNA) & CORS Header desteği
+// Chrome Private Network Access (PNA), CORS & HTTP Güvenlik Başlıkları
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Private-Network', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', '*');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   if (req.method === 'OPTIONS') {
     return res.sendStatus(204);
   }
   next();
 });
 
-app.use(express.json({ limit: '25mb' }));
-app.use(express.urlencoded({ extended: true, limit: '25mb' }));
+// Brute-Force (Kaba Kuvvet) Giriş & SQL Test Hız Sınırlayıcı (5 dakikada maks 15 başarısız deneme)
+const authRateLimitMap = new Map();
+const AUTH_WINDOW_MS = 5 * 60 * 1000;
+const AUTH_MAX_FAILURES = 15;
+
+function getClientIp(req) {
+  const xff = req.headers['x-forwarded-for'];
+  if (typeof xff === 'string' && xff.trim()) {
+    return xff.split(',')[0].trim();
+  }
+  return req.socket?.remoteAddress || 'unknown';
+}
+
+function getRateLimitKey(req, suffix = '') {
+  return `${getClientIp(req)}::${String(suffix || '').trim().toUpperCase()}`;
+}
+
+function isRateLimited(req, suffix = '') {
+  const key = getRateLimitKey(req, suffix);
+  const entry = authRateLimitMap.get(key);
+  if (!entry) return false;
+  if (Date.now() - entry.firstAt > AUTH_WINDOW_MS) {
+    authRateLimitMap.delete(key);
+    return false;
+  }
+  return entry.count >= AUTH_MAX_FAILURES;
+}
+
+function recordAuthFailure(req, suffix = '') {
+  const key = getRateLimitKey(req, suffix);
+  const now = Date.now();
+  const entry = authRateLimitMap.get(key);
+  if (!entry || now - entry.firstAt > AUTH_WINDOW_MS) {
+    authRateLimitMap.set(key, { count: 1, firstAt: now });
+  } else {
+    entry.count += 1;
+  }
+}
+
+function clearAuthFailures(req, suffix = '') {
+  authRateLimitMap.delete(getRateLimitKey(req, suffix));
+}
+
+// Bulut (Vercel) SSRF Koruması: Özel/İç Ağ IP Aralıklarını Engelle
+function isBlockedCloudSsrfHost(rawHost) {
+  if (!process.env.VERCEL) return false;
+  const host = String(rawHost || '')
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .split(/[:/,\\]/)[0];
+  if (!host) return true;
+  if (
+    host === 'localhost' ||
+    host === '::1' ||
+    host === '0.0.0.0' ||
+    host.endsWith('.local') ||
+    host.endsWith('.internal')
+  ) {
+    return true;
+  }
+  const ipv4 = host.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (ipv4) {
+    const [, a, b] = ipv4.map(Number);
+    if (
+      a === 10 ||
+      a === 127 ||
+      a === 0 ||
+      (a === 169 && b === 254) ||
+      (a === 192 && b === 168) ||
+      (a === 172 && b >= 16 && b <= 31)
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Yazma uç noktaları için oturum / SQL bağlamı doğrulayıcı
+function hasValidWriteAuthorization(req) {
+  if (!process.env.VERCEL) return true; // Yerel köprü (localhost:4000) kendi makinesinde çalışır
+  if (verifyAdminAuthHeader(req)) return true;
+  const tokenHeader =
+    req.headers['x-auth-token'] ||
+    (typeof req.headers.authorization === 'string' && req.headers.authorization.startsWith('Bearer ')
+      ? req.headers.authorization.slice(7).trim()
+      : '');
+  if (tokenHeader && verifySessionToken(String(tokenHeader))) return true;
+  if (req.headers['x-plasiyer-auth']) return true;
+  const activeSql = sqlContext.getStore();
+  if (activeSql && activeSql.sqlHost && activeSql.sqlPassword) return true;
+  if (req.body?.companyCode || req.query?.company) return true;
+  return false;
+}
+
+app.use(express.json({ limit: '12mb' }));
+app.use(express.urlencoded({ extended: true, limit: '12mb' }));
 
 // Dinamik Çoklu Firma / Doğrudan SQL Server Bağlantı Bağlamı (X-SQL-Config Header veya ?t= Token)
 app.use((req, res, next) => {
@@ -60,12 +162,12 @@ app.use((req, res, next) => {
   if (rawHeader && typeof rawHeader === 'string') {
     try {
       const jsonStr = Buffer.from(rawHeader, 'base64').toString('utf8');
-      parsedSqlCfg = JSON.parse(jsonStr);
+      parsedSqlCfg = resolveIncomingSqlConfig(JSON.parse(jsonStr));
     } catch (err) {
       console.warn('X-SQL-Config çözümleme uyarısı:', err.message);
     }
   } else if (req.body && req.body.sqlConfig && typeof req.body.sqlConfig === 'object') {
-    parsedSqlCfg = req.body.sqlConfig;
+    parsedSqlCfg = resolveIncomingSqlConfig(req.body.sqlConfig);
   } else if (req.query && typeof req.query.t === 'string' && req.query.t) {
     parsedSqlCfg = decodeSqlConfigToken(req.query.t);
   }
@@ -79,15 +181,24 @@ app.use((req, res, next) => {
 // Statik Görsel Dosya Sunumu (/uploads/products/...)
 app.use('/uploads', express.static(path.resolve(__dirname, '../uploads')));
 
-// Canlı Bildirim SSE İstemci Havuzu
+// Canlı Bildirim SSE İstemci Havuzu (Firma Bazlı İzolasyonlu)
 const sseClients = new Set();
 
 function broadcastNotification(payload) {
+  const activeCfg = sqlContext.getStore();
+  const targetCompany = String(
+    payload?.companyCode || activeCfg?.companyCode || ''
+  )
+    .trim()
+    .toUpperCase();
   const dataString = `data: ${JSON.stringify(payload)}\n\n`;
   console.log(`📢 [SSE Broadcast] ${payload.title || payload.type}: ${payload.message || ''}`);
-  
+
   sseClients.forEach((client) => {
     try {
+      if (targetCompany && client.companyCode && client.companyCode !== targetCompany) {
+        return;
+      }
       client.res.write(dataString);
     } catch (e) {
       sseClients.delete(client);
@@ -214,8 +325,29 @@ app.post('/api/internal/sql-relay', async (req, res) => {
 // Doğrudan SQL Server Bağlantı Testi (Ayarlar -> SQL Bağlantısını Canlı Test Et)
 app.post('/api/sql/test', async (req, res) => {
   try {
-    const cfg = (req.body && req.body.sqlHost) ? req.body : (sqlContext.getStore() || req.body || {});
+    const rawCfg = (req.body && req.body.sqlHost) ? req.body : (sqlContext.getStore() || req.body || {});
+    const cfg = resolveIncomingSqlConfig(rawCfg);
+
+    if (isRateLimited(req, 'SQL_TEST')) {
+      return res.status(429).json({
+        success: false,
+        message: 'Çok fazla bağlantı denemesi yapıldı. Lütfen birkaç dakika sonra tekrar deneyiniz.',
+      });
+    }
+
+    if (isBlockedCloudSsrfHost(cfg.sqlHost)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bulut üzerinden yerel/özel ağ IP adreslerine (localhost / 192.168.x / 10.x) doğrudan bağlantı yapılamaz. Lütfen dış statik IP adresinizi giriniz.',
+      });
+    }
+
     const result = await testDirectSqlConnection(cfg);
+    if (!result?.success) {
+      recordAuthFailure(req, 'SQL_TEST');
+    } else {
+      clearAuthFailures(req, 'SQL_TEST');
+    }
 
     if (result?.success) {
       try {
@@ -323,7 +455,10 @@ app.get('/api/notifications/stream', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.flushHeaders?.();
 
-  const client = { id: Date.now(), res };
+  const companyCode = String(req.query.company || req.query.companyCode || '')
+    .trim()
+    .toUpperCase();
+  const client = { id: Date.now(), companyCode, res };
   sseClients.add(client);
   console.log(`🔌 Yeni bildirim abonesi bağlandı (Aktif abone sayısı: ${sseClients.size})`);
 
@@ -663,6 +798,9 @@ app.get('/api/stock-groups', async (req, res) => {
 
 // 2.1 ÜRÜN FOTOĞRAFI YÜKLE / ÇEK & ERP12 İLE SENKRON ET
 app.post('/api/products/:idOrCode/image', async (req, res) => {
+  if (!hasValidWriteAuthorization(req)) {
+    return res.status(401).json({ error: 'Yetkisiz işlem isteği' });
+  }
   try {
     const { idOrCode } = req.params;
     const { image, code } = req.body;
@@ -694,6 +832,9 @@ app.post('/api/products/:idOrCode/image', async (req, res) => {
 
 // 2.2 ÜRÜN FOTOĞRAFINI SİL
 app.delete('/api/products/:idOrCode/image', async (req, res) => {
+  if (!hasValidWriteAuthorization(req)) {
+    return res.status(401).json({ error: 'Yetkisiz işlem isteği' });
+  }
   try {
     const { idOrCode } = req.params;
     const { code } = req.query;
@@ -731,6 +872,9 @@ app.get('/api/orders', async (req, res) => {
 
 // 3. MOBİLDEN GELEN SİPARİŞİ ERP12'YE KAYDET & CANLI BİLDİRİM GÖNDER
 app.post('/api/orders', async (req, res) => {
+  if (!hasValidWriteAuthorization(req)) {
+    return res.status(401).json({ error: 'Yetkisiz sipariş isteği' });
+  }
   try {
     const { companyCode, period, order } = req.body;
     const isDirectErpDoc =
@@ -803,6 +947,9 @@ app.post('/api/orders', async (req, res) => {
 
 // 4. MOBİLDEN GELEN TAHSİLATI ERP12'YE KAYDET & CANLI BİLDİRİM GÖNDER
 app.post('/api/collections', async (req, res) => {
+  if (!hasValidWriteAuthorization(req)) {
+    return res.status(401).json({ error: 'Yetkisiz tahsilat isteği' });
+  }
   try {
     const { companyCode, period, collection } = req.body;
     if (!collection || !collection.customerCode || !collection.amount || collection.amount <= 0) {
@@ -873,6 +1020,9 @@ app.get('/api/bank-pos-cards', async (req, res) => {
 
 // 5. SİPARİŞİ ERP12'DE ONAYLA & FATURALAŞTIRMA SEVKİ YAP
 app.post('/api/orders/:docNo/invoice', async (req, res) => {
+  if (!hasValidWriteAuthorization(req)) {
+    return res.status(401).json({ error: 'Yetkisiz faturalaştırma isteği' });
+  }
   try {
     const { docNo } = req.params;
     const { invoiceNo, notes } = req.body || {};
@@ -905,6 +1055,9 @@ app.post('/api/orders/:docNo/invoice', async (req, res) => {
 
 // 6. MOBİLDEN GELEN İADE & DEĞİŞİM FİŞİNİ ERP12'YE KAYDET & CANLI BİLDİRİM GÖNDER
 app.post('/api/returns', async (req, res) => {
+  if (!hasValidWriteAuthorization(req)) {
+    return res.status(401).json({ error: 'Yetkisiz iade isteği' });
+  }
   try {
     const { companyCode, period, returnRecord } = req.body;
     if (!returnRecord || !returnRecord.customerCode || !returnRecord.grandTotal || returnRecord.grandTotal <= 0) {
@@ -1028,6 +1181,9 @@ app.get('/api/locations/stocks', async (req, res) => {
 });
 
 app.post('/api/locations', async (req, res) => {
+  if (!hasValidWriteAuthorization(req)) {
+    return res.status(401).json({ error: 'Yetkisiz lokasyon ekleme isteği' });
+  }
   try {
     const companyCode = String(req.body?.companyCode || req.query.company || '').trim().toUpperCase();
     let activeCtx = sqlContext.getStore();
@@ -1332,6 +1488,15 @@ app.post('/api/plasiyers/login', async (req, res) => {
         error: 'Lütfen Firma Kodu, Plasiyer Kodu ve Şifre alanlarını doldurunuz.',
       });
     }
+    const rateKey = `LOGIN:${companyCode}:${repCode}`;
+    if (isRateLimited(req, rateKey)) {
+      return res.status(429).json({
+        success: false,
+        found: true,
+        authenticated: false,
+        error: 'Çok fazla başarısız giriş denemesi yapıldı. Lütfen 5 dakika sonra tekrar deneyiniz.',
+      });
+    }
     const lic = await cloudRegistry.getCompanyLicenseStatus(companyCode);
     if (lic.licenseExpired) {
       return res.json({
@@ -1344,6 +1509,17 @@ app.post('/api/plasiyers/login', async (req, res) => {
       });
     }
     const result = await erpQueries.authenticatePlasiyer({ companyCode, repCode, password });
+    if (result?.authenticated && result?.account) {
+      clearAuthFailures(req, rateKey);
+      const authToken = issueSessionToken({
+        role: 'plasiyer',
+        companyCode,
+        repCode: result.account.repCode || repCode,
+        accountRole: result.account.accountRole || 'plasiyer',
+      });
+      return res.json({ success: true, ...result, authToken });
+    }
+    recordAuthFailure(req, rateKey);
     res.json({ success: true, ...result });
   } catch (err) {
     res.json({ success: false, found: false, authenticated: false, warning: err.message });
@@ -1453,7 +1629,13 @@ app.get('/api/registry/license-status', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Firma Kodu gereklidir.' });
     }
     const status = await cloudRegistry.getCompanyLicenseStatus(companyCode);
-    res.json({ success: true, ...status });
+    res.json({
+      success: true,
+      ...status,
+      matchedServerConfig: status.matchedServerConfig
+        ? protectSqlConfigForClient(status.matchedServerConfig)
+        : undefined,
+    });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
   }
@@ -1466,6 +1648,16 @@ app.post('/api/registry/authenticate', async (req, res) => {
       return res.status(400).json({
         success: false,
         error: 'Lütfen Firma Kodu, Kullanıcı / Plasiyer Kodu ve Şifre giriniz.',
+      });
+    }
+
+    const rateKey = `AUTH:${companyCode}:${repCode}`;
+    if (isRateLimited(req, rateKey)) {
+      return res.status(429).json({
+        success: false,
+        found: true,
+        authenticated: false,
+        error: 'Çok fazla başarısız giriş denemesi yapıldı. Lütfen 5 dakika sonra tekrar deneyiniz.',
       });
     }
 
@@ -1482,13 +1674,27 @@ app.post('/api/registry/authenticate', async (req, res) => {
       });
     }
 
-    if (central.authenticated && central.account) {
+    if (central.authenticated && central.isAdmin) {
+      clearAuthFailures(req, rateKey);
       return res.json({
         success: true,
         found: true,
         authenticated: true,
+        isAdmin: true,
+        authToken: central.authToken,
+        adminUser: central.adminUser,
+      });
+    }
+
+    if (central.authenticated && central.account) {
+      clearAuthFailures(req, rateKey);
+      return res.json({
+        success: true,
+        found: true,
+        authenticated: true,
+        authToken: central.authToken,
         account: central.account,
-        matchedServerConfig: central.matchedServerConfig,
+        matchedServerConfig: protectSqlConfigForClient(central.matchedServerConfig),
       });
     }
 
@@ -1500,6 +1706,7 @@ app.post('/api/registry/authenticate', async (req, res) => {
           erpQueries.authenticatePlasiyer({ companyCode, repCode, password })
         );
         if (sqlAuth?.authenticated && sqlAuth?.account) {
+          clearAuthFailures(req, rateKey);
           const synced = await cloudRegistry.upsertAccount({
             companyCode: sqlAuth.account.companyCode || companyCode,
             repCode: sqlAuth.account.repCode || repCode,
@@ -1508,15 +1715,23 @@ app.post('/api/registry/authenticate', async (req, res) => {
             password,
             accountRole: sqlAuth.account.accountRole,
           });
+          const authToken = issueSessionToken({
+            role: 'plasiyer',
+            companyCode: sqlAuth.account.companyCode || companyCode,
+            repCode: sqlAuth.account.repCode || repCode,
+            accountRole: sqlAuth.account.accountRole || 'plasiyer',
+          });
           return res.json({
             success: true,
             found: true,
             authenticated: true,
+            authToken,
             account: synced.account,
-            matchedServerConfig: sqlCfg,
+            matchedServerConfig: protectSqlConfigForClient(sqlCfg),
           });
         }
         if (sqlAuth?.found && !sqlAuth?.authenticated) {
+          recordAuthFailure(req, rateKey);
           return res.json({
             success: true,
             found: true,
@@ -1528,6 +1743,8 @@ app.post('/api/registry/authenticate', async (req, res) => {
         // SQL sunucusuna buluttan ulaşılamadıysa bulut sonucunu döndür
       }
     }
+
+    recordAuthFailure(req, rateKey);
 
     if (central.foundAccount && !central.authenticated) {
       return res.json({
