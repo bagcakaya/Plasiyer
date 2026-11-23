@@ -3534,53 +3534,45 @@ export const erpQueries = {
   async getBankPosCards() {
     const rows = await executeJsonQuery(`
       SELECT
-        CAST(BP.ID AS varchar(30)) AS id,
-        CAST(B.ID AS varchar(30)) AS bankId,
-        LTRIM(RTRIM(ISNULL(B.KOD, ''))) AS bankCode,
-        LTRIM(RTRIM(ISNULL(B.AD, ''))) AS bankName,
-        LTRIM(RTRIM(ISNULL(B.SUBE, ''))) AS bankBranch,
-        CAST(ISNULL(BP.LOKASYON, 75919) AS varchar(30)) AS locationId,
-        LTRIM(RTRIM(ISNULL(L.AD, 'Merkez'))) AS locationName,
-        LTRIM(RTRIM(ISNULL(BP.AD, ''))) AS rawPosName,
-        LTRIM(RTRIM(ISNULL(BP.POSNO, ''))) AS posNo,
-        LTRIM(RTRIM(ISNULL(BP.HESAP_NO, ''))) AS accountNo,
-        LTRIM(RTRIM(ISNULL(BP.IBAN, ''))) AS iban,
-        ISNULL(BP.GECIS_GUNU, 0) AS valorDays,
-        ISNULL(BP.KOMISYON_ORANI, 0) AS commissionRate,
-        ISNULL(BP.TAKSIT_SAYISI, 0) AS maxInstallments,
-        CAST(ISNULL(BP.MOBIL, 0) AS bit) AS isMobile
+        BP.*,
+        B.ID AS BANKA_ID,
+        LTRIM(RTRIM(ISNULL(B.KOD, ''))) AS BANKA_KOD,
+        LTRIM(RTRIM(ISNULL(B.AD, ''))) AS BANKA_AD,
+        LTRIM(RTRIM(ISNULL(L.AD, 'Merkez'))) AS LOKASYON_AD
       FROM BANKA_POS BP WITH(NOLOCK)
       INNER JOIN BANKA B WITH(NOLOCK) ON B.ID = BP.BANKA
       LEFT JOIN LOKASYON L WITH(NOLOCK) ON L.ID = BP.LOKASYON
       WHERE ISNULL(B.AKTIF, 1) = 1
         AND ISNULL(BP.AKTIF, 1) = 1
       ORDER BY B.AD ASC, L.ID ASC, BP.ID ASC
-    `).catch(() => []);
+    `).catch((err) => {
+      console.warn('getBankPosCards SQL hatası:', err.message);
+      return [];
+    });
 
     return (rows || []).map((row) => {
-      const bankName = String(row.bankName || 'BANKA').trim();
-      const locName = String(row.locationName || 'Merkez').trim();
-      const rawPosName = String(row.rawPosName || '').trim();
+      const bankName = String(row.BANKA_AD || row.bankName || 'BANKA').trim();
+      const locName = String(row.LOKASYON_AD || row.locationName || 'Merkez').trim();
+      const rawPosName = String(row.AD || row.rawPosName || '').trim();
       const posName = rawPosName ? `${rawPosName} (${locName})` : `POS / ${locName}`;
       const displayLabel = `${bankName} — ${posName}`;
 
       return {
-        id: String(row.id || ''),
-        bankId: String(row.bankId || ''),
-        bankCode: String(row.bankCode || ''),
+        id: String(row.ID || row.id || ''),
+        bankId: String(row.BANKA_ID || row.BANKA || row.bankId || ''),
+        bankCode: String(row.BANKA_KOD || row.bankCode || ''),
         bankName,
-        bankBranch: String(row.bankBranch || '').trim() || undefined,
-        locationId: String(row.locationId || ''),
+        locationId: String(row.LOKASYON || row.locationId || '75919'),
         locationName: locName,
         posName,
         displayLabel,
-        posNo: String(row.posNo || '').trim() || undefined,
-        accountNo: String(row.accountNo || '').trim() || undefined,
-        iban: String(row.iban || '').trim() || undefined,
-        valorDays: Number(row.valorDays || 0),
-        commissionRate: Number(row.commissionRate || 0),
-        maxInstallments: Number(row.maxInstallments || 0),
-        isMobile: Boolean(row.isMobile),
+        posNo: String(row.POS_NO || row.POSNO || '').trim() || undefined,
+        accountNo: String(row.HESAP_NO || row.HESAPNO || '').trim() || undefined,
+        iban: String(row.IBAN || '').trim() || undefined,
+        valorDays: Number(row.POSTAN_BANKAYA_GECIS_GUNU || row.GECIS_GUNU || 0),
+        commissionRate: Number(row.KOMISYON_ORANI || row.KOMISYON_ORAN || 0),
+        maxInstallments: Number(row.TAKSIT_SAYISI || 0),
+        isMobile: Boolean(row.MOBIL_MI || row.MOBIL),
       };
     });
   },

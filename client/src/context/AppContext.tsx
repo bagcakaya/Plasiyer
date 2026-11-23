@@ -4,7 +4,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 declare const __APP_BUILD_VERSION__: string;
 import { db, seedInitialDataIfNeeded } from '../db';
 import { syncService, type SyncResult } from '../services/syncService';
-import { apiService, isDemoMode, resolveApiBaseUrl } from '../services/apiService';
+import { apiService, isDemoMode, resolveApiBaseUrl, DEFAULT_ERP_POS_CARDS } from '../services/apiService';
 import { soundNotification } from '../utils/soundNotification';
 import type { 
   Customer, 
@@ -829,11 +829,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       // ignore
     }
-    return [];
+    return DEFAULT_ERP_POS_CARDS;
   });
 
   const refreshBankPosCards = async () => {
-    if (userRole === 'admin' || !isOnline) return;
+    if (userRole === 'admin') return;
     try {
       const cards = await apiService.fetchBankPosCards(serverConfig);
       if (Array.isArray(cards) && cards.length > 0) {
@@ -850,11 +850,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   useEffect(() => {
-    if (userRole === 'admin' || !isOnline || isDemoMode(serverConfig)) {
+    if (userRole === 'admin') {
+      return;
+    }
+    refreshBankPosCards();
+    if (!isOnline || isDemoMode(serverConfig)) {
       return;
     }
     refreshLocations();
-    refreshBankPosCards();
   }, [
     userRole,
     isOnline,

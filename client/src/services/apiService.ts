@@ -1,6 +1,169 @@
 import type { Customer, Product, Order, CollectionRecord, ServerConfig, CustomerStatement, CustomerHistoryResponse, CustomerHistoryItem, CustomerHistoryFinancial, ReturnRecord, CompanyIssuerInfo, PlasiyerAccount, ErpLocation, ErpLocationType, ErpPosCard, VanStockItem } from '../types';
 import { db, initialCustomers, initialProducts } from '../db';
 
+export const DEFAULT_ERP_POS_CARDS: ErpPosCard[] = [
+  {
+    id: '491105',
+    bankId: '438007',
+    bankCode: 'BNK-000004',
+    bankName: 'AKBANK A.Ş.',
+    locationId: '75919',
+    locationName: 'Merkez',
+    posName: 'AKBANK POS (Merkez)',
+    displayLabel: 'AKBANK A.Ş. — AKBANK POS (Merkez)',
+  },
+  {
+    id: '491106',
+    bankId: '438007',
+    bankCode: 'BNK-000004',
+    bankName: 'AKBANK A.Ş.',
+    locationId: '2653964',
+    locationName: '25 ADY 050',
+    posName: 'AKBANK POS (25 ADY 050)',
+    displayLabel: 'AKBANK A.Ş. — AKBANK POS (25 ADY 050)',
+  },
+  {
+    id: '491109',
+    bankId: '491108',
+    bankCode: 'BNK-000018',
+    bankName: 'ALBARAKA TÜRK KATILIM BANKASI A.Ş.',
+    locationId: '75919',
+    locationName: 'Merkez',
+    posName: 'ALBARAKA POS (Merkez)',
+    displayLabel: 'ALBARAKA TÜRK KATILIM BANKASI A.Ş. — ALBARAKA POS (Merkez)',
+  },
+  {
+    id: '2898205',
+    bankId: '491108',
+    bankCode: 'BNK-000018',
+    bankName: 'ALBARAKA TÜRK KATILIM BANKASI A.Ş.',
+    locationId: '2653964',
+    locationName: '25 ADY 050',
+    posName: 'ALBARAKA POS (25 ADY 050)',
+    displayLabel: 'ALBARAKA TÜRK KATILIM BANKASI A.Ş. — ALBARAKA POS (25 ADY 050)',
+  },
+  {
+    id: '4017883',
+    bankId: '438021',
+    bankCode: 'BNK-000017',
+    bankName: 'GARANTİ BANKASI A.Ş.',
+    locationId: '75919',
+    locationName: 'Merkez',
+    posName: 'POS / Merkez',
+    displayLabel: 'GARANTİ BANKASI A.Ş. — POS / Merkez',
+  },
+  {
+    id: '4017884',
+    bankId: '438021',
+    bankCode: 'BNK-000017',
+    bankName: 'GARANTİ BANKASI A.Ş.',
+    locationId: '2653964',
+    locationName: '25 ADY 050',
+    posName: 'POS / 25 ADY 050',
+    displayLabel: 'GARANTİ BANKASI A.Ş. — POS / 25 ADY 050',
+  },
+  {
+    id: '491107',
+    bankId: '438009',
+    bankCode: 'BNK-000006',
+    bankName: 'HALK BANKASI A.Ş.',
+    locationId: '75919',
+    locationName: 'Merkez',
+    posName: 'HALK POS (Merkez)',
+    displayLabel: 'HALK BANKASI A.Ş. — HALK POS (Merkez)',
+  },
+  {
+    id: '491132',
+    bankId: '491130',
+    bankCode: 'BNK-000023',
+    bankName: 'KUVEYT TÜRK KATILIM BANKASI A.Ş.',
+    locationId: '2653964',
+    locationName: '25 ADY 050',
+    posName: 'KUVEYT (25 ADY 050)',
+    displayLabel: 'KUVEYT TÜRK KATILIM BANKASI A.Ş. — KUVEYT (25 ADY 050)',
+  },
+  {
+    id: '4137142',
+    bankId: '438016',
+    bankCode: 'BNK-000013',
+    bankName: 'QNB FİNANSBANK A.Ş.',
+    locationId: '75919',
+    locationName: 'Merkez',
+    posName: 'METİN (Merkez)',
+    displayLabel: 'QNB FİNANSBANK A.Ş. — METİN (Merkez)',
+  },
+  {
+    id: '4137143',
+    bankId: '438016',
+    bankCode: 'BNK-000013',
+    bankName: 'QNB FİNANSBANK A.Ş.',
+    locationId: '2653964',
+    locationName: '25 ADY 050',
+    posName: 'METİN (25 ADY 050)',
+    displayLabel: 'QNB FİNANSBANK A.Ş. — METİN (25 ADY 050)',
+  },
+  {
+    id: '3461385',
+    bankId: '438005',
+    bankCode: 'BNK-000002',
+    bankName: 'TÜRKİYE İŞ BANKASI A.Ş.',
+    locationId: '75919',
+    locationName: 'Merkez',
+    posName: 'İŞ POS (Merkez)',
+    displayLabel: 'TÜRKİYE İŞ BANKASI A.Ş. — İŞ POS (Merkez)',
+  },
+  {
+    id: '3461386',
+    bankId: '438005',
+    bankCode: 'BNK-000002',
+    bankName: 'TÜRKİYE İŞ BANKASI A.Ş.',
+    locationId: '2653964',
+    locationName: '25 ADY 050',
+    posName: 'İŞ POS (25 ADY 050)',
+    displayLabel: 'TÜRKİYE İŞ BANKASI A.Ş. — İŞ POS (25 ADY 050)',
+  },
+  {
+    id: '491102',
+    bankId: '438006',
+    bankCode: 'BNK-000003',
+    bankName: 'VAKIFLAR BANKASI A.Ş.',
+    locationId: '75919',
+    locationName: 'Merkez',
+    posName: 'VAKIF POS (Merkez)',
+    displayLabel: 'VAKIFLAR BANKASI A.Ş. — VAKIF POS (Merkez)',
+  },
+  {
+    id: '3957946',
+    bankId: '438008',
+    bankCode: 'BNK-000005',
+    bankName: 'YAPI KREDİ',
+    locationId: '75919',
+    locationName: 'Merkez',
+    posName: 'YAPI KREDİ (Merkez)',
+    displayLabel: 'YAPI KREDİ — YAPI KREDİ (Merkez)',
+  },
+  {
+    id: '2898206',
+    bankId: '438008',
+    bankCode: 'BNK-000005',
+    bankName: 'YAPI KREDİ',
+    locationId: '2653964',
+    locationName: '25 ADY 050',
+    posName: 'YAPI KREDİ (25 ADY 050)',
+    displayLabel: 'YAPI KREDİ — YAPI KREDİ (25 ADY 050)',
+  },
+  {
+    id: '4333633',
+    bankId: '438004',
+    bankCode: 'BNK-000001',
+    bankName: 'ZİRAAT BANKASI A.Ş.',
+    locationId: '75919',
+    locationName: 'Merkez',
+    posName: 'POS / Merkez',
+    displayLabel: 'ZİRAAT BANKASI A.Ş. — POS / Merkez',
+  },
+];
+
 export const isDemoMode = (config?: ServerConfig): boolean => {
   if (!config || !config.apiUrl) return true;
   const url = config.apiUrl.trim().toLowerCase();
@@ -479,14 +642,22 @@ export const apiService = {
     }
     try {
       const baseUrl = await resolveApiBaseUrlAsync(config, true);
-      const response = await fetch(`${baseUrl}/orders?company=${encodeURIComponent(config.companyCode || '01')}`, {
+      const querySuffix = `/orders?company=${encodeURIComponent(config.companyCode || '01')}`;
+      const reqHeaders = {
+        'Content-Type': 'application/json',
+        ...buildSqlHeaders(config),
+      };
+      let response = await fetch(`${baseUrl}${querySuffix}`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          ...buildSqlHeaders(config),
-        },
-      });
-      if (!response.ok) return [];
+        headers: reqHeaders,
+      }).catch(() => null);
+      if ((!response || !response.ok) && baseUrl !== '/api') {
+        response = await fetch(`/api${querySuffix}`, {
+          method: 'GET',
+          headers: reqHeaders,
+        }).catch(() => null);
+      }
+      if (!response || !response.ok) return [];
       const data = await response.json();
       return Array.isArray(data?.orders) ? (data.orders as Order[]) : [];
     } catch {
@@ -497,53 +668,31 @@ export const apiService = {
   // ERP12'deki Aktif Bankalar ve POS Kartları (BANKA + BANKA_POS) Listesini Çek
   async fetchBankPosCards(config: ServerConfig): Promise<ErpPosCard[]> {
     if (isDemoMode(config)) {
-      return [
-        {
-          id: '4017883',
-          bankId: '438021',
-          bankCode: 'BNK-000017',
-          bankName: 'GARANTİ BANKASI A.Ş.',
-          locationId: '75919',
-          locationName: 'Merkez',
-          posName: 'POS / Merkez',
-          displayLabel: 'GARANTİ BANKASI A.Ş. — POS / Merkez',
-        },
-        {
-          id: '4017884',
-          bankId: '438021',
-          bankCode: 'BNK-000017',
-          bankName: 'GARANTİ BANKASI A.Ş.',
-          locationId: '2653964',
-          locationName: '25 ADY 050',
-          posName: 'POS / 25 ADY 050',
-          displayLabel: 'GARANTİ BANKASI A.Ş. — POS / 25 ADY 050',
-        },
-        {
-          id: '491105',
-          bankId: '438007',
-          bankCode: 'BNK-000004',
-          bankName: 'AKBANK A.Ş.',
-          locationId: '75919',
-          locationName: 'Merkez',
-          posName: 'AKBANK POS (Merkez)',
-          displayLabel: 'AKBANK A.Ş. — AKBANK POS (Merkez)',
-        },
-      ];
+      return DEFAULT_ERP_POS_CARDS;
     }
     try {
       const baseUrl = await resolveApiBaseUrlAsync(config, true);
-      const response = await fetch(`${baseUrl}/bank-pos-cards?company=${encodeURIComponent(config.companyCode || '01')}`, {
+      const querySuffix = `/bank-pos-cards?company=${encodeURIComponent(config.companyCode || '01')}`;
+      const reqHeaders = {
+        'Content-Type': 'application/json',
+        ...buildSqlHeaders(config),
+      };
+      let response = await fetch(`${baseUrl}${querySuffix}`, {
         method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          ...buildSqlHeaders(config),
-        },
-      });
-      if (!response.ok) return [];
+        headers: reqHeaders,
+      }).catch(() => null);
+      if ((!response || !response.ok) && baseUrl !== '/api') {
+        response = await fetch(`/api${querySuffix}`, {
+          method: 'GET',
+          headers: reqHeaders,
+        }).catch(() => null);
+      }
+      if (!response || !response.ok) return DEFAULT_ERP_POS_CARDS;
       const data = await response.json();
-      return Array.isArray(data?.posCards) ? (data.posCards as ErpPosCard[]) : [];
+      const cards = Array.isArray(data?.posCards) ? (data.posCards as ErpPosCard[]) : [];
+      return cards.length > 0 ? cards : DEFAULT_ERP_POS_CARDS;
     } catch {
-      return [];
+      return DEFAULT_ERP_POS_CARDS;
     }
   },
 
@@ -627,10 +776,19 @@ export const apiService = {
           collection: {
             tempId: collection.tempId,
             receiptNo: collection.receiptNo,
+            customerId: collection.customerId,
             customerCode: collection.customerCode,
+            customerName: collection.customerName,
+            salesRepCode: collection.salesRepCode,
+            salesRepName: collection.salesRepName,
             amount: collection.amount,
             paymentMethod: collection.paymentMethod,
             notes: collection.notes,
+            posCardId: collection.posCardId,
+            posCardName: collection.posCardName,
+            posBankId: collection.posBankId,
+            posBankName: collection.posBankName,
+            posLocationName: collection.posLocationName,
             checkBank: collection.checkBank,
             checkNo: collection.checkNo,
             checkDueDate: collection.checkDueDate,
