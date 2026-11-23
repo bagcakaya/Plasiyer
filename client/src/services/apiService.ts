@@ -667,6 +667,9 @@ export const apiService = {
 
   // ERP12'deki Aktif Bankalar ve POS Kartları (BANKA + BANKA_POS) Listesini Çek
   async fetchBankPosCards(config: ServerConfig): Promise<ErpPosCard[]> {
+    const isGuneyler =
+      (config?.sqlDatabase || '').trim().toUpperCase().includes('GUNEYLER') ||
+      (config?.companyCode || '').trim().toUpperCase().includes('GUNEYLER');
     if (isDemoMode(config)) {
       return DEFAULT_ERP_POS_CARDS;
     }
@@ -687,12 +690,15 @@ export const apiService = {
           headers: reqHeaders,
         }).catch(() => null);
       }
-      if (!response || !response.ok) return DEFAULT_ERP_POS_CARDS;
+      if (!response || !response.ok) {
+        return isGuneyler ? DEFAULT_ERP_POS_CARDS : [];
+      }
       const data = await response.json();
       const cards = Array.isArray(data?.posCards) ? (data.posCards as ErpPosCard[]) : [];
-      return cards.length > 0 ? cards : DEFAULT_ERP_POS_CARDS;
+      if (cards.length > 0) return cards;
+      return isGuneyler ? DEFAULT_ERP_POS_CARDS : [];
     } catch {
-      return DEFAULT_ERP_POS_CARDS;
+      return isGuneyler ? DEFAULT_ERP_POS_CARDS : [];
     }
   },
 

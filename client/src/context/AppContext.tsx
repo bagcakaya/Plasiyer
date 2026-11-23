@@ -263,6 +263,18 @@ const makeIssuerCacheKey = (cfg?: Partial<ServerConfig>): string => {
   return `plasiyer_issuer_v1::${code}::${dbName}`;
 };
 
+const makeLocationsCacheKey = (cfg?: Partial<ServerConfig>): string => {
+  const code = (cfg?.companyCode || '01').trim().toUpperCase();
+  const dbName = (cfg?.sqlDatabase || 'DEMO').trim().toUpperCase();
+  return `plasiyer_erp_locations_v2::${code}::${dbName}`;
+};
+
+const makePosCardsCacheKey = (cfg?: Partial<ServerConfig>): string => {
+  const code = (cfg?.companyCode || '01').trim().toUpperCase();
+  const dbName = (cfg?.sqlDatabase || 'DEMO').trim().toUpperCase();
+  return `plasiyer_erp_pos_cards_v2::${code}::${dbName}`;
+};
+
 const readCachedIssuer = (cfg?: Partial<ServerConfig>): CompanyIssuerInfo | null => {
   try {
     const raw = localStorage.getItem(makeIssuerCacheKey(cfg));
@@ -623,7 +635,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
   const [allErpLocations, setErpLocations] = useState<ErpLocation[]>(() => {
     try {
-      const saved = localStorage.getItem('plasiyer_erp_locations_v1');
+      const saved =
+        localStorage.getItem(makeLocationsCacheKey(serverConfig)) ||
+        localStorage.getItem('plasiyer_erp_locations_v1');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -778,7 +792,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (Array.isArray(locs) && locs.length > 0) {
         setErpLocations(locs);
         try {
-          localStorage.setItem('plasiyer_erp_locations_v1', JSON.stringify(locs));
+          localStorage.setItem(makeLocationsCacheKey(serverConfig), JSON.stringify(locs));
         } catch {
           // ignore
         }
@@ -907,7 +921,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [erpPosCards, setErpPosCards] = useState<ErpPosCard[]>(() => {
     try {
-      const saved = localStorage.getItem('plasiyer_erp_pos_cards_v1');
+      const saved = localStorage.getItem(makePosCardsCacheKey(serverConfig));
       if (saved) {
         const parsed = JSON.parse(saved);
         if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -915,17 +929,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       // ignore
     }
-    return DEFAULT_ERP_POS_CARDS;
+    const isGuneylerOrDemo =
+      isDemoMode(serverConfig) ||
+      (serverConfig?.sqlDatabase || '').trim().toUpperCase().includes('GUNEYLER') ||
+      (serverConfig?.companyCode || '').trim().toUpperCase().includes('GUNEYLER');
+    return isGuneylerOrDemo ? DEFAULT_ERP_POS_CARDS : [];
   });
 
   const refreshBankPosCards = async () => {
     if (userRole === 'admin') return;
     try {
       const cards = await apiService.fetchBankPosCards(serverConfig);
-      if (Array.isArray(cards) && cards.length > 0) {
+      if (Array.isArray(cards)) {
         setErpPosCards(cards);
         try {
-          localStorage.setItem('plasiyer_erp_pos_cards_v1', JSON.stringify(cards));
+          localStorage.setItem(makePosCardsCacheKey(serverConfig), JSON.stringify(cards));
         } catch {
           // ignore
         }
@@ -938,6 +956,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     if (userRole === 'admin') {
       return;
+    }
+    // Firma / Veritabanı değiştiğinde ilgili firmanın önbelleğini yükle ve canlı SQL'den çek
+    try {
+      const savedLocs = localStorage.getItem(makeLocationsCacheKey(serverConfig));
+      setErpLocations(savedLocs ? JSON.parse(savedLocs) : []);
+    } catch {
+      setErpLocations([]);
+    }
+    try {
+      const savedPos = localStorage.getItem(makePosCardsCacheKey(serverConfig));
+      if (savedPos) {
+        setErpPosCards(JSON.parse(savedPos));
+      } else {
+        const isGuneylerOrDemo =
+          isDemoMode(serverConfig) ||
+          (serverConfig?.sqlDatabase || '').trim().toUpperCase().includes('GUNEYLER') ||
+          (serverConfig?.companyCode || '').trim().toUpperCase().includes('GUNEYLER');
+        setErpPosCards(isGuneylerOrDemo ? DEFAULT_ERP_POS_CARDS : []);
+      }
+    } catch {
+      setErpPosCards([]);
     }
     refreshBankPosCards();
     if (!isOnline || isDemoMode(serverConfig)) {
