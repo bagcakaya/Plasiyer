@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../db';
 import { useApp } from '../context/AppContext';
@@ -13,7 +13,9 @@ import {
   AlertCircle,
   Search,
   Printer,
-  Save
+  Save,
+  MapPin,
+  RefreshCw
 } from 'lucide-react';
 
 interface CollectionModalProps {
@@ -29,7 +31,7 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
   targetCustomer,
   onSuccess,
 }) => {
-  const { createCollection } = useApp();
+  const { createCollection, erpPosCards, refreshBankPosCards, vanPlate } = useApp();
   const allCustomers = useLiveQuery(() => db.customers.toArray(), []) || [];
 
   const [selectedCust, setSelectedCust] = useState<Customer | null>(null);
@@ -38,6 +40,11 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
   const [amount, setAmount] = useState<string>('');
   const [notes, setNotes] = useState<string>('');
 
+  // ERP12 Aktif Banka & POS Kartı seçimi
+  const [selectedBankId, setSelectedBankId] = useState<string>('all');
+  const [selectedPosCardId, setSelectedPosCardId] = useState<string>('');
+  const [isRefreshingPos, setIsRefreshingPos] = useState<boolean>(false);
+
   // Çek bilgileri
   const [checkBank, setCheckBank] = useState<string>('');
   const [checkNo, setCheckNo] = useState<string>('');
@@ -45,6 +52,52 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
 
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  // Aktif bankaların tekil listesi
+  const activeBanks = useMemo(() => {
+    const map = new Map<string, { bankId: string; bankName: string; bankCode: string; count: number }>();
+    for (const card of erpPosCards) {
+      const existing = map.get(card.bankId);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        map.set(card.bankId, {
+          bankId: card.bankId,
+          bankName: card.bankName,
+          bankCode: card.bankCode,
+          count: 1,
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [erpPosCards]);
+
+  // Seçili bankaya göre filtrelenmiş POS kartları
+  const filteredPosCards = useMemo(() => {
+    if (selectedBankId === 'all') return erpPosCards;
+    return erpPosCards.filter((c) => c.bankId === selectedBankId);
+  }, [erpPosCards, selectedBankId]);
+
+  const selectedPosCard = useMemo(
+    () => erpPosCards.find((c) => c.id === selectedPosCardId) || null,
+    [erpPosCards, selectedPosCardId]
+  );
+
+  useEffect(() => {
+    if (erpPosCards.length > 0) {
+      const stillExists = erpPosCards.some((c) => c.id === selectedPosCardId);
+      if (!selectedPosCardId || !stillExists) {
+        const cleanPlate = (vanPlate || '').trim().toLowerCase();
+        const preferred =
+          (cleanPlate &&
+            erpPosCards.find((c) => c.locationName.trim().toLowerCase() === cleanPlate)) ||
+          erpPosCards[0];
+        if (preferred) {
+          setSelectedPosCardId(preferred.id);
+        }
+      }
+    }
+  }, [erpPosCards, selectedPosCardId, vanPlate]);
 
   useEffect(() => {
     if (isOpen) {
@@ -58,9 +111,36 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
       setCheckBank('');
       setCheckNo('');
       setCheckDueDate('');
+      setSelectedBankId('all');
       setErrorMessage(null);
     }
   }, [isOpen, targetCustomer]);
+
+  const handleRefreshPosCards = async () => {
+    setIsRefreshingPos(true);
+    try {
+      await refreshBankPosCards();
+    } finally {
+      setIsRefreshingPos(false);
+    }
+  };
+
+  const handleSelectBankFilter = (bankId: string) => {
+    setSelectedBankId(bankId);
+    if (bankId !== 'all') {
+      const bankCards = erpPosCards.filter((c) => c.bankId === bankId);
+      if (bankCards.length > 0 && (!selectedPosCard || selectedPosCard.bankId !== bankId)) {
+        const cleanPlate = (vanPlate || '').trim().toLowerCase();
+        const preferred =
+          (cleanPlate &&
+            bankCards.find((c) => c.locationName.trim().toLowerCase() === cleanPlate)) ||
+          bankCards[0];
+        if (preferred) {
+          setSelectedPosCardId(preferred.id);
+        }
+      }
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -83,6 +163,11 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
       return;
     }
 
+    if (paymentMethod === 'kredi_karti' && erpPosCards.length > 0 && !selectedPosCard) {
+      setErrorMessage('Lütfen tahsilatın işleneceği ERP12 Banka / POS Kartını seçiniz.');
+      return;
+    }
+
     if (paymentMethod === 'cek' && (!checkNo || !checkDueDate)) {
       setErrorMessage('Çek tahsilatlarında Çek No ve Vade Tarihi zorunludur.');
       return;
@@ -99,6 +184,11 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
         amount: numAmount,
         paymentMethod,
         notes,
+        posCardId: paymentMethod === 'kredi_karti' ? selectedPosCard?.id : undefined,
+        posCardName: paymentMethod === 'kredi_karti' ? selectedPosCard?.posName : undefined,
+        posBankId: paymentMethod === 'kredi_karti' ? selectedPosCard?.bankId : undefined,
+        posBankName: paymentMethod === 'kredi_karti' ? selectedPosCard?.bankName : undefined,
+        posLocationName: paymentMethod === 'kredi_karti' ? selectedPosCard?.locationName : undefined,
         checkBank: paymentMethod === 'cek' ? checkBank : undefined,
         checkNo: paymentMethod === 'cek' ? checkNo : undefined,
         checkDueDate: paymentMethod === 'cek' ? checkDueDate : undefined,
@@ -339,6 +429,150 @@ export const CollectionModal: React.FC<CollectionModalProps> = ({
               </button>
             </div>
           </div>
+
+          {/* POS / Kart Seçiliyse: ERP12 Aktif Bankalar ve POS Kartları */}
+          {paymentMethod === 'kredi_karti' && (
+            <div className="p-3.5 rounded-2xl bg-indigo-50/70 dark:bg-indigo-950/25 border border-indigo-200 dark:border-indigo-900/50 space-y-3 animate-fadeIn">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <CreditCard className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                  <h5 className="font-bold text-xs text-indigo-950 dark:text-indigo-200">
+                    ERP12 Banka & POS Kartı Seçimi
+                  </h5>
+                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300">
+                    {activeBanks.length} Banka • {erpPosCards.length} POS
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleRefreshPosCards}
+                  disabled={isRefreshingPos}
+                  className="inline-flex items-center gap-1 text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-200 px-2 py-1 rounded-lg hover:bg-indigo-100/70 dark:hover:bg-indigo-900/40 transition"
+                  title="ERP12 POS Kartlarını Yenile"
+                >
+                  <RefreshCw className={`w-3 h-3 ${isRefreshingPos ? 'animate-spin' : ''}`} />
+                  <span>Yenile</span>
+                </button>
+              </div>
+
+              {erpPosCards.length === 0 ? (
+                <div className="p-3 rounded-xl bg-white/80 dark:bg-slate-900/60 border border-indigo-100 dark:border-indigo-900/40 text-xs text-slate-500 dark:text-slate-400 flex items-center justify-between">
+                  <span>ERP12 aktif banka POS kartları yükleniyor veya bulunamadı.</span>
+                  <button
+                    type="button"
+                    onClick={handleRefreshPosCards}
+                    className="font-bold text-indigo-600 dark:text-indigo-400 underline ml-2"
+                  >
+                    Tekrar Dene
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {/* Aktif Banka Filtre Chipleri */}
+                  <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+                    <button
+                      type="button"
+                      onClick={() => handleSelectBankFilter('all')}
+                      className={`px-2.5 py-1 rounded-xl text-[11px] font-bold shrink-0 border transition ${
+                        selectedBankId === 'all'
+                          ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                          : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-indigo-100 dark:border-slate-700 hover:border-indigo-300'
+                      }`}
+                    >
+                      Tüm Bankalar ({erpPosCards.length})
+                    </button>
+                    {activeBanks.map((b) => {
+                      const isBankActive = selectedBankId === b.bankId;
+                      return (
+                        <button
+                          key={b.bankId}
+                          type="button"
+                          onClick={() => handleSelectBankFilter(b.bankId)}
+                          className={`px-2.5 py-1 rounded-xl text-[11px] font-bold shrink-0 border transition ${
+                            isBankActive
+                              ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs'
+                              : 'bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 border-indigo-100 dark:border-slate-700 hover:border-indigo-300'
+                          }`}
+                        >
+                          {b.bankName} ({b.count})
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* POS Kartları Listesi */}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-52 overflow-y-auto pr-0.5">
+                    {filteredPosCards.map((card) => {
+                      const isSelected = card.id === selectedPosCardId;
+                      const isCurrentVan =
+                        Boolean(vanPlate) &&
+                        card.locationName.trim().toLowerCase() === vanPlate.trim().toLowerCase();
+
+                      return (
+                        <button
+                          key={card.id}
+                          type="button"
+                          onClick={() => setSelectedPosCardId(card.id)}
+                          className={`text-left p-2.5 rounded-xl border transition-all flex flex-col justify-between gap-1.5 ${
+                            isSelected
+                              ? 'border-indigo-600 bg-white dark:bg-slate-800 ring-2 ring-indigo-500/25 shadow-sm'
+                              : 'border-indigo-100 dark:border-slate-700/80 bg-white/75 dark:bg-slate-800/60 hover:border-indigo-300 dark:hover:border-indigo-700'
+                          }`}
+                        >
+                          <div className="flex items-start justify-between gap-1.5 w-full">
+                            <div className="min-w-0 flex-1">
+                              <p className="text-[10px] font-extrabold uppercase tracking-wide text-indigo-600 dark:text-indigo-400 truncate">
+                                {card.bankName}
+                              </p>
+                              <p className="text-xs font-bold text-slate-900 dark:text-white truncate mt-0.5">
+                                {card.posName}
+                              </p>
+                            </div>
+                            {isSelected && (
+                              <CheckCircle2 className="w-4 h-4 text-indigo-600 dark:text-indigo-400 shrink-0" />
+                            )}
+                          </div>
+
+                          <div className="flex items-center justify-between gap-1.5 pt-1 border-t border-slate-100 dark:border-slate-700/60 w-full">
+                            <span
+                              className={`inline-flex items-center gap-1 text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                                isCurrentVan
+                                  ? 'bg-emerald-100 dark:bg-emerald-950/70 text-emerald-700 dark:text-emerald-300'
+                                  : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'
+                              }`}
+                            >
+                              <MapPin className="w-2.5 h-2.5" />
+                              <span>{card.locationName}</span>
+                            </span>
+                            <span className="text-[10px] font-mono text-slate-400 dark:text-slate-500">
+                              #{card.id}
+                            </span>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Seçili POS Kartı Özeti */}
+                  {selectedPosCard && (
+                    <div className="px-3 py-2 rounded-xl bg-indigo-600/10 dark:bg-indigo-500/15 border border-indigo-500/20 flex items-center justify-between gap-2 text-xs">
+                      <div className="min-w-0">
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-indigo-600 dark:text-indigo-300 block">
+                          Seçili ERP12 POS Kartı
+                        </span>
+                        <p className="font-extrabold text-indigo-950 dark:text-white truncate">
+                          {selectedPosCard.bankName} — {selectedPosCard.posName}
+                        </p>
+                      </div>
+                      <span className="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-lg bg-indigo-600 text-white">
+                        {selectedPosCard.locationName}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
 
           {/* Çek Detay Alanları (Sadece Çek Seçiliyse) */}
           {paymentMethod === 'cek' && (

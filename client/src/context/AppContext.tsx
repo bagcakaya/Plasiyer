@@ -35,7 +35,8 @@ import type {
   PlasiyerPerformanceSummary,
   CompanyIssuerInfo,
   ErpLocation,
-  ErpLocationType
+  ErpLocationType,
+  ErpPosCard
 } from '../types';
 import { campaignService } from '../services/campaignService';
 import { vanStockService } from '../services/vanStockService';
@@ -117,7 +118,9 @@ interface AppContextType {
   activeTab: 'customers' | 'catalog' | 'cart' | 'orders' | 'routes' | 'settings' | 'van_stock';
   setActiveTab: (tab: 'customers' | 'catalog' | 'cart' | 'orders' | 'routes' | 'settings' | 'van_stock') => void;
   
-  // Tahsilat (Aşama 2)
+  // Tahsilat (Aşama 2 & ERP12 Banka POS Kartları)
+  erpPosCards: ErpPosCard[];
+  refreshBankPosCards: () => Promise<void>;
   createCollection: (params: {
     customerId: string;
     customerCode: string;
@@ -128,6 +131,11 @@ interface AppContextType {
     checkBank?: string;
     checkNo?: string;
     checkDueDate?: string;
+    posCardId?: string;
+    posCardName?: string;
+    posBankId?: string;
+    posBankName?: string;
+    posLocationName?: string;
   }) => Promise<{ success: boolean; collection?: CollectionRecord; error?: string }>;
   pendingCollectionsCount: number;
 
@@ -811,11 +819,42 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return localLoc;
   };
 
+  const [erpPosCards, setErpPosCards] = useState<ErpPosCard[]>(() => {
+    try {
+      const saved = localStorage.getItem('plasiyer_erp_pos_cards_v1');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return [];
+  });
+
+  const refreshBankPosCards = async () => {
+    if (userRole === 'admin' || !isOnline) return;
+    try {
+      const cards = await apiService.fetchBankPosCards(serverConfig);
+      if (Array.isArray(cards) && cards.length > 0) {
+        setErpPosCards(cards);
+        try {
+          localStorage.setItem('plasiyer_erp_pos_cards_v1', JSON.stringify(cards));
+        } catch {
+          // ignore
+        }
+      }
+    } catch {
+      // ignore offline
+    }
+  };
+
   useEffect(() => {
     if (userRole === 'admin' || !isOnline || isDemoMode(serverConfig)) {
       return;
     }
     refreshLocations();
+    refreshBankPosCards();
   }, [
     userRole,
     isOnline,
@@ -1081,6 +1120,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const openCollectionModal = (customer?: Customer | null) => {
     setCollectionTargetCustomer(customer || selectedCustomer || null);
     setIsCollectionModalOpen(true);
+    refreshBankPosCards();
   };
 
   const closeCollectionModal = () => {
@@ -1935,6 +1975,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     checkBank?: string;
     checkNo?: string;
     checkDueDate?: string;
+    posCardId?: string;
+    posCardName?: string;
+    posBankId?: string;
+    posBankName?: string;
+    posLocationName?: string;
   }) => {
     try {
       const now = new Date();
@@ -1943,20 +1988,29 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const tempId = `THS-${dateStr}-${randomSuffix}`;
       const receiptNo = `MAK-${dateStr.slice(0, 4)}-${Math.floor(1000 + Math.random() * 9000)}`;
 
+      const activeRepCode =
+        (currentUser?.salesRepCode || currentUser?.code || salesRep.code || '').trim();
+      const activeRepName = (currentUser?.name || salesRep.name || '').trim();
+
       const newCollection: CollectionRecord = {
         tempId,
         receiptNo,
         customerId: params.customerId,
         customerCode: params.customerCode,
         customerName: params.customerName,
-        salesRepCode: salesRep.code,
-        salesRepName: salesRep.name,
+        salesRepCode: activeRepCode,
+        salesRepName: activeRepName,
         amount: params.amount,
         paymentMethod: params.paymentMethod,
         notes: params.notes,
         checkBank: params.checkBank,
         checkNo: params.checkNo,
         checkDueDate: params.checkDueDate,
+        posCardId: params.posCardId,
+        posCardName: params.posCardName,
+        posBankId: params.posBankId,
+        posBankName: params.posBankName,
+        posLocationName: params.posLocationName,
         createdAt: now.toISOString(),
         syncStatus: 'pending',
       };
@@ -1975,8 +2029,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         }
       }
 
-      // 3. Online ise ERP12'ye gönder
-      if (isOnline && serverConfig.autoSync && !isDemoMode(serverConfig)) {
+      // 3. Online ise hemen ERP12'ye gönder
+      if (isOnline && !isDemoMode(serverConfig)) {
         syncService.pushPendingCollectionsToERP(serverConfig);
       }
 
@@ -2255,6 +2309,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setSelectedCategory,
         selectedSubCategory,
         setSelectedSubCategory,
+        erpPosCards,
+        refreshBankPosCards,
         createCollection,
         pendingCollectionsCount,
         isCollectionModalOpen,

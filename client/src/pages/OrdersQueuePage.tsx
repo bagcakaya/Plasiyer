@@ -697,6 +697,13 @@ export const OrdersQueuePage: React.FC = () => {
                         <span>{formatDate(col.createdAt)}</span>
                       </div>
 
+                      {col.paymentMethod === 'kredi_karti' && (col.posBankName || col.posCardName) && (
+                        <p className="text-[11px] text-indigo-700 dark:text-indigo-300 mt-1 font-semibold">
+                          POS: {col.posBankName} • {col.posCardName}
+                          {col.posLocationName ? ` (${col.posLocationName})` : ''}
+                        </p>
+                      )}
+
                       {col.paymentMethod === 'cek' && col.checkNo && (
                         <p className="text-[11px] text-amber-800 dark:text-amber-300 mt-1 font-medium">
                           Çek: {col.checkBank} • No: {col.checkNo} • Vade: {col.checkDueDate}

@@ -207,6 +207,25 @@ export interface ServerConfig {
 
 export type PaymentMethod = 'nakit' | 'kredi_karti' | 'cek' | 'havale';
 
+export interface ErpPosCard {
+  id: string; // BANKA_POS.ID
+  bankId: string; // BANKA.ID
+  bankCode: string; // BANKA.KOD
+  bankName: string; // BANKA.AD (örn: "GARANTİ BANKASI A.Ş.")
+  bankBranch?: string; // BANKA.SUBE
+  locationId: string; // BANKA_POS.LOKASYON
+  locationName: string; // LOKASYON.AD (örn: "Merkez", "25 ADY 050")
+  posName: string; // BANKA_POS.AD veya "POS / Merkez"
+  displayLabel: string; // örn: "GARANTİ BANKASI A.Ş. - POS / 25 ADY 050"
+  posNo?: string;
+  accountNo?: string;
+  iban?: string;
+  valorDays?: number;
+  commissionRate?: number;
+  maxInstallments?: number;
+  isMobile?: boolean;
+}
+
 export interface CollectionRecord {
   id?: number;
   tempId: string; // "THS-20261015-XXXX"
@@ -222,6 +241,11 @@ export interface CollectionRecord {
   checkBank?: string;
   checkNo?: string;
   checkDueDate?: string;
+  posCardId?: string;
+  posCardName?: string;
+  posBankId?: string;
+  posBankName?: string;
+  posLocationName?: string;
   createdAt: string; // ISO
   syncStatus: 'pending' | 'syncing' | 'synced' | 'failed';
   erpDocNo?: string;

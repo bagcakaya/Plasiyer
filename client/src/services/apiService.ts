@@ -1,4 +1,4 @@
-import type { Customer, Product, Order, CollectionRecord, ServerConfig, CustomerStatement, CustomerHistoryResponse, CustomerHistoryItem, CustomerHistoryFinancial, ReturnRecord, CompanyIssuerInfo, PlasiyerAccount, ErpLocation, ErpLocationType, VanStockItem } from '../types';
+import type { Customer, Product, Order, CollectionRecord, ServerConfig, CustomerStatement, CustomerHistoryResponse, CustomerHistoryItem, CustomerHistoryFinancial, ReturnRecord, CompanyIssuerInfo, PlasiyerAccount, ErpLocation, ErpLocationType, ErpPosCard, VanStockItem } from '../types';
 import { db, initialCustomers, initialProducts } from '../db';
 
 export const isDemoMode = (config?: ServerConfig): boolean => {
@@ -489,6 +489,59 @@ export const apiService = {
       if (!response.ok) return [];
       const data = await response.json();
       return Array.isArray(data?.orders) ? (data.orders as Order[]) : [];
+    } catch {
+      return [];
+    }
+  },
+
+  // ERP12'deki Aktif Bankalar ve POS Kartları (BANKA + BANKA_POS) Listesini Çek
+  async fetchBankPosCards(config: ServerConfig): Promise<ErpPosCard[]> {
+    if (isDemoMode(config)) {
+      return [
+        {
+          id: '4017883',
+          bankId: '438021',
+          bankCode: 'BNK-000017',
+          bankName: 'GARANTİ BANKASI A.Ş.',
+          locationId: '75919',
+          locationName: 'Merkez',
+          posName: 'POS / Merkez',
+          displayLabel: 'GARANTİ BANKASI A.Ş. — POS / Merkez',
+        },
+        {
+          id: '4017884',
+          bankId: '438021',
+          bankCode: 'BNK-000017',
+          bankName: 'GARANTİ BANKASI A.Ş.',
+          locationId: '2653964',
+          locationName: '25 ADY 050',
+          posName: 'POS / 25 ADY 050',
+          displayLabel: 'GARANTİ BANKASI A.Ş. — POS / 25 ADY 050',
+        },
+        {
+          id: '491105',
+          bankId: '438007',
+          bankCode: 'BNK-000004',
+          bankName: 'AKBANK A.Ş.',
+          locationId: '75919',
+          locationName: 'Merkez',
+          posName: 'AKBANK POS (Merkez)',
+          displayLabel: 'AKBANK A.Ş. — AKBANK POS (Merkez)',
+        },
+      ];
+    }
+    try {
+      const baseUrl = await resolveApiBaseUrlAsync(config, true);
+      const response = await fetch(`${baseUrl}/bank-pos-cards?company=${encodeURIComponent(config.companyCode || '01')}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          ...buildSqlHeaders(config),
+        },
+      });
+      if (!response.ok) return [];
+      const data = await response.json();
+      return Array.isArray(data?.posCards) ? (data.posCards as ErpPosCard[]) : [];
     } catch {
       return [];
     }

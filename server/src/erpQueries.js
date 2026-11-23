@@ -1590,12 +1590,18 @@ export const erpQueries = {
     const docNo = `THS-${datePart}-${timePart}`;
 
     const safeNotes = (collection.notes || '').replace(/'/g, "''");
+    const safeCustId = String(collection.customerId || '').trim().replace(/'/g, "''");
     const safeCustCode = (collection.customerCode || '').replace(/'/g, "''");
     const safeTempId = (collection.tempId || '').replace(/'/g, "''");
     const safeReceiptNo = (collection.receiptNo || docNo).replace(/'/g, "''");
+    const safePosCardId = String(collection.posCardId || '').trim().replace(/'/g, "''");
+    const safePosBankName = String(collection.posBankName || '').trim().replace(/'/g, "''");
+    const safePosCardName = String(collection.posCardName || '').trim().replace(/'/g, "''");
+    const safeSalesRepCode = String(collection.salesRepCode || '').trim().replace(/'/g, "''");
+    const safeSalesRepName = String(collection.salesRepName || '').trim().replace(/'/g, "''");
 
     // ERP12 FINANS_ISLEM_TURU:
-    // 1: Nakit tahsilat, 15: POS tahsilat, 7: Havale alma, 20: Cariden çek alma
+    // 1: Nakit tahsilat, 15: POS kartı ile tahsilat, 7: Bankadan havale alma, 20: Cariden çek alma
     let islemTuru = 1;
     if (collection.paymentMethod === 'kredi_karti') islemTuru = 15;
     else if (collection.paymentMethod === 'havale') islemTuru = 7;
@@ -1604,6 +1610,8 @@ export const erpQueries = {
     let extraNote = '';
     if (collection.paymentMethod === 'cek' && collection.checkNo) {
       extraNote = ` [Çek No: ${collection.checkNo}, Banka: ${collection.checkBank || ''}, Vade: ${collection.checkDueDate || ''}]`;
+    } else if (collection.paymentMethod === 'kredi_karti' && (safePosBankName || safePosCardName)) {
+      extraNote = ` [POS: ${[safePosBankName, safePosCardName].filter(Boolean).join(' - ')}]`;
     }
 
     const fullNote = `[Mobil Tahsilat - ${safeTempId}] ${safeNotes}${extraNote}`.trim().replace(/'/g, "''");
@@ -1612,36 +1620,93 @@ export const erpQueries = {
       BEGIN TRANSACTION;
       BEGIN TRY
         DECLARE @cariId bigint;
-        SELECT TOP 1 @cariId = ID FROM CARI WHERE KOD = '${safeCustCode}';
-        IF @cariId IS NULL SELECT TOP 1 @cariId = ID FROM CARI WHERE AKTIF = 1 ORDER BY ID ASC;
+        IF TRY_CAST('${safeCustId}' AS bigint) IS NOT NULL
+          SELECT TOP 1 @cariId = ID FROM CARI WITH(NOLOCK) WHERE ID = TRY_CAST('${safeCustId}' AS bigint);
+        IF @cariId IS NULL AND '${safeCustCode}' <> ''
+          SELECT TOP 1 @cariId = ID FROM CARI WITH(NOLOCK) WHERE KOD = '${safeCustCode}';
+        IF @cariId IS NULL SELECT TOP 1 @cariId = ID FROM CARI WITH(NOLOCK) WHERE AKTIF = 1 ORDER BY ID ASC;
+
+        DECLARE @cariAdresId bigint = 0;
+        SELECT TOP 1 @cariAdresId = ID FROM CARI_ADRES WITH(NOLOCK) WHERE CARI = @cariId ORDER BY ID ASC;
+        IF @cariAdresId IS NULL SET @cariAdresId = 0;
+
+        DECLARE @cariPersonelId bigint = 0;
+        IF N'${safeSalesRepCode}' <> N'' AND N'${safeSalesRepCode}' <> N'0'
+        BEGIN
+          SELECT TOP 1 @cariPersonelId = C.ID
+          FROM CARI C WITH(NOLOCK)
+          INNER JOIN CARI_PERSONEL CP WITH(NOLOCK) ON CP.CARI = C.ID
+          WHERE C.CARI_TUR = 2
+            AND (
+              CAST(CP.PERSONEL_NO AS nvarchar(50)) = N'${safeSalesRepCode}'
+              OR LTRIM(RTRIM(C.KOD)) = N'${safeSalesRepCode}'
+              OR CAST(C.ID AS nvarchar(50)) = N'${safeSalesRepCode}'
+            );
+        END;
+        IF (@cariPersonelId IS NULL OR @cariPersonelId = 0) AND N'${safeSalesRepName}' <> N''
+        BEGIN
+          SELECT TOP 1 @cariPersonelId = C.ID
+          FROM CARI C WITH(NOLOCK)
+          WHERE C.CARI_TUR = 2 AND LTRIM(RTRIM(C.AD)) = N'${safeSalesRepName}';
+        END;
+        IF @cariPersonelId IS NULL SET @cariPersonelId = 0;
 
         DECLARE @finansId bigint;
         SELECT @finansId = ISNULL((
           SELECT MAX(v) FROM (VALUES
-            (ISNULL((SELECT MAX(ID) FROM SEQUNCES), 0)),
-            (ISNULL((SELECT MAX(ID) FROM FINANS), 3931620)),
-            (ISNULL((SELECT MAX(ID) FROM FINANS_DETAY), 3931620))
+            (ISNULL((SELECT MAX(ID) FROM SEQUNCES WITH(NOLOCK)), 0)),
+            (ISNULL((SELECT MAX(ID) FROM FINANS WITH(NOLOCK)), 3931620)),
+            (ISNULL((SELECT MAX(ID) FROM FINANS_DETAY WITH(NOLOCK)), 3931620))
           ) AS T(v)
         ), 3931620) + 1;
 
-        DECLARE @kasaId bigint;
-        SELECT TOP 1 @kasaId = ID FROM KASA_AD WHERE ID = 75923;
-        IF @kasaId IS NULL SELECT TOP 1 @kasaId = ID FROM KASA_AD ORDER BY ID ASC;
-
         DECLARE @lokId bigint;
-        SELECT TOP 1 @lokId = ID FROM LOKASYON WHERE ID = 75919;
-        IF @lokId IS NULL SELECT TOP 1 @lokId = ID FROM LOKASYON ORDER BY ID ASC;
+        SELECT TOP 1 @lokId = ID FROM LOKASYON WITH(NOLOCK) WHERE ID = 75919;
+        IF @lokId IS NULL SELECT TOP 1 @lokId = ID FROM LOKASYON WITH(NOLOCK) ORDER BY ID ASC;
+
+        DECLARE @posCardId bigint = NULL;
+        IF ${islemTuru} = 15 AND OBJECT_ID('dbo.BANKA_POS', 'U') IS NOT NULL
+        BEGIN
+          IF TRY_CAST('${safePosCardId}' AS bigint) IS NOT NULL
+          BEGIN
+            SELECT TOP 1
+              @posCardId = BP.ID,
+              @lokId = ISNULL(BP.LOKASYON, @lokId)
+            FROM BANKA_POS BP WITH(NOLOCK)
+            WHERE BP.ID = TRY_CAST('${safePosCardId}' AS bigint);
+          END;
+
+          IF @posCardId IS NULL
+          BEGIN
+            SELECT TOP 1
+              @posCardId = BP.ID,
+              @lokId = ISNULL(BP.LOKASYON, @lokId)
+            FROM BANKA_POS BP WITH(NOLOCK)
+            INNER JOIN BANKA B WITH(NOLOCK) ON B.ID = BP.BANKA
+            WHERE ISNULL(B.AKTIF, 1) = 1 AND ISNULL(BP.AKTIF, 1) = 1
+            ORDER BY BP.ID ASC;
+          END;
+        END;
+
+        DECLARE @kasaId bigint;
+        SELECT TOP 1 @kasaId = ID FROM KASA_AD WITH(NOLOCK) WHERE LOKASYON = @lokId AND ISNULL(AKTIF, 1) = 1 ORDER BY ID ASC;
+        IF @kasaId IS NULL SELECT TOP 1 @kasaId = ID FROM KASA_AD WITH(NOLOCK) WHERE ID = 75923;
+        IF @kasaId IS NULL SELECT TOP 1 @kasaId = ID FROM KASA_AD WITH(NOLOCK) ORDER BY ID ASC;
+
+        DECLARE @kartBorcluId bigint = @kasaId;
+        IF ${islemTuru} = 15 AND @posCardId IS NOT NULL
+          SET @kartBorcluId = @posCardId;
 
         DECLARE @projeId bigint;
-        SELECT TOP 1 @projeId = ID FROM PROJE WHERE ID = 75916;
-        IF @projeId IS NULL SELECT TOP 1 @projeId = ID FROM PROJE ORDER BY ID ASC;
+        SELECT TOP 1 @projeId = ID FROM PROJE WITH(NOLOCK) WHERE ID = 75916;
+        IF @projeId IS NULL SELECT TOP 1 @projeId = ID FROM PROJE WITH(NOLOCK) ORDER BY ID ASC;
 
         INSERT INTO FINANS (
           ID, PROJE, LOKASYON, KASA_AD, BELGENO, 
           TARIH, ISLEM_TARIHI, FIS, MOBIL_MI
         ) VALUES (
           @finansId, @projeId, @lokId, @kasaId, '${safeReceiptNo}', 
-          GETDATE(), GETDATE(), @finansId, 1
+          GETDATE(), GETDATE(), NULL, 1
         );
         IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @finansId)
           INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@finansId, 'FINANS', 0);
@@ -1650,15 +1715,37 @@ export const erpQueries = {
         SET @detId = @finansId + 1;
         INSERT INTO FINANS_DETAY (
           ID, FINANS, FINANS_ISLEM_TURU, DOVIZ_AD, KUR, 
-          KART_BORCLU, KART_ALACAKLI, TUTAR, SECIM, 
-          ACIKLAMA, BELGENO, ISLEM_TARIHI
+          KART_BORCLU, KART_ALACAKLI, TUTAR, SECIM, TAHSILID,
+          FIS, VADE_TARIHI, FK_PERSONEL, ACIKLAMA, TAKSIT_SAYISI,
+          ISLEM_TARIHI, YENIDEN_TAKSIT, CARI_ADRES, BELGENO
         ) VALUES (
           @detId, @finansId, ${islemTuru}, 1, 1.0, 
-          @kasaId, @cariId, ${collection.amount || 0}, 0, 
-          '${fullNote}', '${safeReceiptNo}', GETDATE()
+          @kartBorcluId, @cariId, ${collection.amount || 0}, 0, 0,
+          0, CAST(GETDATE() AS DATE), @cariPersonelId, LEFT(N'${fullNote}', 250), 1,
+          GETDATE(), 0, @cariAdresId, '${safeReceiptNo}'
         );
         IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND NOT EXISTS (SELECT 1 FROM SEQUNCES WHERE ID = @detId)
           INSERT INTO SEQUNCES (ID, TABLO, KOD_PC) VALUES (@detId, 'FINANS_DETAY', 0);
+
+        IF OBJECT_ID('dbo.SEQUNCES_DEGISIKLIK', 'U') IS NOT NULL
+        BEGIN
+          DECLARE @aktifFinKodPc bigint = 0;
+          DECLARE @aktifFinKullanici bigint = @cariPersonelId;
+          SELECT TOP 1
+            @aktifFinKodPc = ISNULL(KOD_PC, 0),
+            @aktifFinKullanici = CASE WHEN ISNULL(KULLANICI, 0) > 0 THEN KULLANICI ELSE @cariPersonelId END
+          FROM SEQUNCES_DEGISIKLIK WITH(NOLOCK)
+          WHERE ISNULL(KOD_PC, 0) > 0
+          ORDER BY ID DESC;
+
+          IF OBJECT_ID('dbo.SEQUNCES', 'U') IS NOT NULL AND @aktifFinKodPc > 0
+            UPDATE SEQUNCES SET KOD_PC = @aktifFinKodPc WHERE ID IN (@finansId, @detId);
+
+          INSERT INTO SEQUNCES_DEGISIKLIK (KOD_PC, SEQUNCES, KULLANICI, ISLEM, TARIH, TABLO)
+          VALUES (@aktifFinKodPc, @finansId, @aktifFinKullanici, 1, GETDATE(), 'FINANS');
+          INSERT INTO SEQUNCES_DEGISIKLIK (KOD_PC, SEQUNCES, KULLANICI, ISLEM, TARIH, TABLO)
+          VALUES (@aktifFinKodPc, @detId, @aktifFinKullanici, 1, GETDATE(), 'FINANS_DETAY');
+        END;
 
         COMMIT TRANSACTION;
         SELECT '${docNo}' AS docNo;
@@ -3439,6 +3526,61 @@ export const erpQueries = {
         invoiceStatus: isInvoiced ? 'invoiced' : 'pending',
         createdAt: orderDate,
         syncedAt: orderDate,
+      };
+    });
+  },
+
+  // 14. ERP12 AKTİF BANKALAR VE BANKA_POS (POS KARTLARI) LİSTESİNİ ÇEKME
+  async getBankPosCards() {
+    const rows = await executeJsonQuery(`
+      SELECT
+        CAST(BP.ID AS varchar(30)) AS id,
+        CAST(B.ID AS varchar(30)) AS bankId,
+        LTRIM(RTRIM(ISNULL(B.KOD, ''))) AS bankCode,
+        LTRIM(RTRIM(ISNULL(B.AD, ''))) AS bankName,
+        LTRIM(RTRIM(ISNULL(B.SUBE, ''))) AS bankBranch,
+        CAST(ISNULL(BP.LOKASYON, 75919) AS varchar(30)) AS locationId,
+        LTRIM(RTRIM(ISNULL(L.AD, 'Merkez'))) AS locationName,
+        LTRIM(RTRIM(ISNULL(BP.AD, ''))) AS rawPosName,
+        LTRIM(RTRIM(ISNULL(BP.POSNO, ''))) AS posNo,
+        LTRIM(RTRIM(ISNULL(BP.HESAP_NO, ''))) AS accountNo,
+        LTRIM(RTRIM(ISNULL(BP.IBAN, ''))) AS iban,
+        ISNULL(BP.GECIS_GUNU, 0) AS valorDays,
+        ISNULL(BP.KOMISYON_ORANI, 0) AS commissionRate,
+        ISNULL(BP.TAKSIT_SAYISI, 0) AS maxInstallments,
+        CAST(ISNULL(BP.MOBIL, 0) AS bit) AS isMobile
+      FROM BANKA_POS BP WITH(NOLOCK)
+      INNER JOIN BANKA B WITH(NOLOCK) ON B.ID = BP.BANKA
+      LEFT JOIN LOKASYON L WITH(NOLOCK) ON L.ID = BP.LOKASYON
+      WHERE ISNULL(B.AKTIF, 1) = 1
+        AND ISNULL(BP.AKTIF, 1) = 1
+      ORDER BY B.AD ASC, L.ID ASC, BP.ID ASC
+    `).catch(() => []);
+
+    return (rows || []).map((row) => {
+      const bankName = String(row.bankName || 'BANKA').trim();
+      const locName = String(row.locationName || 'Merkez').trim();
+      const rawPosName = String(row.rawPosName || '').trim();
+      const posName = rawPosName ? `${rawPosName} (${locName})` : `POS / ${locName}`;
+      const displayLabel = `${bankName} — ${posName}`;
+
+      return {
+        id: String(row.id || ''),
+        bankId: String(row.bankId || ''),
+        bankCode: String(row.bankCode || ''),
+        bankName,
+        bankBranch: String(row.bankBranch || '').trim() || undefined,
+        locationId: String(row.locationId || ''),
+        locationName: locName,
+        posName,
+        displayLabel,
+        posNo: String(row.posNo || '').trim() || undefined,
+        accountNo: String(row.accountNo || '').trim() || undefined,
+        iban: String(row.iban || '').trim() || undefined,
+        valorDays: Number(row.valorDays || 0),
+        commissionRate: Number(row.commissionRate || 0),
+        maxInstallments: Number(row.maxInstallments || 0),
+        isMobile: Boolean(row.isMobile),
       };
     });
   },

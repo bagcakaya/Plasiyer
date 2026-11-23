@@ -860,6 +860,17 @@ app.post('/api/collections', async (req, res) => {
   }
 });
 
+// 4.1 ERP12 AKTİF BANKALAR VE POS KARTLARI (BANKA + BANKA_POS) LİSTESİ
+app.get('/api/bank-pos-cards', async (req, res) => {
+  try {
+    const posCards = await erpQueries.getBankPosCards();
+    res.json({ posCards });
+  } catch (err) {
+    console.error('Banka POS kartları çekme hatası:', err.message);
+    res.json({ posCards: [] });
+  }
+});
+
 // 5. SİPARİŞİ ERP12'DE ONAYLA & FATURALAŞTIRMA SEVKİ YAP
 app.post('/api/orders/:docNo/invoice', async (req, res) => {
   try {
