@@ -1220,23 +1220,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Bekleyen sipariş sayısı için Dexie Canlı Sorgu (useLiveQuery)
+  // Bekleyen veya ağ hatası nedeniyle tekrar denenecek sipariş sayısı için Dexie Canlı Sorgu
   const pendingOrders = useLiveQuery(
-    () => db.orders.where('status').equals('pending').toArray(),
+    () => db.orders.where('status').anyOf(['pending', 'failed']).toArray(),
     []
   );
   const pendingOrdersCount = pendingOrders ? pendingOrders.length : 0;
 
   // Bekleyen tahsilat sayısı için Dexie Canlı Sorgu
   const pendingCollections = useLiveQuery(
-    () => db.collections.where('syncStatus').equals('pending').toArray(),
+    () => db.collections.where('syncStatus').anyOf(['pending', 'failed']).toArray(),
     []
   );
   const pendingCollectionsCount = pendingCollections ? pendingCollections.length : 0;
 
   // Bekleyen iade fişi sayısı için Dexie Canlı Sorgu (Aşama 6 - C)
   const pendingReturns = useLiveQuery(
-    () => db.returns.where('syncStatus').equals('pending').toArray(),
+    () => db.returns.where('syncStatus').anyOf(['pending', 'failed']).toArray(),
     []
   );
   const pendingReturnsCount = pendingReturns ? pendingReturns.length : 0;
@@ -1491,7 +1491,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
   }, [serverConfig, autoSyncEnabled]);
 
-  // Uygulama açılışında veya aktif SQL veritabanı değiştiğinde (örn: GUNEYLERB2B -> GUNEYLERB3B) güncel stok ve görselleri anında çek
+  // Uygulama açılışında veya aktif SQL veritabanı değiştiğinde önce bekleyen/hatalı siparişleri gönder, ardından güncel stok, sipariş ve görselleri çek
   useEffect(() => {
     if (userRole === 'admin' || !isOnline || isDemoMode(serverConfig)) {
       return;
@@ -1499,7 +1499,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     let cancelled = false;
     const timer = setTimeout(() => {
       syncService
-        .pullDataFromERP(serverConfig, salesRep.code)
+        .fullSync(serverConfig, salesRep.code)
         .then((res) => {
           if (cancelled) return;
           if (res.companyInfo) {
@@ -2077,10 +2077,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       // 2. Yalnızca seçili ürünleri sepetten çıkar; işareti kaldırılan ürünler sepette kalmaya devam etsin
       setRawCart((prev) => prev.filter((item) => !item.isGift && item.selected === false));
 
-      // 3. Eğer online isek hemen ERP12'ye gönder
+      // 3. Eğer online isek hemen ERP12'ye gönder ve ERP12 sipariş havuzunu eşitle
       if (isOnline && !isDemoMode(serverConfig)) {
         try {
           await syncService.pushPendingOrdersToERP(serverConfig);
+          await syncService.pullOrdersFromERP(serverConfig);
         } catch {
           // Arka plan kuyruğunda tekrar denenecek
         }

@@ -273,6 +273,35 @@ export const buildSqlHeaders = (config?: ServerConfig): Record<string, string> =
     if (token) {
       headers['X-Auth-Token'] = token;
     }
+    try {
+      const authRaw = localStorage.getItem('plasiyer_auth_user');
+      const authUser = authRaw ? JSON.parse(authRaw) : null;
+      const cCode = (config?.companyCode || authUser?.companyCode || '').trim().toUpperCase();
+      const rCode = (authUser?.salesRepCode || authUser?.code || '').trim().toUpperCase();
+      if (cCode && rCode) {
+        const accsRaw = localStorage.getItem('plasiyer_rep_accounts');
+        const accs = accsRaw ? JSON.parse(accsRaw) : [];
+        const matchedAcc = Array.isArray(accs)
+          ? accs.find(
+              (a: any) =>
+                String(a?.companyCode || '').toUpperCase() === cCode &&
+                String(a?.repCode || '').toUpperCase() === rCode
+            )
+          : null;
+        if (matchedAcc?.password || token) {
+          headers['X-Plasiyer-Auth'] = encodeUtf8Base64(
+            JSON.stringify({
+              companyCode: cCode,
+              repCode: rCode,
+              password: matchedAcc?.password || '',
+              token: token || undefined,
+            })
+          );
+        }
+      }
+    } catch {
+      // ignore storage read error
+    }
   }
   if (!config || !config.sqlHost || !config.sqlHost.trim()) return headers;
   const payload = {

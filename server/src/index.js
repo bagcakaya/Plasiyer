@@ -179,8 +179,8 @@ async function hasValidWriteAuthorization(req) {
 app.use(express.json({ limit: '12mb' }));
 app.use(express.urlencoded({ extended: true, limit: '12mb' }));
 
-// Dinamik Çoklu Firma / Doğrudan SQL Server Bağlantı Bağlamı (X-SQL-Config Header veya ?t= Token)
-app.use((req, res, next) => {
+// Dinamik Çoklu Firma / Doğrudan SQL Server Bağlantı Bağlamı (X-SQL-Config Header, ?t= Token veya Firma Kodu)
+app.use(async (req, res, next) => {
   const rawHeader = req.headers['x-sql-config'];
   let parsedSqlCfg = null;
 
@@ -195,6 +195,32 @@ app.use((req, res, next) => {
     parsedSqlCfg = resolveIncomingSqlConfig(req.body.sqlConfig);
   } else if (req.query && typeof req.query.t === 'string' && req.query.t) {
     parsedSqlCfg = decodeSqlConfigToken(req.query.t);
+  }
+
+  // Eğer mobil cihazda SQL bilgisi eksik/eski kalmışsa ve geçerli bir firma kodu gönderildiyse merkezi kayıttan tamamla
+  if (!parsedSqlCfg || !parsedSqlCfg.sqlHost || !parsedSqlCfg.sqlPassword) {
+    const companyCode = String(
+      parsedSqlCfg?.companyCode ||
+        req.query?.company ||
+        req.query?.companyCode ||
+        req.body?.companyCode ||
+        ''
+    )
+      .trim()
+      .toUpperCase();
+    if (companyCode && companyCode !== '01' && companyCode !== 'POLATLAR') {
+      try {
+        const regCfg = await cloudRegistry.findCompanyServerConfig(companyCode);
+        if (regCfg && regCfg.sqlHost) {
+          parsedSqlCfg = {
+            ...regCfg,
+            _verifiedToken: true,
+          };
+        }
+      } catch {
+        // ignore registry lookup error
+      }
+    }
   }
 
   if (parsedSqlCfg && parsedSqlCfg.sqlHost) {

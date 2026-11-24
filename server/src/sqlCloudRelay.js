@@ -129,7 +129,7 @@ async function callRemoteRelay(action, sqlConfig, query = '') {
     if (!signature) return null;
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 18000);
+    const timer = setTimeout(() => controller.abort(), 10000);
 
     try {
       const resp = await fetch(`${relayUrl}/api/internal/sql-relay`, {

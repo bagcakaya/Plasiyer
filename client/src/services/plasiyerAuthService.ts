@@ -1011,7 +1011,12 @@ export const plasiyerAuthService = {
     if (typeof navigator === 'undefined' || navigator.onLine) {
       try {
         const res = await this.fetchRegistryApi(
-          `/license-status?companyCode=${encodeURIComponent(codeUpper)}`
+          `/license-status?companyCode=${encodeURIComponent(codeUpper)}`,
+          {
+            headers: {
+              ...this.buildRegistryAuthHeaders(codeUpper),
+            },
+          }
         );
         if (res.ok) {
           const data = await res.json();

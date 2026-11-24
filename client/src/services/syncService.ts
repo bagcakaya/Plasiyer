@@ -126,10 +126,29 @@ export const syncService = {
     if (!Array.isArray(remoteOrders) || remoteOrders.length === 0) return;
     await db.transaction('rw', db.orders, async () => {
       const localOrders = await db.orders.toArray();
+      const remoteDocSet = new Set<string>();
+      for (const rem of remoteOrders) {
+        if (rem.erp12DocNo) remoteDocSet.add(String(rem.erp12DocNo).trim());
+        if (rem.tempId) remoteDocSet.add(String(rem.tempId).trim());
+      }
+
+      // ERP12'de artık bulunmayan eski yerel 'synced' (senkronize edilmiş) kayıtları temizle
+      // (Böylece aynı kullanıcı farklı cihazlarda birebir aynı sipariş listesini ve sayısını görür)
+      const staleIds: number[] = [];
       const byDocNo = new Map<string, (typeof localOrders)[number]>();
       for (const loc of localOrders) {
-        if (loc.erp12DocNo) byDocNo.set(loc.erp12DocNo.trim(), loc);
-        if (loc.tempId) byDocNo.set(loc.tempId.trim(), loc);
+        const k1 = (loc.erp12DocNo || '').trim();
+        const k2 = (loc.tempId || '').trim();
+        const existsInRemote = (k1 && remoteDocSet.has(k1)) || (k2 && remoteDocSet.has(k2));
+        if (loc.status === 'synced' && !existsInRemote && loc.id) {
+          staleIds.push(loc.id);
+          continue;
+        }
+        if (k1) byDocNo.set(k1, loc);
+        if (k2) byDocNo.set(k2, loc);
+      }
+      if (staleIds.length > 0) {
+        await db.orders.bulkDelete(staleIds);
       }
 
       for (const rem of remoteOrders) {
@@ -147,6 +166,7 @@ export const syncService = {
             subtotal: rem.subtotal ?? existing.subtotal,
             totalVat: rem.totalVat ?? existing.totalVat,
             items: Array.isArray(rem.items) && rem.items.length > 0 ? rem.items : existing.items,
+            errorMessage: undefined,
           });
         } else {
           const addedId = await db.orders.add(rem);
@@ -170,10 +190,13 @@ export const syncService = {
     }
   },
 
-  // Yerel hafızada bekleyen (pending) siparişleri ERP12'ye gönder
+  // Yerel hafızada bekleyen (pending) veya ağ hatası almış (failed) siparişleri ERP12'ye gönder
   async pushPendingOrdersToERP(config: ServerConfig): Promise<SyncResult> {
     try {
-      const pendingOrders = await db.orders.where('status').equals('pending').toArray();
+      const pendingOrders = await db.orders
+        .where('status')
+        .anyOf(['pending', 'failed'])
+        .toArray();
 
       if (pendingOrders.length === 0) {
         return { success: true, syncedOrdersCount: 0 };
@@ -234,10 +257,13 @@ export const syncService = {
     }
   },
 
-  // Yerel hafızada bekleyen (pending) tahsilatları ERP12'ye gönder
+  // Yerel hafızada bekleyen (pending) veya ağ hatası almış (failed) tahsilatları ERP12'ye gönder
   async pushPendingCollectionsToERP(config: ServerConfig): Promise<SyncResult> {
     try {
-      const pendingCollections = await db.collections.where('syncStatus').equals('pending').toArray();
+      const pendingCollections = await db.collections
+        .where('syncStatus')
+        .anyOf(['pending', 'failed'])
+        .toArray();
 
       if (pendingCollections.length === 0) {
         return { success: true, syncedCollectionsCount: 0 };
@@ -296,10 +322,13 @@ export const syncService = {
     }
   },
 
-  // Yerel hafızada bekleyen (pending) iade fişlerini ERP12'ye gönder
+  // Yerel hafızada bekleyen (pending) veya ağ hatası almış (failed) iade fişlerini ERP12'ye gönder
   async pushPendingReturnsToERP(config: ServerConfig): Promise<SyncResult> {
     try {
-      const pendingReturns = await db.returns.where('syncStatus').equals('pending').toArray();
+      const pendingReturns = await db.returns
+        .where('syncStatus')
+        .anyOf(['pending', 'failed'])
+        .toArray();
 
       if (pendingReturns.length === 0) {
         return { success: true, syncedReturnsCount: 0 };
