@@ -1848,6 +1848,25 @@ app.delete('/api/registry/companies/:code', async (req, res) => {
   }
 });
 
+app.post('/api/registry/admin-password', async (req, res) => {
+  if (!verifyAdminAuthHeader(req)) {
+    return res.status(401).json({ success: false, error: 'Yetkisiz erişim.' });
+  }
+  try {
+    const { currentPassword, newPassword } = req.body || {};
+    const result = await cloudRegistry.changeAdminPassword({
+      currentPassword,
+      newPassword,
+    });
+    if (!result.success) {
+      return res.status(400).json(result);
+    }
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
 app.get('/api/registry/license-status', async (req, res) => {
   try {
     const companyCode = String(req.query.companyCode || '').trim();

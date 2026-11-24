@@ -129,6 +129,14 @@ export const SettingsPage: React.FC = () => {
   const [repNotice, setRepNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [copiedAccountId, setCopiedAccountId] = useState<string | null>(null);
 
+  // Yönetici Kendi Şifresini Değiştirme State
+  const [mgrCurrentPwd, setMgrCurrentPwd] = useState('');
+  const [mgrNewPwd, setMgrNewPwd] = useState('');
+  const [mgrConfirmPwd, setMgrConfirmPwd] = useState('');
+  const [showMgrPwdFields, setShowMgrPwdFields] = useState(false);
+  const [isUpdatingMgrPwd, setIsUpdatingMgrPwd] = useState(false);
+  const [mgrPwdNotice, setMgrPwdNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
   const [testResult, setTestResult] = useState<{ testing: boolean; success?: boolean; message?: string }>({
     testing: false,
   });
@@ -575,6 +583,102 @@ export const SettingsPage: React.FC = () => {
         ? serverConfig.licenseExpireDate.split('-').reverse().join('.')
         : null;
 
+    const activeManagerCode = (currentUser?.code || salesRep.code || 'YONETICI')
+      .trim()
+      .toUpperCase();
+    const myManagerAcc = firmManagerAccounts.find(
+      (m) => m.repCode.toUpperCase() === activeManagerCode
+    );
+
+    const handleChangeOwnManagerPassword = async (e: React.FormEvent) => {
+      e.preventDefault();
+      setMgrPwdNotice(null);
+
+      const cur = mgrCurrentPwd.trim();
+      const next = mgrNewPwd.trim();
+      const confirm = mgrConfirmPwd.trim();
+
+      if (!cur) {
+        setMgrPwdNotice({ type: 'error', text: 'Lütfen mevcut yönetici şifrenizi giriniz.' });
+        return;
+      }
+      if (!next || next.length < 3) {
+        setMgrPwdNotice({ type: 'error', text: 'Yeni şifre en az 3 karakter olmalıdır.' });
+        return;
+      }
+      if (next !== confirm) {
+        setMgrPwdNotice({ type: 'error', text: 'Yeni şifre ile şifre tekrarı birbiriyle eşleşmiyor!' });
+        return;
+      }
+
+      if (myManagerAcc?.password && myManagerAcc.password !== cur) {
+        setMgrPwdNotice({ type: 'error', text: 'Mevcut yönetici şifreniz hatalı!' });
+        return;
+      }
+
+      setIsUpdatingMgrPwd(true);
+      try {
+        // Çevrimiçiyse merkezi kayıttan mevcut şifreyi doğrula
+        if (navigator.onLine && !myManagerAcc?.password) {
+          const checkAuth = await plasiyerAuthService.authenticate({
+            companyCode: activeFirmCode,
+            repCode: activeManagerCode,
+            password: cur,
+          });
+          if (!checkAuth.success) {
+            setMgrPwdNotice({
+              type: 'error',
+              text: checkAuth.error || 'Mevcut yönetici şifreniz doğrulanamadı!',
+            });
+            return;
+          }
+        }
+
+        const splitName = splitFullName(currentUser?.name || salesRep.name || '');
+        const firstName =
+          currentUser?.firstName || myManagerAcc?.firstName || splitName.firstName || 'Firma';
+        const lastName =
+          currentUser?.lastName || myManagerAcc?.lastName || splitName.lastName || 'Yetkilisi';
+
+        await plasiyerAuthService.upsertAccount(
+          {
+            companyCode: activeFirmCode,
+            repCode: activeManagerCode,
+            firstName,
+            lastName,
+            password: next,
+            accountRole: 'manager',
+            viewAllRoutes: myManagerAcc?.viewAllRoutes ?? true,
+            allowedRouteRegions: myManagerAcc?.allowedRouteRegions,
+            viewAllStocks: myManagerAcc?.viewAllStocks ?? true,
+            allowedStockGroups: myManagerAcc?.allowedStockGroups,
+          },
+          serverConfig
+        );
+
+        // Aktif oturum token ve yerel hesap kaydını yeni şifreyle yenile
+        if (navigator.onLine) {
+          await plasiyerAuthService.authenticate({
+            companyCode: activeFirmCode,
+            repCode: activeManagerCode,
+            password: next,
+          }).catch(() => {});
+        }
+
+        const synced = await plasiyerAuthService.syncAccountsFromSql(serverConfig);
+        setPlasiyerAccounts(synced);
+        setMgrCurrentPwd('');
+        setMgrNewPwd('');
+        setMgrConfirmPwd('');
+        setMgrPwdNotice({
+          type: 'success',
+          text: `Yönetici (${activeManagerCode}) giriş şifreniz başarıyla güncellendi. Tüm cihazlardan yeni şifrenizle giriş yapabilirsiniz.`,
+        });
+      } finally {
+        setIsUpdatingMgrPwd(false);
+      }
+    };
+
     return (
       <div className="p-3 md:p-6 pb-36 md:pb-12 space-y-4 max-w-3xl mx-auto text-xs text-slate-900 dark:text-slate-100 w-full">
         {/* Üst Aktif Müşteri Firma & Firma Yetkilisi Bilgi Kartı */}
@@ -623,6 +727,111 @@ export const SettingsPage: React.FC = () => {
               {theme === 'dark' ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
             </button>
           </div>
+        </div>
+
+        {/* Yönetici Kendi Şifresini Değiştirme Kartı */}
+        <div
+          id="manager-password-card"
+          className="bg-white dark:bg-slate-900 rounded-2xl p-4 sm:p-5 border border-amber-500/30 dark:border-amber-500/25 shadow-xs space-y-3.5"
+        >
+          <div className="flex items-center justify-between border-b border-slate-100 dark:border-slate-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center shrink-0">
+                <Key className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-extrabold text-sm text-slate-900 dark:text-white">
+                  Yönetici Şifremi Değiştir
+                </h3>
+                <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                  <strong>{activeManagerCode}</strong> yönetici hesabınızın giriş şifresini istediğiniz zaman güncelleyebilirsiniz
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setShowMgrPwdFields((prev) => !prev)}
+              className="p-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 transition"
+              title={showMgrPwdFields ? 'Şifreleri Gizle' : 'Şifreleri Göster'}
+            >
+              {showMgrPwdFields ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+            </button>
+          </div>
+
+          <form onSubmit={handleChangeOwnManagerPassword} className="space-y-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Mevcut Şifreniz:
+                </label>
+                <input
+                  type={showMgrPwdFields ? 'text' : 'password'}
+                  value={mgrCurrentPwd}
+                  onChange={(e) => setMgrCurrentPwd(e.target.value)}
+                  placeholder="Mevcut şifreniz"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 font-mono text-xs focus:outline-none focus:border-amber-500 text-slate-900 dark:text-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Yeni Şifre:
+                </label>
+                <input
+                  type={showMgrPwdFields ? 'text' : 'password'}
+                  value={mgrNewPwd}
+                  onChange={(e) => setMgrNewPwd(e.target.value)}
+                  placeholder="Yeni şifre belirleyin"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 font-mono text-xs focus:outline-none focus:border-amber-500 text-slate-900 dark:text-white"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="font-semibold text-slate-700 dark:text-slate-300 block mb-1">
+                  Yeni Şifre (Tekrar):
+                </label>
+                <input
+                  type={showMgrPwdFields ? 'text' : 'password'}
+                  value={mgrConfirmPwd}
+                  onChange={(e) => setMgrConfirmPwd(e.target.value)}
+                  placeholder="Yeni şifreyi tekrar girin"
+                  className="w-full bg-slate-50 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl p-2.5 font-mono text-xs focus:outline-none focus:border-amber-500 text-slate-900 dark:text-white"
+                  required
+                />
+              </div>
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                type="submit"
+                disabled={isUpdatingMgrPwd}
+                className="w-full sm:w-auto bg-amber-600 hover:bg-amber-700 disabled:opacity-60 text-white font-bold py-2.5 px-5 rounded-xl flex items-center justify-center gap-1.5 transition active:scale-95 text-xs shadow-sm"
+              >
+                <Save className="w-4 h-4" />
+                <span>{isUpdatingMgrPwd ? 'Güncelleniyor...' : 'Yönetici Şifremi Güncelle'}</span>
+              </button>
+            </div>
+          </form>
+
+          {mgrPwdNotice && (
+            <div
+              className={`p-3 rounded-xl border text-[11px] font-medium flex items-center gap-2 ${
+                mgrPwdNotice.type === 'success'
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-800 dark:text-emerald-300'
+                  : 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-300'
+              }`}
+            >
+              {mgrPwdNotice.type === 'success' ? (
+                <CheckCircle className="w-4 h-4 text-emerald-600 shrink-0" />
+              ) : (
+                <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+              )}
+              <span>{mgrPwdNotice.text}</span>
+            </div>
+          )}
         </div>
 
         {/* Plasiyer Ekleme & Saha Ekibi Yönetimi Kartı */}

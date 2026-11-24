@@ -1544,4 +1544,43 @@ export const plasiyerAuthService = {
       return { imported: false };
     }
   },
+
+  async changeAdminPassword(
+    currentPassword: string,
+    newPassword: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      const res = await this.fetchRegistryApi('/admin-password', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...this.buildAdminHeaders(),
+        },
+        body: JSON.stringify({ currentPassword, newPassword }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data?.success) {
+        if (typeof window !== 'undefined') {
+          if (data.authToken) {
+            localStorage.setItem(AUTH_TOKEN_KEY, data.authToken);
+            sessionStorage.setItem(AUTH_TOKEN_KEY, data.authToken);
+          }
+          sessionStorage.setItem(
+            ADMIN_SESSION_CRED_KEY,
+            encodeBase64Utf8(`${ADMIN_COMPANY_CODE}:${ADMIN_USERNAME}:${newPassword}`)
+          );
+        }
+        return { success: true };
+      }
+      return {
+        success: false,
+        error: data?.error || 'Yönetici şifresi güncellenemedi.',
+      };
+    } catch {
+      return {
+        success: false,
+        error: 'Sunucuya bağlanılamadı. Lütfen internet bağlantınızı kontrol ediniz.',
+      };
+    }
+  },
 };

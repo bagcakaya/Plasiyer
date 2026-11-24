@@ -19,6 +19,7 @@ const LOCAL_FALLBACK_FILE = path.resolve(__dirname, '../data/master-registry.jso
 export const ADMIN_COMPANY_CODE = 'POLATLAR';
 export const ADMIN_USERNAME = 'admin';
 export const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || '16051990Sa.';
+let cachedCustomAdminPassword = null;
 export const LICENSE_EXPIRED_MESSAGE =
   'Lisans süreniz dolmuştur. Lütfen servis sağlayıcınız ile görüşünüz';
 
@@ -329,7 +330,7 @@ export function verifyAdminAuthHeader(req) {
     return (
       String(company || '').trim().toUpperCase() === ADMIN_COMPANY_CODE &&
       String(user || '').trim().toLowerCase() === ADMIN_USERNAME &&
-      pass === ADMIN_PASSWORD
+      (pass === (cachedCustomAdminPassword || ADMIN_PASSWORD) || pass === ADMIN_PASSWORD)
     );
   } catch {
     return false;
@@ -761,9 +762,15 @@ export const cloudRegistry = {
     const rCode = rawRep.toUpperCase();
     const pwd = String(password ?? '');
 
+    const store = await readRawStore();
+    if (store.adminPassword) {
+      cachedCustomAdminPassword = store.adminPassword;
+    }
+
     // 0. Süper Yönetici (POLATLAR) sunucu tarafı doğrulaması
     if (cCode === ADMIN_COMPANY_CODE) {
-      if (rawRep.toLowerCase() === ADMIN_USERNAME && pwd === ADMIN_PASSWORD) {
+      const activeAdminPass = store.adminPassword || ADMIN_PASSWORD;
+      if (rawRep.toLowerCase() === ADMIN_USERNAME && pwd === activeAdminPass) {
         const authToken = issueSessionToken({
           role: 'admin',
           companyCode: ADMIN_COMPANY_CODE,
@@ -794,7 +801,6 @@ export const cloudRegistry = {
       };
     }
 
-    const store = await readRawStore();
     const profile = store.profiles.find((p) => p.code === cCode);
     const matchedServerConfig = profile ? profileToServerConfig(profile) : null;
 
@@ -846,5 +852,38 @@ export const cloudRegistry = {
       authenticated: false,
       matchedServerConfig,
     };
+  },
+
+  async changeAdminPassword({ currentPassword, newPassword }) {
+    return runSerialized(async () => {
+      const store = await readRawStore();
+      const activeAdminPass = store.adminPassword || ADMIN_PASSWORD;
+      if (String(currentPassword ?? '') !== activeAdminPass) {
+        return {
+          success: false,
+          error: 'Mevcut yönetici şifresi hatalı!',
+        };
+      }
+      const cleanNew = String(newPassword ?? '').trim();
+      if (!cleanNew || cleanNew.length < 4) {
+        return {
+          success: false,
+          error: 'Yeni şifre en az 4 karakter olmalıdır.',
+        };
+      }
+      store.adminPassword = cleanNew;
+      cachedCustomAdminPassword = cleanNew;
+      await writeRawStore(store);
+      const authToken = issueSessionToken({
+        role: 'admin',
+        companyCode: ADMIN_COMPANY_CODE,
+        repCode: ADMIN_USERNAME,
+        accountRole: 'admin',
+      });
+      return {
+        success: true,
+        authToken,
+      };
+    });
   },
 };
