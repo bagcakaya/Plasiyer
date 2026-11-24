@@ -8,90 +8,33 @@ declare const __APP_BUILD_VERSION__: string;
 
 let refreshing = false;
 
-async function forceRefreshCachesAndReload(targetVersion?: string) {
-  if (refreshing) return;
-  try {
-    if (targetVersion) {
-      const lastUpdatedTo = sessionStorage.getItem('plasiyer_updated_to_version');
-      if (lastUpdatedTo === targetVersion) return;
-      sessionStorage.setItem('plasiyer_updated_to_version', targetVersion);
-    }
-  } catch {
-    // ignore storage errors
-  }
-
-  refreshing = true;
-  try {
-    if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
-      const regs = await navigator.serviceWorker.getRegistrations();
-      await Promise.all(regs.map((r) => r.unregister()));
-    }
-  } catch {
-    // ignore
-  }
-
-  try {
-    if ('caches' in window && caches.keys) {
-      const keys = await caches.keys();
-      await Promise.all(keys.map((k) => caches.delete(k)));
-    }
-  } catch {
-    // ignore
-  }
-
-  window.location.replace(window.location.pathname + '?v=' + Date.now());
-}
-
 async function checkLiveServerVersion() {
   if (typeof window === 'undefined' || !navigator.onLine || refreshing) return;
   try {
-    const res = await fetch(`/version.json?t=${Date.now()}`, {
-      cache: 'no-store',
-      headers: { 'Cache-Control': 'no-cache' },
-    });
-    if (!res.ok) return;
-    const data = (await res.json()) as { version?: string };
-    if (
-      data?.version &&
-      typeof __APP_BUILD_VERSION__ !== 'undefined' &&
-      data.version !== __APP_BUILD_VERSION__
-    ) {
-      await forceRefreshCachesAndReload(data.version);
+    if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistration) {
+      const reg = await navigator.serviceWorker.getRegistration();
+      if (reg) {
+        await reg.update().catch(() => {});
+      }
     }
   } catch {
-    // Çevrimdışı veya yerel geliştirme ortamında sessizce devam et
+    // Çevrimdışı veya mobil ağ geçişinde sessizce devam et; açık ekranı asla kapatma
   }
 }
 
 if (typeof window !== 'undefined') {
-  // Dağıtım sonrası eski chunk hash hatası oluşursa sayfayı temiz şekilde yenile
+  // Dağıtım sonrası eski chunk hash hatası oluşursa yalnızca çevrimiçiyken sayfayı yenile
   window.addEventListener('vite:preloadError', (event) => {
     event.preventDefault();
-    if (!refreshing) {
+    if (!refreshing && navigator.onLine) {
       refreshing = true;
       window.location.reload();
     }
   });
 
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.addEventListener('controllerchange', () => {
-      if (!refreshing) {
-        refreshing = true;
-        console.log('🔄 Yeni Service Worker aktifleşti, sayfa yenileniyor...');
-        window.location.reload();
-      }
-    });
-  }
-
-  // Mobil PWA açılışında, sekme öne geldiğinde ve internet bağlandığında anında sürüm kontrolü yap
+  // Mobil PWA açılışında ve sekme öne geldiğinde arka planda sessiz SW güncelleme kontrolü yap (açık sayfayı sıfırlama)
   checkLiveServerVersion();
-  window.addEventListener('pageshow', () => {
-    checkLiveServerVersion();
-  });
   window.addEventListener('focus', () => {
-    checkLiveServerVersion();
-  });
-  window.addEventListener('online', () => {
     checkLiveServerVersion();
   });
 }

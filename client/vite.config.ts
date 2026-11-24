@@ -76,17 +76,8 @@ export default defineConfig({
         cleanupOutdatedCaches: true,
         globPatterns: ['**/*.{js,css,html,ico,png,jpg,jpeg,webp,svg,webmanifest}'],
         globIgnores: ['**/yenile.html', '**/version.json'],
-        navigateFallback: null,
-        runtimeCaching: [
-          {
-            urlPattern: ({ request }) => request.mode === 'navigate',
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'plasiyer-pages-cache',
-              networkTimeoutSeconds: 4,
-            },
-          },
-        ],
+        navigateFallback: '/index.html',
+        navigateFallbackDenylist: [/^\/api\//, /^\/uploads\//, /^\/yenile\.html/],
       }
     })
   ],

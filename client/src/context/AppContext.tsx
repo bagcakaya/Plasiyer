@@ -2358,38 +2358,12 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         localStorage.setItem('plasiyer_last_sync_time', now.toISOString());
       }
 
-      // 3. Sunucuda yeni bir uygulama/arayüz sürümü (version.json) varsa önbelleği temizleyip anında yeni sürüme geç
-      if (typeof window !== 'undefined' && navigator.onLine) {
-        try {
-          const verRes = await fetch(`/version.json?t=${Date.now()}`, {
-            cache: 'no-store',
-            headers: { 'Cache-Control': 'no-cache' },
-          });
-          if (verRes.ok) {
-            const verData = (await verRes.json()) as { version?: string };
-            const currentBuildVer =
-              typeof __APP_BUILD_VERSION__ !== 'undefined' ? __APP_BUILD_VERSION__ : undefined;
-            if (verData?.version && currentBuildVer && verData.version !== currentBuildVer) {
-              setTimeout(async () => {
-                try {
-                  if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
-                    const regs = await navigator.serviceWorker.getRegistrations();
-                    await Promise.all(regs.map((r) => r.unregister()));
-                  }
-                  if ('caches' in window && caches.keys) {
-                    const keys = await caches.keys();
-                    await Promise.all(keys.map((k) => caches.delete(k)));
-                  }
-                } catch {
-                  // ignore
-                }
-                window.location.replace(window.location.pathname + '?v=' + Date.now());
-              }, 1200);
-            }
-          }
-        } catch {
-          // ignore version check error
-        }
+      // 3. Arka planda Service Worker güncellemesini sessizce kontrol et (Mobil veriye geçişte sayfayı veya önbelleği silip ERR_CONNECTION_RESET'e düşürme)
+      if (typeof window !== 'undefined' && navigator.onLine && 'serviceWorker' in navigator) {
+        navigator.serviceWorker
+          .getRegistration()
+          .then((reg) => reg?.update().catch(() => {}))
+          .catch(() => {});
       }
 
       return res;

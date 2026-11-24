@@ -77,19 +77,13 @@
           true
         );
 
-        // 3.5 sn sonra manuel kurtarma butonunu görünür yap, 4.5 sn'de hala açılmadıysa otomatik onar
+        // 8 sn sonra hala açılmadıysa yalnızca manuel kurtarma butonunu görünür yap (otomatik sayfa sıfırlama yapma, 4.5G indirmesini kesme)
         setTimeout(function () {
           if (!window.__PLASIYER_BOOTED__) {
             var wrap = document.getElementById('plasiyer-boot-actions');
             if (wrap) wrap.style.display = 'block';
           }
-        }, 3500);
-
-        setTimeout(function () {
-          if (!window.__PLASIYER_BOOTED__) {
-            triggerAutoHealOnce();
-          }
-        }, 4500);
+        }, 8000);
       })();
     </script>
   </head>
