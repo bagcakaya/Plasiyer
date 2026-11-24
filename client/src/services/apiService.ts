@@ -192,8 +192,16 @@ export const resolveApiBaseUrlAsync = async (
   }
 
   // HTTPS / plasiyer.vercel.app ortamındayken:
-  // Eğer kullanıcının bilgisayarında yerel köprü (localhost:4000) çalışıyorsa (Türkiye IP'si üzerinden Yurt Dışı GeoIP engelini aşmak için)
-  // önce hızlıca onu kontrol et; yoksa (mobil cihaz / saha) doğrudan '/api' Serverless katmanını kullan.
+  // Mobil cihazlarda (Android / iOS) localhost:4000 köprüsü olamayacağı için zaman kaybetmeden doğrudan '/api' döndür
+  const isMobileUa =
+    typeof navigator !== 'undefined' &&
+    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+  if (isMobileUa) {
+    return '/api';
+  }
+
+  // Masaüstü bilgisayarda yerel köprü (localhost:4000) çalışıyorsa (Türkiye IP'si üzerinden Yurt Dışı GeoIP engelini aşmak için)
+  // önce hızlıca onu kontrol et; yoksa doğrudan '/api' Serverless katmanını kullan.
   const now = Date.now();
   const localCandidate = `http://localhost:${bridge}/api`;
   if (!forceProbe && cachedLocalBridgeState && now - cachedLocalBridgeState.checkedAt < 30000) {
@@ -263,8 +271,25 @@ const encodeUtf8Base64 = (str: string): string => {
   return btoa(binary);
 };
 
+export const getEffectiveCompanyCode = (config?: ServerConfig): string => {
+  const rawCfg = (config?.companyCode || '').trim().toUpperCase();
+  if (rawCfg && rawCfg !== '01') return rawCfg;
+  if (typeof window !== 'undefined') {
+    try {
+      const authRaw = localStorage.getItem('plasiyer_auth_user');
+      const authUser = authRaw ? JSON.parse(authRaw) : null;
+      const userCode = String(authUser?.companyCode || '').trim().toUpperCase();
+      if (userCode && userCode !== '01') return userCode;
+    } catch {
+      // ignore
+    }
+  }
+  return rawCfg || '01';
+};
+
 export const buildSqlHeaders = (config?: ServerConfig): Record<string, string> => {
   const headers: Record<string, string> = {};
+  const effectiveCompany = getEffectiveCompanyCode(config);
   if (typeof window !== 'undefined') {
     const token =
       localStorage.getItem('plasiyer_auth_token') ||
@@ -276,7 +301,7 @@ export const buildSqlHeaders = (config?: ServerConfig): Record<string, string> =
     try {
       const authRaw = localStorage.getItem('plasiyer_auth_user');
       const authUser = authRaw ? JSON.parse(authRaw) : null;
-      const cCode = (config?.companyCode || authUser?.companyCode || '').trim().toUpperCase();
+      const cCode = effectiveCompany;
       const rCode = (authUser?.salesRepCode || authUser?.code || '').trim().toUpperCase();
       if (cCode && rCode) {
         const accsRaw = localStorage.getItem('plasiyer_rep_accounts');
@@ -303,14 +328,14 @@ export const buildSqlHeaders = (config?: ServerConfig): Record<string, string> =
       // ignore storage read error
     }
   }
-  if (!config || !config.sqlHost || !config.sqlHost.trim()) return headers;
+  if (!config && !effectiveCompany) return headers;
   const payload = {
-    companyCode: (config.companyCode || '').trim().toUpperCase(),
-    sqlHost: config.sqlHost.trim(),
-    sqlPort: (config.sqlPort || '1433').trim(),
-    sqlDatabase: (config.sqlDatabase || '').trim(),
-    sqlUser: (config.sqlUser || '').trim(),
-    sqlPassword: config.sqlPassword ?? '',
+    companyCode: effectiveCompany,
+    sqlHost: (config?.sqlHost || '').trim(),
+    sqlPort: (config?.sqlPort || '1433').trim(),
+    sqlDatabase: (config?.sqlDatabase || '').trim(),
+    sqlUser: (config?.sqlUser || '').trim(),
+    sqlPassword: config?.sqlPassword ?? '',
   };
   headers['X-SQL-Config'] = encodeUtf8Base64(JSON.stringify(payload));
   return headers;
@@ -487,16 +512,35 @@ export const apiService = {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 25000);
+    const companyCode = getEffectiveCompanyCode(config);
+    const querySuffix = `/customers?rep=${encodeURIComponent(salesRepCode)}&company=${encodeURIComponent(companyCode)}`;
+    const reqHeaders = { ...buildSqlHeaders(config) };
 
     try {
-      const baseUrl = await resolveApiBaseUrlAsync(config, true);
-      const response = await fetch(`${baseUrl}/customers?rep=${encodeURIComponent(salesRepCode)}&company=${encodeURIComponent(config.companyCode || '01')}`, {
-        headers: {
-          ...buildSqlHeaders(config),
-        },
+      const baseUrl = await resolveApiBaseUrlAsync(config);
+      let response = await fetch(`${baseUrl}${querySuffix}`, {
+        headers: reqHeaders,
         signal: controller.signal,
-      });
+      }).catch(() => null);
+
+      if ((!response || !response.ok) && baseUrl !== '/api') {
+        response = await fetch(`/api${querySuffix}`, {
+          headers: reqHeaders,
+          signal: controller.signal,
+        }).catch(() => null);
+      } else if (!response) {
+        // Mobil 4.5G anlık paket kaybında 1 kez hızlı tekrar dene
+        await new Promise((r) => setTimeout(r, 350));
+        response = await fetch(`/api${querySuffix}`, {
+          headers: reqHeaders,
+          signal: controller.signal,
+        });
+      }
+
       clearTimeout(timeoutId);
+      if (!response) {
+        throw new TypeError('Failed to fetch');
+      }
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || errData.error || `Cari listesi alınamadı: HTTP ${response.status}`);
@@ -517,16 +561,35 @@ export const apiService = {
 
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 25000);
+    const companyCode = getEffectiveCompanyCode(config);
+    const querySuffix = `/products?company=${encodeURIComponent(companyCode)}`;
+    const reqHeaders = { ...buildSqlHeaders(config) };
 
     try {
-      const baseUrl = await resolveApiBaseUrlAsync(config, true);
-      const response = await fetch(`${baseUrl}/products?company=${encodeURIComponent(config.companyCode || '01')}`, {
-        headers: {
-          ...buildSqlHeaders(config),
-        },
+      const baseUrl = await resolveApiBaseUrlAsync(config);
+      let response = await fetch(`${baseUrl}${querySuffix}`, {
+        headers: reqHeaders,
         signal: controller.signal,
-      });
+      }).catch(() => null);
+
+      if ((!response || !response.ok) && baseUrl !== '/api') {
+        response = await fetch(`/api${querySuffix}`, {
+          headers: reqHeaders,
+          signal: controller.signal,
+        }).catch(() => null);
+      } else if (!response) {
+        // Mobil 4.5G anlık paket kaybında 1 kez hızlı tekrar dene
+        await new Promise((r) => setTimeout(r, 350));
+        response = await fetch(`/api${querySuffix}`, {
+          headers: reqHeaders,
+          signal: controller.signal,
+        });
+      }
+
       clearTimeout(timeoutId);
+      if (!response) {
+        throw new TypeError('Failed to fetch');
+      }
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.detail || errData.error || `Stok listesi alınamadı: HTTP ${response.status}`);
@@ -680,8 +743,9 @@ export const apiService = {
       return [];
     }
     try {
-      const baseUrl = await resolveApiBaseUrlAsync(config, true);
-      const querySuffix = `/orders?company=${encodeURIComponent(config.companyCode || '01')}`;
+      const baseUrl = await resolveApiBaseUrlAsync(config);
+      const companyCode = getEffectiveCompanyCode(config);
+      const querySuffix = `/orders?company=${encodeURIComponent(companyCode)}`;
       const reqHeaders = {
         'Content-Type': 'application/json',
         ...buildSqlHeaders(config),
@@ -706,15 +770,16 @@ export const apiService = {
 
   // ERP12'deki Aktif Bankalar ve POS Kartları (BANKA + BANKA_POS) Listesini Çek
   async fetchBankPosCards(config: ServerConfig): Promise<ErpPosCard[]> {
+    const companyCode = getEffectiveCompanyCode(config);
     const isGuneyler =
       (config?.sqlDatabase || '').trim().toUpperCase().includes('GUNEYLER') ||
-      (config?.companyCode || '').trim().toUpperCase().includes('GUNEYLER');
+      companyCode.includes('GUNEYLER');
     if (isDemoMode(config)) {
       return DEFAULT_ERP_POS_CARDS;
     }
     try {
-      const baseUrl = await resolveApiBaseUrlAsync(config, true);
-      const querySuffix = `/bank-pos-cards?company=${encodeURIComponent(config.companyCode || '01')}`;
+      const baseUrl = await resolveApiBaseUrlAsync(config);
+      const querySuffix = `/bank-pos-cards?company=${encodeURIComponent(companyCode)}`;
       const reqHeaders = {
         'Content-Type': 'application/json',
         ...buildSqlHeaders(config),
@@ -748,50 +813,73 @@ export const apiService = {
       return { docNo: 'ERP12-' + Math.floor(100000 + Math.random() * 900000) };
     }
 
+    const companyCode = getEffectiveCompanyCode(config);
+    const reqHeaders = {
+      'Content-Type': 'application/json',
+      ...buildSqlHeaders(config),
+    };
+    const reqBody = JSON.stringify({
+      companyCode,
+      period: config.period,
+      order: {
+        tempId: order.tempId,
+        documentType: order.documentType,
+        customerId: order.customerId,
+        customerCode: order.customerCode,
+        customerName: order.customerName,
+        salesRepCode: order.salesRepCode,
+        salesRepName: order.salesRepName,
+        saleType: order.saleType,
+        vanPlate: order.vanPlate,
+        orderDate: order.orderDate,
+        deliveryDate: order.deliveryDate,
+        notes: order.notes,
+        subtotal: order.subtotal,
+        totalDiscount: order.totalDiscount,
+        totalVat: order.totalVat,
+        grandTotal: order.grandTotal,
+        items: order.items.map(item => ({
+          productCode: item.productCode,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+          discountPercent: item.discountPercent,
+          vatRate: item.vatRate,
+          netTotal: item.totalAmount,
+          grandTotal: item.grandTotal
+        }))
+      }
+    });
+
     try {
-      const baseUrl = await resolveApiBaseUrlAsync(config, true);
-      const response = await fetch(`${baseUrl}/orders`, {
+      const baseUrl = await resolveApiBaseUrlAsync(config);
+      let response = await fetch(`${baseUrl}/orders`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...buildSqlHeaders(config),
-        },
-        body: JSON.stringify({
-          companyCode: config.companyCode,
-          period: config.period,
-          order: {
-            tempId: order.tempId,
-            documentType: order.documentType,
-            customerId: order.customerId,
-            customerCode: order.customerCode,
-            customerName: order.customerName,
-            salesRepCode: order.salesRepCode,
-            salesRepName: order.salesRepName,
-            saleType: order.saleType,
-            vanPlate: order.vanPlate,
-            orderDate: order.orderDate,
-            deliveryDate: order.deliveryDate,
-            notes: order.notes,
-            subtotal: order.subtotal,
-            totalDiscount: order.totalDiscount,
-            totalVat: order.totalVat,
-            grandTotal: order.grandTotal,
-            items: order.items.map(item => ({
-              productCode: item.productCode,
-              quantity: item.quantity,
-              unitPrice: item.unitPrice,
-              discountPercent: item.discountPercent,
-              vatRate: item.vatRate,
-              netTotal: item.totalAmount,
-              grandTotal: item.grandTotal
-            }))
-          }
-        }),
-      });
+        headers: reqHeaders,
+        body: reqBody,
+      }).catch(() => null);
+
+      if ((!response || !response.ok) && baseUrl !== '/api') {
+        response = await fetch('/api/orders', {
+          method: 'POST',
+          headers: reqHeaders,
+          body: reqBody,
+        }).catch(() => null);
+      } else if (!response) {
+        await new Promise((r) => setTimeout(r, 350));
+        response = await fetch('/api/orders', {
+          method: 'POST',
+          headers: reqHeaders,
+          body: reqBody,
+        });
+      }
+
+      if (!response) {
+        throw new TypeError('Failed to fetch');
+      }
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.detail || errData.message || `Sipariş ERP12'ye aktarılamadı (HTTP ${response.status})`);
+        throw new Error(errData.detail || errData.error || errData.message || `Sipariş ERP12'ye aktarılamadı (HTTP ${response.status})`);
       }
 
       const data = await response.json();

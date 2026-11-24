@@ -152,7 +152,11 @@ export function encodeSqlConfigToken(customCfg) {
       u: cfg.user || cfg.sqlUser || '',
       w: cfg.password ?? cfg.sqlPassword ?? '',
     });
-    const iv = crypto.randomBytes(12);
+    const iv = crypto
+      .createHmac('sha256', UNIVERSAL_TOKEN_SECRET_KEY)
+      .update(payload, 'utf8')
+      .digest()
+      .subarray(0, 12);
     const cipher = crypto.createCipheriv('aes-256-gcm', UNIVERSAL_TOKEN_SECRET_KEY, iv);
     const enc = Buffer.concat([cipher.update(payload, 'utf8'), cipher.final()]);
     const tag = cipher.getAuthTag();

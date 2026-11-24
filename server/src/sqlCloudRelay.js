@@ -103,14 +103,28 @@ async function fetchRelayEndpoint(forceRefresh = false) {
   return null;
 }
 
+let lastDeadRelay = { url: '', failedAt: 0 };
+
 async function callRemoteRelay(action, sqlConfig, query = '') {
   if (!process.env.VERCEL || !process.env.BLOB_READ_WRITE_TOKEN) {
     return null;
   }
 
+  let prevTriedUrl = '';
   for (let attempt = 0; attempt < 2; attempt++) {
     const relayUrl = await fetchRelayEndpoint(attempt > 0);
     if (!relayUrl) return null;
+
+    if (attempt > 0 && relayUrl === prevTriedUrl) {
+      return null;
+    }
+    if (
+      lastDeadRelay.url === relayUrl &&
+      Date.now() - lastDeadRelay.failedAt < 8000
+    ) {
+      return null;
+    }
+    prevTriedUrl = relayUrl;
 
     const timestamp = Date.now();
     const normalizedCfg = {
@@ -129,7 +143,7 @@ async function callRemoteRelay(action, sqlConfig, query = '') {
     if (!signature) return null;
 
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
+    const timer = setTimeout(() => controller.abort(), 5000);
 
     try {
       const resp = await fetch(`${relayUrl}/api/internal/sql-relay`, {
@@ -150,6 +164,7 @@ async function callRemoteRelay(action, sqlConfig, query = '') {
 
       // Tünel adresi kapandıysa (530 / 502 / 504 / 404) önbelleği sıfırlayıp güncel tünel URL'sini dene
       if (resp.status === 530 || resp.status === 502 || resp.status === 504 || resp.status === 404) {
+        lastDeadRelay = { url: relayUrl, failedAt: Date.now() };
         cachedEndpoint = null;
         continue;
       }
@@ -160,9 +175,13 @@ async function callRemoteRelay(action, sqlConfig, query = '') {
         continue;
       }
 
+      if (lastDeadRelay.url === relayUrl) {
+        lastDeadRelay = { url: '', failedAt: 0 };
+      }
       return data;
     } catch {
       clearTimeout(timer);
+      lastDeadRelay = { url: relayUrl, failedAt: Date.now() };
       cachedEndpoint = null;
     }
   }

@@ -404,6 +404,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [serverConfig, setServerConfig] = useState<ServerConfig>(() => {
     const saved = localStorage.getItem('plasiyer_server_config');
+    let baseCfg: ServerConfig = DEFAULT_SERVER_CONFIG;
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -412,12 +413,31 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           parsed.apiUrl = '/api';
           localStorage.setItem('plasiyer_server_config', JSON.stringify(parsed));
         }
-        return parsed;
-      } catch (e) {
-        return DEFAULT_SERVER_CONFIG;
+        baseCfg = parsed;
+      } catch {
+        baseCfg = DEFAULT_SERVER_CONFIG;
       }
     }
-    return DEFAULT_SERVER_CONFIG;
+    const userCompany = (currentUser?.companyCode || '').trim().toUpperCase();
+    if (
+      userCompany &&
+      userCompany !== 'POLATLAR' &&
+      (!baseCfg.companyCode || baseCfg.companyCode === '01' || isDemoMode(baseCfg))
+    ) {
+      const matched = plasiyerAuthService.findServerConfigByCompanyCode(userCompany);
+      if (matched) {
+        localStorage.setItem('plasiyer_server_config', JSON.stringify(matched));
+        return matched;
+      }
+      const upgraded: ServerConfig = {
+        ...baseCfg,
+        apiUrl: '/api',
+        companyCode: userCompany,
+      };
+      localStorage.setItem('plasiyer_server_config', JSON.stringify(upgraded));
+      return upgraded;
+    }
+    return baseCfg;
   });
 
   const [liveIssuerInfo, setLiveIssuerInfo] = useState<CompanyIssuerInfo | null>(() =>
@@ -1089,9 +1109,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           (remoteCfg.sqlHost || '').trim() !== (serverConfig.sqlHost || '').trim() ||
           (remoteCfg.sqlPort || '1433').trim() !== (serverConfig.sqlPort || '1433').trim() ||
           (remoteCfg.sqlUser || '').trim() !== (serverConfig.sqlUser || '').trim() ||
+          (!serverConfig.sqlPassword && Boolean(remoteCfg.sqlPassword));
+        const pwdTokenUpdated =
+          Boolean(remoteCfg.sqlPassword) &&
           (remoteCfg.sqlPassword ?? '') !== (serverConfig.sqlPassword ?? '');
 
-        if (dbChanged || (status.licenseExpireDate && status.licenseExpireDate !== serverConfig.licenseExpireDate)) {
+        if (
+          dbChanged ||
+          pwdTokenUpdated ||
+          (status.licenseExpireDate && status.licenseExpireDate !== serverConfig.licenseExpireDate)
+        ) {
           const nextCfg: ServerConfig = {
             ...serverConfig,
             apiUrl: remoteCfg.apiUrl || '/api',
@@ -1102,7 +1129,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             sqlPort: remoteCfg.sqlPort || '1433',
             sqlDatabase: remoteCfg.sqlDatabase,
             sqlUser: remoteCfg.sqlUser,
-            sqlPassword: remoteCfg.sqlPassword,
+            sqlPassword: remoteCfg.sqlPassword || serverConfig.sqlPassword,
             licenseExpireDate: status.licenseExpireDate || remoteCfg.licenseExpireDate || serverConfig.licenseExpireDate,
           };
           setServerConfig(nextCfg);
@@ -2343,15 +2370,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             const currentBuildVer =
               typeof __APP_BUILD_VERSION__ !== 'undefined' ? __APP_BUILD_VERSION__ : undefined;
             if (verData?.version && currentBuildVer && verData.version !== currentBuildVer) {
-              if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
-                const regs = await navigator.serviceWorker.getRegistrations();
-                await Promise.all(regs.map((r) => r.unregister()));
-              }
-              if ('caches' in window && caches.keys) {
-                const keys = await caches.keys();
-                await Promise.all(keys.map((k) => caches.delete(k)));
-              }
-              window.location.replace(window.location.pathname + '?v=' + Date.now());
+              setTimeout(async () => {
+                try {
+                  if ('serviceWorker' in navigator && navigator.serviceWorker.getRegistrations) {
+                    const regs = await navigator.serviceWorker.getRegistrations();
+                    await Promise.all(regs.map((r) => r.unregister()));
+                  }
+                  if ('caches' in window && caches.keys) {
+                    const keys = await caches.keys();
+                    await Promise.all(keys.map((k) => caches.delete(k)));
+                  }
+                } catch {
+                  // ignore
+                }
+                window.location.replace(window.location.pathname + '?v=' + Date.now());
+              }, 1200);
             }
           }
         } catch {

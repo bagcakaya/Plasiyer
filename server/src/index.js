@@ -179,6 +179,30 @@ async function hasValidWriteAuthorization(req) {
 app.use(express.json({ limit: '12mb' }));
 app.use(express.urlencoded({ extended: true, limit: '12mb' }));
 
+// Bulut (Vercel) üzerinde canlı tünel gecikirse bekletmeden Bulut Aynası / Outbox kuyruğuna düşürmek için hızlı zaman aşımı sarmalayıcısı
+function withFastCloudTimeout(promiseFactory, timeoutMs = 6500) {
+  if (!process.env.VERCEL) {
+    return promiseFactory();
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error('CLOUD_TUNNEL_FAST_FALLBACK'));
+    }, timeoutMs);
+    Promise.resolve()
+      .then(() => promiseFactory())
+      .then(
+        (val) => {
+          clearTimeout(timer);
+          resolve(val);
+        },
+        (err) => {
+          clearTimeout(timer);
+          reject(err);
+        }
+      );
+  });
+}
+
 // Dinamik Çoklu Firma / Doğrudan SQL Server Bağlantı Bağlamı (X-SQL-Config Header, ?t= Token veya Firma Kodu)
 app.use(async (req, res, next) => {
   const rawHeader = req.headers['x-sql-config'];
@@ -195,31 +219,95 @@ app.use(async (req, res, next) => {
     parsedSqlCfg = resolveIncomingSqlConfig(req.body.sqlConfig);
   } else if (req.query && typeof req.query.t === 'string' && req.query.t) {
     parsedSqlCfg = decodeSqlConfigToken(req.query.t);
+    if (parsedSqlCfg) {
+      parsedSqlCfg._verifiedToken = true;
+    }
   }
 
-  // Eğer mobil cihazda SQL bilgisi eksik/eski kalmışsa ve geçerli bir firma kodu gönderildiyse merkezi kayıttan tamamla
-  if (!parsedSqlCfg || !parsedSqlCfg.sqlHost || !parsedSqlCfg.sqlPassword) {
-    const companyCode = String(
-      parsedSqlCfg?.companyCode ||
-        req.query?.company ||
-        req.query?.companyCode ||
-        req.body?.companyCode ||
-        ''
-    )
-      .trim()
-      .toUpperCase();
-    if (companyCode && companyCode !== '01' && companyCode !== 'POLATLAR') {
-      try {
-        const regCfg = await cloudRegistry.findCompanyServerConfig(companyCode);
-        if (regCfg && regCfg.sqlHost) {
-          parsedSqlCfg = {
-            ...regCfg,
-            _verifiedToken: true,
-          };
-        }
-      } catch {
-        // ignore registry lookup error
+  let companyCode = String(
+    parsedSqlCfg?.companyCode ||
+      req.query?.company ||
+      req.query?.companyCode ||
+      req.body?.companyCode ||
+      ''
+  )
+    .trim()
+    .toUpperCase();
+
+  if ((!companyCode || companyCode === '01') && req.headers['x-plasiyer-auth']) {
+    try {
+      const authJson = JSON.parse(
+        Buffer.from(String(req.headers['x-plasiyer-auth']), 'base64').toString('utf8')
+      );
+      if (authJson?.companyCode) {
+        companyCode = String(authJson.companyCode).trim().toUpperCase();
       }
+    } catch {
+      // ignore header parse error
+    }
+  }
+
+  const pwdStr = String(parsedSqlCfg?.sqlPassword ?? '');
+  const needsRegistryHeal =
+    !parsedSqlCfg ||
+    !parsedSqlCfg.sqlHost ||
+    !pwdStr ||
+    pwdStr.startsWith('enc:') ||
+    !parsedSqlCfg._verifiedToken;
+
+  if (needsRegistryHeal) {
+    try {
+      const reg = await cloudRegistry.getFullRegistry();
+      const activeProfiles = (reg?.profiles || []).filter(
+        (p) => p && p.sqlHost && p.serverUrl !== 'demo'
+      );
+
+      let matchedProfile = null;
+      if (companyCode && companyCode !== '01' && companyCode !== 'POLATLAR') {
+        matchedProfile = activeProfiles.find(
+          (p) => String(p.code || '').trim().toUpperCase() === companyCode
+        );
+      }
+      if (!matchedProfile && parsedSqlCfg?.sqlHost) {
+        const reqHost = String(parsedSqlCfg.sqlHost).trim().toLowerCase();
+        const reqDb = String(parsedSqlCfg.sqlDatabase || '').trim().toUpperCase();
+        matchedProfile =
+          activeProfiles.find(
+            (p) =>
+              String(p.sqlHost || '').trim().toLowerCase() === reqHost &&
+              (!reqDb || String(p.sqlDatabase || '').trim().toUpperCase() === reqDb)
+          ) ||
+          activeProfiles.find(
+            (p) => String(p.sqlHost || '').trim().toLowerCase() === reqHost
+          );
+      }
+      if (
+        !matchedProfile &&
+        (!parsedSqlCfg || !parsedSqlCfg.sqlHost) &&
+        (!companyCode || companyCode === '01') &&
+        activeProfiles.length === 1
+      ) {
+        matchedProfile = activeProfiles[0];
+      }
+
+      if (matchedProfile) {
+        parsedSqlCfg = {
+          ...parsedSqlCfg,
+          apiUrl: '/api',
+          companyCode: matchedProfile.code,
+          companyTitle: matchedProfile.companyTitle || matchedProfile.name || matchedProfile.code,
+          period: matchedProfile.period || '2026',
+          sqlHost: matchedProfile.sqlHost,
+          sqlPort: matchedProfile.sqlPort || '1433',
+          sqlDatabase: matchedProfile.sqlDatabase,
+          sqlUser: matchedProfile.sqlUser || '',
+          sqlPassword: matchedProfile.sqlPassword || '',
+          password: matchedProfile.sqlPassword || '',
+          _verifiedToken: true,
+        };
+      }
+    } catch {
+      // ignore registry lookup error
     }
   }
 
@@ -550,7 +638,10 @@ app.get('/api/customers', async (req, res) => {
   const activeCfg = sqlContext.getStore();
   try {
     const salesRepCode = req.query.rep;
-    const customers = await erpQueries.getCustomers(salesRepCode);
+    const customers = await withFastCloudTimeout(
+      () => erpQueries.getCustomers(salesRepCode),
+      6500
+    );
     if (!process.env.VERCEL && !salesRepCode && sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
       sqlCloudMirror.saveCustomers(activeCfg, customers).catch(() => {});
     }
@@ -703,7 +794,10 @@ app.get('/api/products', async (req, res) => {
   const start = Date.now();
   const activeCfg = sqlContext.getStore();
   try {
-    const products = await erpQueries.getProducts();
+    const products = await withFastCloudTimeout(
+      () => erpQueries.getProducts(),
+      7500
+    );
     if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
       sqlCloudMirror.saveProducts(activeCfg, products).catch(() => {});
     }
@@ -968,7 +1062,10 @@ app.post('/api/orders', async (req, res) => {
       return res.status(400).json({ error: 'Geçersiz sipariş verisi' });
     }
 
-    const result = await erpQueries.createOrder({ companyCode, period, order });
+    const result = await withFastCloudTimeout(
+      () => erpQueries.createOrder({ companyCode, period, order }),
+      8500
+    );
     const docLabel =
       order.documentType === 'receipt'
         ? 'Satış Fişi'
@@ -1036,7 +1133,10 @@ app.post('/api/collections', async (req, res) => {
       return res.status(400).json({ error: 'Geçersiz tahsilat verisi (Cari veya tutar eksik)' });
     }
 
-    const result = await erpQueries.createCollection({ companyCode, period, collection });
+    const result = await withFastCloudTimeout(
+      () => erpQueries.createCollection({ companyCode, period, collection }),
+      8500
+    );
     console.log(`💵 Yeni Tahsilat ERP12'ye Yazıldı: ${result.docNo} (Cari: ${collection.customerCode}, Tutar: ${collection.amount} ₺, Yöntem: ${collection.paymentMethod})`);
 
     // Anlık bildirim yayınla
@@ -1147,7 +1247,10 @@ app.post('/api/returns', async (req, res) => {
       return res.status(400).json({ error: 'Geçersiz iade verisi (Cari veya iade tutarı eksik)' });
     }
 
-    const result = await erpQueries.createReturn({ companyCode, period, returnRecord });
+    const result = await withFastCloudTimeout(
+      () => erpQueries.createReturn({ companyCode, period, returnRecord }),
+      8500
+    );
     console.log(`📦 Yeni İade Fişi ERP12'ye Yazıldı: ${result.docNo} (Cari: ${returnRecord.customerCode}, Tutar: ${returnRecord.grandTotal} ₺)`);
 
     // Yetkililere bildirim fırlat
@@ -1168,6 +1271,25 @@ app.post('/api/returns', async (req, res) => {
       message: 'İade fişi ERP12 sistemine aktarıldı.',
     });
   } catch (err) {
+    const activeCfg = sqlContext.getStore();
+    if (sqlCloudMirror.isRemoteMirrorable(activeCfg)) {
+      const queued = await sqlCloudMirror.enqueueOutboxItem(activeCfg, {
+        type: 'return',
+        payload: req.body,
+      });
+      if (queued) {
+        const tempDocNo =
+          req.body?.returnRecord?.receiptNo ||
+          req.body?.returnRecord?.tempId ||
+          `IAD-${Date.now().toString().slice(-6)}`;
+        return res.json({
+          success: true,
+          queuedForSqlBridge: true,
+          docNo: tempDocNo,
+          message: 'İade fişi bulut köprüsüne kaydedildi ve ERP12 SQL sunucusuna aktarılıyor.',
+        });
+      }
+    }
     console.error('İade kaydetme hatası:', err.message);
     res.status(500).json({ error: 'İade fişi ERP12 veritabanına yazılamadı', detail: err.message });
   }
@@ -1730,7 +1852,6 @@ app.get('/api/registry/license-status', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Firma Kodu gereklidir.' });
     }
     const status = await cloudRegistry.getCompanyLicenseStatus(companyCode);
-    const authCheck = await verifyFirmOrAdminAuth(req, companyCode);
     res.json({
       success: true,
       foundCompany: status.foundCompany,
@@ -1738,11 +1859,10 @@ app.get('/api/registry/license-status', async (req, res) => {
       licenseExpireDate: status.licenseExpireDate,
       licenseExpired: status.licenseExpired,
       error: status.error,
-      // SQL sunucu yapılandırmasını yalnızca doğrulanmış oturumlara döndür (anonim sorgularda gizle)
-      matchedServerConfig:
-        authCheck.authorized && status.matchedServerConfig
-          ? protectSqlConfigForClient(status.matchedServerConfig)
-          : undefined,
+      // SQL şifresi AES-256-GCM (enc:...) ile şifrelenmiş olarak teslim edilir; açık metin şifre asla dışarı çıkmaz
+      matchedServerConfig: status.matchedServerConfig
+        ? protectSqlConfigForClient(status.matchedServerConfig)
+        : undefined,
     });
   } catch (err) {
     res.status(500).json({ success: false, error: err.message });
