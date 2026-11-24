@@ -119,8 +119,9 @@ async function callRemoteRelay(action, sqlConfig, query = '') {
       return null;
     }
     if (
+      action !== 'erpImage' &&
       lastDeadRelay.url === relayUrl &&
-      Date.now() - lastDeadRelay.failedAt < 8000
+      Date.now() - lastDeadRelay.failedAt < 4000
     ) {
       return null;
     }
@@ -142,8 +143,9 @@ async function callRemoteRelay(action, sqlConfig, query = '') {
     });
     if (!signature) return null;
 
+    const timeoutMs = action === 'erpImage' ? 9000 : 5000;
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 5000);
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
 
     try {
       const resp = await fetch(`${relayUrl}/api/internal/sql-relay`, {
@@ -162,16 +164,25 @@ async function callRemoteRelay(action, sqlConfig, query = '') {
       });
       clearTimeout(timer);
 
-      // Tünel adresi kapandıysa (530 / 502 / 504 / 404) önbelleği sıfırlayıp güncel tünel URL'sini dene
-      if (resp.status === 530 || resp.status === 502 || resp.status === 504 || resp.status === 404) {
-        lastDeadRelay = { url: relayUrl, failedAt: Date.now() };
+      // Tünel adresi kapandıysa (530 / 404) önbelleği sıfırlayıp güncel tünel URL'sini dene
+      if (resp.status === 530 || resp.status === 404) {
+        if (action !== 'erpImage') {
+          lastDeadRelay = { url: relayUrl, failedAt: Date.now() };
+        }
         cachedEndpoint = null;
+        continue;
+      }
+      if (resp.status === 502 || resp.status === 504 || resp.status === 429) {
+        if (action === 'erpImage' && attempt === 0) {
+          await new Promise((r) => setTimeout(r, 250 + Math.floor(Math.random() * 350)));
+          prevTriedUrl = '';
+          continue;
+        }
         continue;
       }
 
       const data = await resp.json().catch(() => null);
       if (!data) {
-        cachedEndpoint = null;
         continue;
       }
 
@@ -181,8 +192,12 @@ async function callRemoteRelay(action, sqlConfig, query = '') {
       return data;
     } catch {
       clearTimeout(timer);
-      lastDeadRelay = { url: relayUrl, failedAt: Date.now() };
-      cachedEndpoint = null;
+      if (action !== 'erpImage') {
+        lastDeadRelay = { url: relayUrl, failedAt: Date.now() };
+      } else if (attempt === 0) {
+        await new Promise((r) => setTimeout(r, 250 + Math.floor(Math.random() * 350)));
+        prevTriedUrl = '';
+      }
     }
   }
 

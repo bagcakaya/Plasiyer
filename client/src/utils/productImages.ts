@@ -291,19 +291,20 @@ export function handleProductImageError(
     }
   }
 
-  // 2. Bulut veya mobil ağ yoğunluğunda 2 kez kademeli olarak yeniden dene
+  // 2. Bulut veya mobil 4.5G ağ yoğunluğunda kademeli jitter ile 4 kez yeniden dene
   const retryCount = Number(target.dataset.retryCount || '0');
-  if (currentSrc.includes('/api/products/erp-image/') && retryCount < 2) {
+  if (currentSrc.includes('/api/products/erp-image/') && retryCount < 4) {
     const nextRetry = retryCount + 1;
     target.dataset.retryCount = String(nextRetry);
     const baseClean = currentSrc.replace(/([?&])r=\d+/g, '');
     const sep = baseClean.includes('?') ? '&' : '?';
     const retryUrl = `${baseClean}${sep}r=${nextRetry}`;
+    const delayMs = nextRetry * 550 + Math.floor(Math.random() * 450);
     setTimeout(() => {
       if (target) {
         target.src = retryUrl;
       }
-    }, nextRetry * 400);
+    }, delayMs);
     return;
   }
 

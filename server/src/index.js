@@ -894,6 +894,9 @@ app.get('/api/products/erp-image/:idOrCode', async (req, res) => {
           w: reqWidth,
         });
         if (relayedImg?.buffer) {
+          sqlCloudMirror
+            .saveProductImage(activeCfg, idOrCode, relayedImg, code)
+            .catch(() => {});
           return sendImageBuffer(relayedImg);
         }
         if (relayedImg?.link && /^https?:\/\//i.test(relayedImg.link)) {
@@ -2047,23 +2050,30 @@ async function syncRegisteredRemoteSqlMirrors(includeCatalog = true) {
               `☁️✅ [${p.code}] Bulut SQL Aynası Güncellendi: ${custs.length} cari, ${prods.length} stok`
             );
 
-            // Kategori vitrin ikonlarını ve ilk sayfalardaki ürün görsellerini mobil boyutta (~6-10 KB) önbelleğe ve bulut aynasına hazırla
+            // Kategori vitrin ikonlarını ve stoktaki ürün görsellerini mobil boyutta (~3-8 KB) önbelleğe ve bulut aynasına hazırla
             const priorityProducts = [
-              ...prods.filter((pr) => pr.stockQuantity > 0 && pr.image?.includes('erp-image')).slice(0, 60),
-              ...prods.filter((pr) => pr.stockQuantity <= 0 && pr.image?.includes('erp-image')).slice(0, 40),
+              ...prods.filter((pr) => pr.stockQuantity > 0 && pr.image?.includes('erp-image')),
+              ...prods.filter((pr) => pr.stockQuantity <= 0 && pr.image?.includes('erp-image')).slice(0, 60),
             ];
-            for (const pr of priorityProducts) {
-              try {
-                const idxMatch = String(pr.image || '').match(/[?&]idx=(\d+)/);
-                const parsedIdx = idxMatch ? idxMatch[1] : '';
-                const img = await erpQueries.getProductErpImage(pr.id, pr.code, parsedIdx, 240);
-                if (img?.buffer) {
-                  await sqlCloudMirror.saveProductImage(cfg, pr.id, img, pr.code);
+            (async () => {
+              for (const pr of priorityProducts) {
+                try {
+                  const imgStr = String(pr.image || '');
+                  const idxMatch = imgStr.match(/[?&]idx=(\d+)/);
+                  const parsedIdx = idxMatch ? idxMatch[1] : '';
+                  const idMatch = imgStr.match(/\/erp-image\/([^?&]+)/);
+                  const targetStokId = idMatch ? decodeURIComponent(idMatch[1]) : pr.id;
+                  const img = await sqlContext.run(cfg, () =>
+                    erpQueries.getProductErpImage(targetStokId, pr.code, parsedIdx, 240)
+                  );
+                  if (img?.buffer) {
+                    await sqlCloudMirror.saveProductImage(cfg, targetStokId, img, pr.code);
+                  }
+                } catch {
+                  // ignore single image warm warning
                 }
-              } catch {
-                // ignore single image warm warning
               }
-            }
+            })().catch(() => {});
           }
         }
       });

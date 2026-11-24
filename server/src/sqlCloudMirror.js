@@ -311,44 +311,25 @@ export const sqlCloudMirror = {
       buffer: Buffer.from(data.base64, 'base64'),
     });
 
-    // 1. Aktif veritabanı aynası
-    if (key && cleanId) {
-      const data = await getMirrorJson(key, `erp-images/${cleanId}.json`);
-      if (isValidImgData(data, expectedAuthHash)) {
-        return toImgResult(data);
-      }
-    }
+    // 1. Aktif veritabanı ve ortak sunucu havuzundan paralel tek-atım hızlı sorgu (~40ms)
+    const [primaryData, byCodeData, byIdData] = await Promise.all([
+      key && cleanId ? getMirrorJson(key, `erp-images/${cleanId}.json`) : Promise.resolve(null),
+      sharedKey && cleanCode
+        ? getMirrorJson(sharedKey, `erp-images/code_${cleanCode}.json`)
+        : Promise.resolve(null),
+      sharedKey && cleanId
+        ? getMirrorJson(sharedKey, `erp-images/id_${cleanId}.json`)
+        : Promise.resolve(null),
+    ]);
 
-    // 2. Aynı SQL sunucusu üzerindeki ortak (veritabanı adından bağımsız) görsel havuzu (Stok Kodu ve Stok ID ile)
-    if (sharedKey) {
-      if (cleanCode) {
-        const byCodeData = await getMirrorJson(sharedKey, `erp-images/code_${cleanCode}.json`);
-        if (isValidImgData(byCodeData, expectedAuthHash)) {
-          return toImgResult(byCodeData);
-        }
-      }
-      if (cleanId) {
-        const byIdData = await getMirrorJson(sharedKey, `erp-images/id_${cleanId}.json`);
-        if (isValidImgData(byIdData, expectedAuthHash)) {
-          return toImgResult(byIdData);
-        }
-      }
+    if (isValidImgData(primaryData, expectedAuthHash)) {
+      return toImgResult(primaryData);
     }
-
-    // 3. Aynı SQL sunucusundaki kardeş veritabanı aynaları (örn: GUNEYLERB2B -> GUNEYLERB3B geçişinde eski datadaki görseller)
-    if (cleanId) {
-      const { database } = parseCleanDbParts(cfg);
-      const siblingDbs = getSiblingDatabaseCandidates(database);
-      for (const sibDb of siblingDbs) {
-        const sibCfg = { ...cfg, sqlDatabase: sibDb, database: sibDb };
-        const sibKey = makeMirrorKey(sibCfg);
-        if (!sibKey) continue;
-        const sibAuthHash = makeAuthHash(sibCfg);
-        const sibData = await getMirrorJson(sibKey, `erp-images/${cleanId}.json`);
-        if (isValidImgData(sibData, sibAuthHash)) {
-          return toImgResult(sibData);
-        }
-      }
+    if (isValidImgData(byCodeData, expectedAuthHash)) {
+      return toImgResult(byCodeData);
+    }
+    if (isValidImgData(byIdData, expectedAuthHash)) {
+      return toImgResult(byIdData);
     }
 
     return null;
