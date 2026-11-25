@@ -2290,59 +2290,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   };
 
-  // Senkronizasyon & Canlı Değişiklik Güncelleme Tetikle
+  // Senkronizasyon & Canlı Değişiklik Güncelleme Tetikle (Paralel ve Hızlı)
   const triggerSync = async (overrideConfig?: ServerConfig): Promise<SyncResult> => {
     setIsSyncing(true);
     try {
       const activeCfg = overrideConfig || serverConfig;
 
-      // 1. Plasiyer yetkilerini (Rut Bölgeleri, Stok Grupları, Yönetici/Plasiyer rolü ve ERP12 Personel Kartı değişiklikleri) anında çek
-      if (currentUser && currentUser.role === 'plasiyer') {
+      // 1. Plasiyer yetki eşitlemesini ve Lokasyon güncellemesini ana veri çekimiyle PARALEL çalıştır (bekleme süresini 5 kat azaltır)
+      const syncAccountsTask = (async () => {
+        if (!currentUser || currentUser.role !== 'plasiyer') return;
         try {
           const targetCompany = (currentUser.companyCode || activeCfg.companyCode || '')
             .trim()
             .toUpperCase();
-          if (targetCompany) {
-            const syncedAccounts = await plasiyerAuthService.syncAccountsFromSql(activeCfg);
-            const activeRepCode = (currentUser.salesRepCode || currentUser.code || '')
-              .trim()
-              .toUpperCase();
-            const matchedAcc = syncedAccounts.find(
-              (a) =>
-                a.companyCode.toUpperCase() === targetCompany &&
-                a.repCode.toUpperCase() === activeRepCode
-            );
-            if (matchedAcc) {
-              const fullName =
-                [matchedAcc.firstName, matchedAcc.lastName].filter(Boolean).join(' ').trim() ||
-                currentUser.name;
-              const updatedUser: AuthUser = {
-                ...currentUser,
-                name: fullName,
-                firstName: matchedAcc.firstName || currentUser.firstName,
-                lastName: matchedAcc.lastName || currentUser.lastName,
-                accountRole: matchedAcc.accountRole === 'manager' ? 'manager' : 'plasiyer',
-                locationName: matchedAcc.locationName ?? currentUser.locationName,
-                viewAllRoutes: Boolean(matchedAcc.viewAllRoutes),
-                allowedRouteRegions: matchedAcc.allowedRouteRegions,
-                erpAssignedRegions: matchedAcc.erpAssignedRegions,
-                viewAllStocks: Boolean(matchedAcc.viewAllStocks),
-                allowedStockGroups: matchedAcc.allowedStockGroups,
-                erpAssignedStockGroups: matchedAcc.erpAssignedStockGroups,
-                erpForbiddenStockGroups: matchedAcc.erpForbiddenStockGroups,
-              };
-              setCurrentUser(updatedUser);
-              localStorage.setItem('plasiyer_auth_user', JSON.stringify(updatedUser));
-            }
+          if (!targetCompany) return;
+          const syncedAccounts = await plasiyerAuthService.syncAccountsFromSql(activeCfg);
+          const activeRepCode = (currentUser.salesRepCode || currentUser.code || '')
+            .trim()
+            .toUpperCase();
+          const matchedAcc = syncedAccounts.find(
+            (a) =>
+              a.companyCode.toUpperCase() === targetCompany &&
+              a.repCode.toUpperCase() === activeRepCode
+          );
+          if (matchedAcc) {
+            const fullName =
+              [matchedAcc.firstName, matchedAcc.lastName].filter(Boolean).join(' ').trim() ||
+              currentUser.name;
+            const updatedUser: AuthUser = {
+              ...currentUser,
+              name: fullName,
+              firstName: matchedAcc.firstName || currentUser.firstName,
+              lastName: matchedAcc.lastName || currentUser.lastName,
+              accountRole: matchedAcc.accountRole === 'manager' ? 'manager' : 'plasiyer',
+              locationName: matchedAcc.locationName ?? currentUser.locationName,
+              viewAllRoutes: Boolean(matchedAcc.viewAllRoutes),
+              allowedRouteRegions: matchedAcc.allowedRouteRegions,
+              erpAssignedRegions: matchedAcc.erpAssignedRegions,
+              viewAllStocks: Boolean(matchedAcc.viewAllStocks),
+              allowedStockGroups: matchedAcc.allowedStockGroups,
+              erpAssignedStockGroups: matchedAcc.erpAssignedStockGroups,
+              erpForbiddenStockGroups: matchedAcc.erpForbiddenStockGroups,
+            };
+            setCurrentUser(updatedUser);
+            localStorage.setItem('plasiyer_auth_user', JSON.stringify(updatedUser));
           }
         } catch {
           // Çevrimdışıysa mevcut yerel yetkilerle devam et
         }
-      }
+      })();
 
-      // 2. ERP12 SQL veritabanından güncel Cariler, Stoklar, Kategoriler, Fiyatlar ve Bakiyeleri çek
-      const res = await syncService.fullSync(activeCfg, salesRep.code);
-      await refreshLocations();
+      // 2. ERP12 SQL veritabanından güncel Cariler, Stoklar, Kategoriler, Fiyatlar ve Bakiyeleri paralel çek
+      const [res] = await Promise.all([
+        syncService.fullSync(activeCfg, salesRep.code),
+        syncAccountsTask,
+      ]);
+
+      // Lokasyon listesini arka planda sessizce tazele (Güncelle butonunu bekletme)
+      refreshLocations().catch(() => {});
       if (res.companyInfo) {
         persistIssuerInfo(activeCfg, res.companyInfo);
       }

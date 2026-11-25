@@ -1534,6 +1534,8 @@ app.post('/api/locations', async (req, res) => {
 });
 
 // 8. PLASİYER & FİRMA YETKİLİSİ KULLANICI YÖNETİMİ VE GİRİŞ DOĞRULAMA
+const lastNativePlasiyerSyncMap = new Map();
+
 app.get('/api/plasiyers', async (req, res) => {
   try {
     const companyCode = String(req.query.companyCode || '').trim().toUpperCase();
@@ -1548,18 +1550,21 @@ app.get('/api/plasiyers', async (req, res) => {
       ? await cloudRegistry.findCompanyServerConfig(targetCompany)
       : sqlContext.getStore();
 
-    try {
+    const now = Date.now();
+    const lastSyncAt = lastNativePlasiyerSyncMap.get(targetCompany || 'DEFAULT') || 0;
+    if (now - lastSyncAt > 120000) {
+      lastNativePlasiyerSyncMap.set(targetCompany || 'DEFAULT', now);
       const runCtx = companySqlCfg && companySqlCfg.sqlHost ? companySqlCfg : sqlContext.getStore();
       if (runCtx && runCtx.sqlHost && targetCompany) {
-        const nativePlasiyers = await sqlContext.run(runCtx, () =>
-          erpQueries.getErpNativePlasiyers(targetCompany)
-        );
-        if (Array.isArray(nativePlasiyers) && nativePlasiyers.length > 0) {
-          await cloudRegistry.syncCompanyErpPlasiyers(targetCompany, nativePlasiyers);
-        }
+        sqlContext
+          .run(runCtx, () => erpQueries.getErpNativePlasiyers(targetCompany))
+          .then((nativePlasiyers) => {
+            if (Array.isArray(nativePlasiyers) && nativePlasiyers.length > 0) {
+              return cloudRegistry.syncCompanyErpPlasiyers(targetCompany, nativePlasiyers);
+            }
+          })
+          .catch(() => {});
       }
-    } catch {
-      // ignore live SQL sync warning
     }
 
     const cloudAccounts = await cloudRegistry.getAccountsByCompany(targetCompany);
@@ -2180,11 +2185,10 @@ async function syncRegisteredRemoteSqlMirrors(includeCatalog = true) {
               `☁️✅ [${p.code}] Bulut SQL Aynası Güncellendi: ${custs.length} cari, ${prods.length} stok`
             );
 
-            // Kategori vitrin ikonlarını ve stoktaki ürün görsellerini mobil boyutta (~3-8 KB) önbelleğe ve bulut aynasına hazırla
-            const priorityProducts = [
-              ...prods.filter((pr) => pr.stockQuantity > 0 && pr.image?.includes('erp-image')),
-              ...prods.filter((pr) => pr.stockQuantity <= 0 && pr.image?.includes('erp-image')).slice(0, 60),
-            ];
+            // İlk sayfadaki ürün görsellerini SQL havuzunu yormadan arka planda bulut aynasına hazırla
+            const priorityProducts = prods
+              .filter((pr) => pr.stockQuantity > 0 && pr.image?.includes('erp-image'))
+              .slice(0, 30);
             (async () => {
               for (const pr of priorityProducts) {
                 try {
@@ -2199,6 +2203,7 @@ async function syncRegisteredRemoteSqlMirrors(includeCatalog = true) {
                   if (img?.buffer) {
                     await sqlCloudMirror.saveProductImage(cfg, targetStokId, img, pr.code);
                   }
+                  await new Promise((r) => setTimeout(r, 120));
                 } catch {
                   // ignore single image warm warning
                 }

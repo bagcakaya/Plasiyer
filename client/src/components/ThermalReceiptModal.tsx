@@ -27,7 +27,6 @@ import {
   Image as ImageIcon
 } from 'lucide-react';
 import {
-  blobToBase64,
   generateReceiptPdfBlob,
   generateReceiptPngBlob,
 } from '../utils/receiptExport';
@@ -661,138 +660,6 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
     }
   };
 
-  // WhatsApp için düz metin fiş özeti oluşturma
-  const buildWhatsAppSummaryText = (): string => {
-    let text = '';
-    if (slipType === 'order' && orderData) {
-      const itemsText = normalizedOrderCalc.items.map(({ item: it, lineInclVat }) => {
-        if (it.isGift) {
-          return `• 🎁 [BEDELSİZ HEDİYE] ${it.productName}\n  ${it.quantity} ${it.unit} x 0,00 ₺ = 0,00 ₺ (${it.campaignTitle || 'Promosyon'})`;
-        }
-        return `• ${it.productName}\n  ${it.quantity} ${it.unit} x ${it.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺ = ${lineInclVat.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺`;
-      }).join('\n');
-
-      let campaignSection = '';
-      if (orderData.appliedCampaigns && orderData.appliedCampaigns.length > 0) {
-        campaignSection = `\n--------------------------------\n` +
-          `*KAZANILAN KAMPANYALAR:*\n` +
-          orderData.appliedCampaigns.map(c => `• 🎁 ${c.campaignTitle}`).join('\n') + `\n`;
-      }
-
-      let savingsSection = '';
-      if (orderData.totalCampaignSavings && orderData.totalCampaignSavings > 0) {
-        savingsSection = `*Toplam Kampanya Kazancı:* ${orderData.totalCampaignSavings.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n`;
-      }
-
-      const isHotSale = orderData.saleType === 'hot';
-      const saleTypeHeader = isHotSale 
-        ? `*${issuerMainTitle} - 🔥 SICAK SATIŞ BİLGİ FİŞİ*\n*Satış Türü:* ARAÇTAN ANINDA TESLİM (${orderData.vanPlate || 'Mobil Depo'})\n` 
-        : `*${issuerMainTitle} - SİPARİŞ BİLGİ FİŞİ*\n`;
-
-      text = saleTypeHeader +
-        `--------------------------------\n` +
-        `*Fiş No:* ${orderData.tempId}\n` +
-        `*Tarih:* ${nowFormatted}\n` +
-        `*Müşteri:* ${orderData.customerName}\n` +
-        `*Cari Kod:* ${orderData.customerCode}\n` +
-        `*İskonto Oranı:* %${orderDiscountRate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}\n` +
-        `--------------------------------\n` +
-        itemsText +
-        campaignSection +
-        `--------------------------------\n` +
-        `*Ara Toplam:* ${orderSubtotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
-        `*İskonto Oranı:* %${orderDiscountRate.toLocaleString('tr-TR', { maximumFractionDigits: 2 })}\n` +
-        `*İskonto Tutarı:* ${orderDiscountAmount > 0 ? '-' : ''}${orderDiscountAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
-        (orderData.campaignDiscount && orderData.campaignDiscount > 0 ? `*Kampanya İskontosu:* -${orderData.campaignDiscount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` : '') +
-        `*KDV Tutarı:* ${orderEffectiveVat.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
-        savingsSection +
-        `*Toplam Tutar:* ${orderEffectiveGrandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
-        (orderData.notes ? `*Not:* ${orderData.notes}\n` : '') +
-        `--------------------------------\n` +
-        (isHotSale ? `_Bu belge sıcak satış teslimat fişidir, ürünler araçtan fiziken teslim edilmiştir._` : `_Bu belge bilgi amaçlıdır, mali değeri yoktur._`);
-    } else if (slipType === 'collection' && collectionData) {
-      const paymentMethodNames: Record<string, string> = {
-        nakit: 'Nakit Tahsilat',
-        kredi_karti: 'Kredi Kartı (POS)',
-        havale: 'Banka Havalesi / EFT',
-        cek: 'Müşteri Çeki',
-      };
-      text = `*${issuerMainTitle} - TAHSİLAT MAKBUZU*\n` +
-        `--------------------------------\n` +
-        `*Makbuz No:* ${collectionData.receiptNo}\n` +
-        `*Tarih:* ${nowFormatted}\n` +
-        `*Müşteri:* ${collectionData.customerName}\n` +
-        `*Ödeme Türü:* ${paymentMethodNames[collectionData.paymentMethod] || collectionData.paymentMethod}\n` +
-        `*Tahsil Edilen:* ${collectionData.amount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
-        `*Tutar Yazıyla:* ${amountToTurkishWords(collectionData.amount)}\n` +
-        (collectionData.notes ? `*Açıklama:* ${collectionData.notes}\n` : '') +
-        `--------------------------------\n` +
-        `_Tahsilatınız cari hesabınıza işlenmiştir. Teşekkür ederiz._`;
-    } else if (slipType === 'return' && returnData) {
-      text = `*${issuerMainTitle} - SAHA İADE VE DEĞİŞİM FİŞİ*\n` +
-        `--------------------------------\n` +
-        `*Fiş No:* ${returnData.receiptNo}\n` +
-        `*Tarih:* ${nowFormatted}\n` +
-        `*Müşteri:* ${returnData.customerName}\n` +
-        `*Cari Kod:* ${returnData.customerCode}\n` +
-        `--------------------------------\n` +
-        returnData.items.map((it) => `• ${it.productName}\n  ${it.quantity} ${it.unit} x ${it.unitPrice.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺ = ${it.totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺ [${it.reason}]`).join('\n') +
-        `\n--------------------------------\n` +
-        `*Toplam İade Tutarı:* ${returnData.grandTotal.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
-        (returnData.notes ? `*Not:* ${returnData.notes}\n` : '') +
-        `--------------------------------\n` +
-        `_İade bedeli cari hesabınızdan düşülmüştür._`;
-    } else if (slipType === 'van_loading' && vanLoadingData) {
-      text = `*🚚 ${issuerMainTitle} - ARAÇ MAL YÜKLEME FİŞİ*\n` +
-        `--------------------------------\n` +
-        `*Fiş No:* ${vanLoadingData.docNo}\n` +
-        `*Tarih:* ${vanLoadingData.date}\n` +
-        `*Araç Plakası:* ${vanLoadingData.vanPlate}\n` +
-        `*Çıkış Depo:* ${vanLoadingData.sourceWarehouse}\n` +
-        `*Hedef Araç:* ${vanLoadingData.targetVanWarehouse}\n` +
-        `*Plasiyer:* ${vanLoadingData.salesRepCode}\n` +
-        `--------------------------------\n` +
-        vanLoadingData.items.map((it) => `• ${it.productName}\n  Miktar: ${it.quantity} ${it.unit}`).join('\n') +
-        `\n--------------------------------\n` +
-        `*Toplam Yüklenen:* ${vanLoadingData.totalQuantity} Kalem / Adet\n` +
-        (vanLoadingData.notes ? `*Açıklama:* ${vanLoadingData.notes}\n` : '') +
-        `--------------------------------\n` +
-        `_Mallar araç sorumlusuna eksiksiz sevk edilmiştir._`;
-    } else if (slipType === 'van_audit' && vanAuditData) {
-      text = `*📋 ${issuerMainTitle} - ARAÇ SAYIM VE MUTABAKAT TUTANAĞI*\n` +
-        `----------------------------------------\n` +
-        `*Tutanak No:* ${vanAuditData.docNo}\n` +
-        `*Tarih:* ${vanAuditData.date}\n` +
-        `*Araç Plakası:* ${vanAuditData.vanPlate}\n` +
-        `*Plasiyer:* ${vanAuditData.salesRepCode}\n` +
-        `----------------------------------------\n` +
-        vanAuditData.items.map((it) => `• ${it.productName}\n  Teorik: ${it.theoreticalStock} | Sayılan: ${it.countedStock} | Fark: ${it.difference > 0 ? '+' + it.difference : it.difference} ${it.unit}`).join('\n') +
-        `\n----------------------------------------\n` +
-        `*Net Adet Farkı:* ${vanAuditData.totalDifference > 0 ? '+' + vanAuditData.totalDifference : vanAuditData.totalDifference} Adet\n` +
-        `*Net Tutarsal Fark:* ${vanAuditData.totalDifferenceAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
-        (vanAuditData.notes ? `*Açıklama:* ${vanAuditData.notes}\n` : '') +
-        `----------------------------------------\n` +
-        `_Gün sonu fiziki araç sayım mutabakat belgesidir._`;
-    } else if (slipType === 'end_of_day' && endOfDayData) {
-      text = `*📊 ${issuerMainTitle} - GÜN SONU PLASİYER RAPORU (Z RAPORU)*\n` +
-        `----------------------------------------\n` +
-        `*Tarih:* ${endOfDayData.date}\n` +
-        `*Plasiyer:* ${endOfDayData.salesRepName} (${endOfDayData.salesRepCode})\n` +
-        `----------------------------------------\n` +
-        `• Toplam Sipariş: ${endOfDayData.ordersSummary.count} Adet\n` +
-        `• Net Sipariş Cirosu: ${endOfDayData.ordersSummary.totalNet.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
-        `• Toplam Tahsilat: ${endOfDayData.collectionsSummary.totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
-        `  - Nakit: ${endOfDayData.collectionsSummary.cashAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
-        `  - POS / K.Kartı: ${endOfDayData.collectionsSummary.posAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
-        `  - Çek: ${endOfDayData.collectionsSummary.checkAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
-        `• Rut Başarısı: ${endOfDayData.visitsSummary.completed} / ${endOfDayData.visitsSummary.totalPlanned} (%${endOfDayData.visitsSummary.successRate})\n` +
-        `• İade Tutarı: ${endOfDayData.returnsSummary.totalAmount.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺\n` +
-        `----------------------------------------\n` +
-        `💰 *GÜN SONU FİİLİ NAKİT KASA:* ${endOfDayData.netCashBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺`;
-    }
-    return text;
-  };
-
   const getReceiptBaseFileName = (): string => {
     const rawDoc =
       (slipType === 'order' && (orderData?.erp12DocNo || orderData?.tempId)) ||
@@ -810,7 +677,18 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
     typeof navigator !== 'undefined' &&
     /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
 
-  // 1. WhatsApp Görsel Gönder (Tam Boy Otomatik Fiş Resmi - Hiç İndirmeden Doğrudan Paylaşım)
+  const triggerBrowserFileDownload = (blob: Blob, fileName: string) => {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 10000);
+  };
+
+  // 1. WhatsApp Görsel Gönder (Gerçek PNG Görsel Dosyası - Metin Mesajı Göndermez!)
   const handleShareReceiptImage = async () => {
     if (isSharingImage || isSharingPdf) return;
     setIsSharingImage(true);
@@ -822,7 +700,29 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
       const fileName = `${getReceiptBaseFileName()}.png`;
       const pngFile = new File([pngBlob], fileName, { type: 'image/png' });
 
-      // Bilgisayar veya destekleyen tarayıcılarda fiş görselini bellekte panoya (Clipboard) kopyala (Ctrl+V ile anında yapıştırma)
+      // 1) Mobilde (Android / iOS) doğrudan gerçek PNG fotoğraf dosyasını WhatsApp paylaşım ekranıyla gönder
+      if (
+        isMobileUa() &&
+        typeof navigator !== 'undefined' &&
+        typeof navigator.share === 'function' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [pngFile] })
+      ) {
+        try {
+          await navigator.share({
+            files: [pngFile],
+          });
+          setCopiedAlert('✅ Fiş görseli (PNG) doğrudan paylaşıldı!');
+          setTimeout(() => setCopiedAlert(null), 4000);
+          return;
+        } catch (shareErr: any) {
+          if (shareErr?.name === 'AbortError') {
+            return;
+          }
+        }
+      }
+
+      // 2) Bilgisayarda (PC): Gerçek PNG resmini doğrudan Windows Panosuna (Clipboard) kopyala (Ctrl+V ile WhatsApp'a gerçek resim olarak yapışır)
       let copiedToClipboard = false;
       if (
         typeof navigator !== 'undefined' &&
@@ -835,53 +735,20 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
           await navigator.clipboard.write([item]);
           copiedToClipboard = true;
         } catch {
-          // ignore clipboard permission warning on mobile
+          // ignore
         }
       }
 
-      // Mobilde (Android / iOS) Web Share API ile doğrudan WhatsApp'a fotoğraf dosyası olarak gönder (cihaza indirmeden)
-      if (
-        isMobileUa() &&
-        typeof navigator !== 'undefined' &&
-        typeof navigator.share === 'function' &&
-        typeof navigator.canShare === 'function' &&
-        navigator.canShare({ files: [pngFile] })
-      ) {
-        try {
-          await navigator.share({
-            files: [pngFile],
-            title: payload.documentTitle || 'Sipariş Bilgi Fişi',
-          });
-          setCopiedAlert('Tam boy fiş görseli doğrudan paylaşıldı!');
-          setTimeout(() => setCopiedAlert(null), 4000);
-          return;
-        } catch (shareErr: any) {
-          if (shareErr?.name === 'AbortError') {
-            return;
-          }
-        }
+      if (!copiedToClipboard) {
+        triggerBrowserFileDownload(pngBlob, fileName);
       }
 
-      // Masaüstü (PC) veya Web Share desteklemeyen ortamda: hiç dosya indirmeden bulut bağlantısı + pano kopyası ile doğrudan WhatsApp'ı aç
-      const base64 = await blobToBase64(pngBlob);
-      const directUrl = await apiService.uploadSharedReceiptFile(serverConfig, {
-        base64,
-        contentType: 'image/png',
-        fileName,
-      });
-
-      const summaryText = buildWhatsAppSummaryText();
-      const fullText = directUrl
-        ? `🖼️ *FİŞ GÖRSELİ:* ${directUrl}\n\n${summaryText}`
-        : summaryText;
-
-      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(fullText)}`, '_blank');
       setCopiedAlert(
         copiedToClipboard
-          ? '✅ Tam boy fiş resmi panoya kopyalandı! Açılan WhatsApp sohbetinde Ctrl+V (Yapıştır) yaparak resmi doğrudan gönderebilirsiniz.'
-          : '✅ Fiş görseli hazırlandı ve doğrudan WhatsApp açıldı!'
+          ? '✅ Gerçek fiş resmi (PNG) panoya kopyalandı! WhatsApp sohbetinde sadece Ctrl+V (Yapıştır) tuşuna basarak resmi doğrudan gönderebilirsiniz.'
+          : `✅ "${fileName}" görsel dosyası oluşturuldu! WhatsApp sohbetine sürükleyip gönderebilirsiniz.`
       );
-      setTimeout(() => setCopiedAlert(null), 6000);
+      setTimeout(() => setCopiedAlert(null), 7000);
     } catch (err: any) {
       setCopiedAlert(err?.message || 'Fiş görseli oluşturulurken hata oluştu.');
       setTimeout(() => setCopiedAlert(null), 4000);
@@ -890,7 +757,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
     }
   };
 
-  // 2. PDF Paylaş (Tam Boy Hazır PDF Dosyası - Hiç İndirmeden Doğrudan WhatsApp ile Paylaşım)
+  // 2. PDF Paylaş / Oluştur (Gerçek .PDF Belge Dosyası - Metin Mesajı Göndermez!)
   const handleShareReceiptPdf = async () => {
     if (isSharingPdf || isSharingImage) return;
     setIsSharingPdf(true);
@@ -898,28 +765,11 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 
     try {
       const payload = buildThermalPrintPayload();
-      const [pdfBlob, pngBlob] = await Promise.all([
-        generateReceiptPdfBlob(payload),
-        generateReceiptPngBlob(payload).catch(() => null),
-      ]);
+      const pdfBlob = await generateReceiptPdfBlob(payload);
       const fileName = `${getReceiptBaseFileName()}.pdf`;
       const pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
 
-      if (
-        pngBlob &&
-        typeof navigator !== 'undefined' &&
-        navigator.clipboard &&
-        typeof window !== 'undefined' &&
-        'ClipboardItem' in window
-      ) {
-        try {
-          await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
-        } catch {
-          // ignore
-        }
-      }
-
-      // Mobilde (Android / iOS) Web Share API ile doğrudan WhatsApp'a PDF belgesi olarak gönder (cihaza indirmeden)
+      // 1) Mobilde (Android / iOS) doğrudan gerçek .PDF dosyasını WhatsApp paylaşım ekranıyla gönder (cihaza indirmeden)
       if (
         isMobileUa() &&
         typeof navigator !== 'undefined' &&
@@ -930,9 +780,8 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         try {
           await navigator.share({
             files: [pdfFile],
-            title: fileName,
           });
-          setCopiedAlert('PDF fiş belgesi doğrudan paylaşıldı!');
+          setCopiedAlert('✅ Gerçek PDF fiş belgesi doğrudan paylaşıldı!');
           setTimeout(() => setCopiedAlert(null), 4000);
           return;
         } catch (shareErr: any) {
@@ -942,24 +791,12 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         }
       }
 
-      // Masaüstü (PC) veya Web Share desteklemeyen ortamda: PDF dosyasını bilgisayara indirmeden doğrudan canlı PDF bağlantısı ile WhatsApp'ı aç
-      const base64 = await blobToBase64(pdfBlob);
-      const directPdfUrl = await apiService.uploadSharedReceiptFile(serverConfig, {
-        base64,
-        contentType: 'application/pdf',
-        fileName,
-      });
-
-      const summaryText = buildWhatsAppSummaryText();
-      const fullText = directPdfUrl
-        ? `📄 *RESMİ FİŞ BELGESİ (PDF):*\n${directPdfUrl}\n\n${summaryText}`
-        : summaryText;
-
-      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(fullText)}`, '_blank');
+      // 2) Bilgisayarda (PC): Gerçek .PDF dosyasını oluşturup hazırla (WhatsApp Web tarayıcıdan dışarıdan otomatik PDF enjekte edilmesine izin vermediği için gerçek PDF dosyasını üretir)
+      triggerBrowserFileDownload(pdfBlob, fileName);
       setCopiedAlert(
-        '✅ PDF fiş belgesi hiç indirilmeden oluşturuldu ve doğrudan WhatsApp sohbetine aktarıldı!'
+        `✅ "${fileName}" gerçek PDF dosyası oluşturuldu! WhatsApp sohbet ekranına sürükleyip doğrudan PDF belgesi olarak gönderebilirsiniz.`
       );
-      setTimeout(() => setCopiedAlert(null), 6000);
+      setTimeout(() => setCopiedAlert(null), 7000);
     } catch (err: any) {
       setCopiedAlert(err?.message || 'PDF fiş oluşturulurken hata oluştu.');
       setTimeout(() => setCopiedAlert(null), 4000);
