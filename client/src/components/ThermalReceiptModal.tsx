@@ -23,8 +23,15 @@ import {
   Truck,
   ClipboardCheck,
   CheckCircle2,
-  Loader2
+  Loader2,
+  FileText,
+  Image as ImageIcon
 } from 'lucide-react';
+import {
+  blobToBase64,
+  generateReceiptPdfBlob,
+  generateReceiptPngBlob,
+} from '../utils/receiptExport';
 
 interface ThermalReceiptModalProps {
   isOpen: boolean;
@@ -53,8 +60,10 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 }) => {
   const { companyIssuer, serverConfig, currentUser, salesRep } = useApp();
   const [paperWidth, setPaperWidth] = useState<'58mm' | '80mm'>('80mm');
-  const [copiedAlert, setCopiedAlert] = useState<boolean>(false);
+  const [copiedAlert, setCopiedAlert] = useState<string | null>(null);
   const [isPrinting, setIsPrinting] = useState<boolean>(false);
+  const [isSharingImage, setIsSharingImage] = useState<boolean>(false);
+  const [isSharingPdf, setIsSharingPdf] = useState<boolean>(false);
   const [printStatusMsg, setPrintStatusMsg] = useState<{ type: 'success' | 'info'; text: string } | null>(null);
 
   if (!isOpen) return null;
@@ -653,8 +662,8 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
     }
   };
 
-  // WhatsApp için düz metin fiş oluşturma
-  const handleWhatsAppShare = () => {
+  // WhatsApp için düz metin fiş özeti oluşturma
+  const buildWhatsAppSummaryText = (): string => {
     let text = '';
     if (slipType === 'order' && orderData) {
       const itemsText = normalizedOrderCalc.items.map(({ item: it, lineInclVat }) => {
@@ -782,11 +791,182 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         `----------------------------------------\n` +
         `💰 *GÜN SONU FİİLİ NAKİT KASA:* ${endOfDayData.netCashBalance.toLocaleString('tr-TR', { minimumFractionDigits: 2 })} ₺`;
     }
+    return text;
+  };
 
-    const encoded = encodeURIComponent(text);
-    window.open(`https://api.whatsapp.com/send?text=${encoded}`, '_blank');
-    setCopiedAlert(true);
-    setTimeout(() => setCopiedAlert(false), 2500);
+  const getReceiptBaseFileName = (): string => {
+    const rawDoc =
+      (slipType === 'order' && (orderData?.erp12DocNo || orderData?.tempId)) ||
+      (slipType === 'collection' && (collectionData?.receiptNo || collectionData?.tempId)) ||
+      (slipType === 'return' && (returnData?.receiptNo || returnData?.tempId)) ||
+      (slipType === 'van_loading' && vanLoadingData?.docNo) ||
+      (slipType === 'van_audit' && vanAuditData?.docNo) ||
+      (slipType === 'end_of_day' && endOfDayData?.date) ||
+      new Date().toISOString().slice(0, 10);
+    const cleanDoc = String(rawDoc).trim().replace(/[^a-zA-Z0-9_-]/g, '-');
+    return `Fis-${cleanDoc}`;
+  };
+
+  const isMobileUa = (): boolean =>
+    typeof navigator !== 'undefined' &&
+    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+
+  // 1. WhatsApp Görsel Gönder (Tam Boy Otomatik Fiş Resmi - Hiç İndirmeden Doğrudan Paylaşım)
+  const handleShareReceiptImage = async () => {
+    if (isSharingImage || isSharingPdf) return;
+    setIsSharingImage(true);
+    setCopiedAlert(null);
+
+    try {
+      const payload = buildThermalPrintPayload();
+      const pngBlob = await generateReceiptPngBlob(payload);
+      const fileName = `${getReceiptBaseFileName()}.png`;
+      const pngFile = new File([pngBlob], fileName, { type: 'image/png' });
+
+      // Bilgisayar veya destekleyen tarayıcılarda fiş görselini bellekte panoya (Clipboard) kopyala (Ctrl+V ile anında yapıştırma)
+      let copiedToClipboard = false;
+      if (
+        typeof navigator !== 'undefined' &&
+        navigator.clipboard &&
+        typeof window !== 'undefined' &&
+        'ClipboardItem' in window
+      ) {
+        try {
+          const item = new ClipboardItem({ 'image/png': pngBlob });
+          await navigator.clipboard.write([item]);
+          copiedToClipboard = true;
+        } catch {
+          // ignore clipboard permission warning on mobile
+        }
+      }
+
+      // Mobilde (Android / iOS) Web Share API ile doğrudan WhatsApp'a fotoğraf dosyası olarak gönder (cihaza indirmeden)
+      if (
+        isMobileUa() &&
+        typeof navigator !== 'undefined' &&
+        typeof navigator.share === 'function' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [pngFile] })
+      ) {
+        try {
+          await navigator.share({
+            files: [pngFile],
+            title: payload.documentTitle || 'Sipariş Bilgi Fişi',
+          });
+          setCopiedAlert('Tam boy fiş görseli doğrudan paylaşıldı!');
+          setTimeout(() => setCopiedAlert(null), 4000);
+          return;
+        } catch (shareErr: any) {
+          if (shareErr?.name === 'AbortError') {
+            return;
+          }
+        }
+      }
+
+      // Masaüstü (PC) veya Web Share desteklemeyen ortamda: hiç dosya indirmeden bulut bağlantısı + pano kopyası ile doğrudan WhatsApp'ı aç
+      const base64 = await blobToBase64(pngBlob);
+      const directUrl = await apiService.uploadSharedReceiptFile(serverConfig, {
+        base64,
+        contentType: 'image/png',
+        fileName,
+      });
+
+      const summaryText = buildWhatsAppSummaryText();
+      const fullText = directUrl
+        ? `🖼️ *FİŞ GÖRSELİ:* ${directUrl}\n\n${summaryText}`
+        : summaryText;
+
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(fullText)}`, '_blank');
+      setCopiedAlert(
+        copiedToClipboard
+          ? '✅ Tam boy fiş resmi panoya kopyalandı! Açılan WhatsApp sohbetinde Ctrl+V (Yapıştır) yaparak resmi doğrudan gönderebilirsiniz.'
+          : '✅ Fiş görseli hazırlandı ve doğrudan WhatsApp açıldı!'
+      );
+      setTimeout(() => setCopiedAlert(null), 6000);
+    } catch (err: any) {
+      setCopiedAlert(err?.message || 'Fiş görseli oluşturulurken hata oluştu.');
+      setTimeout(() => setCopiedAlert(null), 4000);
+    } finally {
+      setIsSharingImage(false);
+    }
+  };
+
+  // 2. PDF Paylaş (Tam Boy Hazır PDF Dosyası - Hiç İndirmeden Doğrudan WhatsApp ile Paylaşım)
+  const handleShareReceiptPdf = async () => {
+    if (isSharingPdf || isSharingImage) return;
+    setIsSharingPdf(true);
+    setCopiedAlert(null);
+
+    try {
+      const payload = buildThermalPrintPayload();
+      const [pdfBlob, pngBlob] = await Promise.all([
+        generateReceiptPdfBlob(payload),
+        generateReceiptPngBlob(payload).catch(() => null),
+      ]);
+      const fileName = `${getReceiptBaseFileName()}.pdf`;
+      const pdfFile = new File([pdfBlob], fileName, { type: 'application/pdf' });
+
+      if (
+        pngBlob &&
+        typeof navigator !== 'undefined' &&
+        navigator.clipboard &&
+        typeof window !== 'undefined' &&
+        'ClipboardItem' in window
+      ) {
+        try {
+          await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
+        } catch {
+          // ignore
+        }
+      }
+
+      // Mobilde (Android / iOS) Web Share API ile doğrudan WhatsApp'a PDF belgesi olarak gönder (cihaza indirmeden)
+      if (
+        isMobileUa() &&
+        typeof navigator !== 'undefined' &&
+        typeof navigator.share === 'function' &&
+        typeof navigator.canShare === 'function' &&
+        navigator.canShare({ files: [pdfFile] })
+      ) {
+        try {
+          await navigator.share({
+            files: [pdfFile],
+            title: fileName,
+          });
+          setCopiedAlert('PDF fiş belgesi doğrudan paylaşıldı!');
+          setTimeout(() => setCopiedAlert(null), 4000);
+          return;
+        } catch (shareErr: any) {
+          if (shareErr?.name === 'AbortError') {
+            return;
+          }
+        }
+      }
+
+      // Masaüstü (PC) veya Web Share desteklemeyen ortamda: PDF dosyasını bilgisayara indirmeden doğrudan canlı PDF bağlantısı ile WhatsApp'ı aç
+      const base64 = await blobToBase64(pdfBlob);
+      const directPdfUrl = await apiService.uploadSharedReceiptFile(serverConfig, {
+        base64,
+        contentType: 'application/pdf',
+        fileName,
+      });
+
+      const summaryText = buildWhatsAppSummaryText();
+      const fullText = directPdfUrl
+        ? `📄 *RESMİ FİŞ BELGESİ (PDF):*\n${directPdfUrl}\n\n${summaryText}`
+        : summaryText;
+
+      window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(fullText)}`, '_blank');
+      setCopiedAlert(
+        '✅ PDF fiş belgesi hiç indirilmeden oluşturuldu ve doğrudan WhatsApp sohbetine aktarıldı!'
+      );
+      setTimeout(() => setCopiedAlert(null), 6000);
+    } catch (err: any) {
+      setCopiedAlert(err?.message || 'PDF fiş oluşturulurken hata oluştu.');
+      setTimeout(() => setCopiedAlert(null), 4000);
+    } finally {
+      setIsSharingPdf(false);
+    }
   };
 
   const slipTitle = 
@@ -1499,8 +1679,8 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         {/* Alt Aksiyon Butonları */}
         <div className="p-4 border-t border-slate-100 dark:border-slate-800 bg-white dark:bg-slate-900 flex flex-col gap-2.5">
           {copiedAlert && (
-            <div className="p-2 text-xs rounded-xl bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-center font-medium animate-fadeIn">
-              Fiş metni kopyalandı ve WhatsApp yönlendirildi!
+            <div className="p-2.5 text-xs rounded-xl bg-emerald-500/15 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 text-center font-bold animate-fadeIn">
+              {copiedAlert}
             </div>
           )}
 
@@ -1517,35 +1697,64 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
             <button
               type="button"
-              onClick={handleWhatsAppShare}
-              className="flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-sm transition-all shadow-md active:scale-95"
+              onClick={handleShareReceiptImage}
+              disabled={isSharingImage || isSharingPdf}
+              className="flex items-center justify-center gap-2 py-3 px-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white font-bold text-xs sm:text-sm transition-all shadow-md active:scale-95"
             >
-              <Share2 className="w-4 h-4" />
-              <span>WhatsApp</span>
+              {isSharingImage ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                  <span>Görsel Hazırlanıyor...</span>
+                </>
+              ) : (
+                <>
+                  <ImageIcon className="w-4 h-4 shrink-0" />
+                  <span>WhatsApp Görsel Gönder</span>
+                </>
+              )}
             </button>
 
             <button
               type="button"
-              onClick={handlePrint}
-              disabled={isPrinting}
-              className="flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-semibold text-sm transition-all shadow-md active:scale-95"
+              onClick={handleShareReceiptPdf}
+              disabled={isSharingPdf || isSharingImage}
+              className="flex items-center justify-center gap-2 py-3 px-3.5 rounded-2xl bg-teal-600 hover:bg-teal-700 disabled:opacity-60 text-white font-bold text-xs sm:text-sm transition-all shadow-md active:scale-95"
             >
-              {isPrinting ? (
+              {isSharingPdf ? (
                 <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  <span>Yazdırılıyor...</span>
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                  <span>PDF Hazırlanıyor...</span>
                 </>
               ) : (
                 <>
-                  <Printer className="w-4 h-4" />
-                  <span>Yazdır / Fiş Çıkar</span>
+                  <FileText className="w-4 h-4 shrink-0" />
+                  <span>PDF Paylaş</span>
                 </>
               )}
             </button>
           </div>
+
+          <button
+            type="button"
+            onClick={handlePrint}
+            disabled={isPrinting}
+            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-2xl bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 text-white font-bold text-xs sm:text-sm transition-all shadow-md active:scale-95"
+          >
+            {isPrinting ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Yazdırılıyor...</span>
+              </>
+            ) : (
+              <>
+                <Printer className="w-4 h-4" />
+                <span>Yazdır / Fiş Çıkar</span>
+              </>
+            )}
+          </button>
 
           <button
             type="button"

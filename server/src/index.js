@@ -356,6 +356,117 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+// Fiş Görseli (.png) ve PDF (.pdf) Doğrudan Bulut Paylaşım Havuzu (İndirmeden WhatsApp Paylaşımı İçin)
+const sharedReceiptsCache = new Map();
+
+app.post('/api/receipts/share', async (req, res) => {
+  try {
+    const { base64, contentType, fileName } = req.body || {};
+    if (!base64 || typeof base64 !== 'string') {
+      return res.status(400).json({ success: false, error: 'Geçersiz dosya verisi' });
+    }
+    const buf = Buffer.from(base64, 'base64');
+    if (buf.length === 0 || buf.length > 8 * 1024 * 1024) {
+      return res.status(400).json({ success: false, error: 'Dosya boyutu geçersiz' });
+    }
+    const safeMime =
+      contentType === 'application/pdf' ? 'application/pdf' : 'image/png';
+    const ext = safeMime === 'application/pdf' ? 'pdf' : 'png';
+    const cleanName =
+      String(fileName || `Fis-${Date.now()}.${ext}`)
+        .trim()
+        .replace(/[^a-zA-Z0-9._-]/g, '_') || `Fis.${ext}`;
+    const id = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+
+    sharedReceiptsCache.set(id, {
+      buffer: buf,
+      contentType: safeMime,
+      fileName: cleanName,
+      createdAt: Date.now(),
+    });
+    if (sharedReceiptsCache.size > 150) {
+      const oldestKey = sharedReceiptsCache.keys().next().value;
+      if (oldestKey) sharedReceiptsCache.delete(oldestKey);
+    }
+
+    if (process.env.BLOB_READ_WRITE_TOKEN) {
+      try {
+        const { put } = await import('@vercel/blob');
+        await put(
+          `receipt-shares/${id}.json`,
+          JSON.stringify({
+            contentType: safeMime,
+            fileName: cleanName,
+            base64,
+          }),
+          {
+            access: 'private',
+            addRandomSuffix: false,
+            allowOverwrite: true,
+            contentType: 'application/json',
+          }
+        );
+      } catch {
+        // ignore blob write warning
+      }
+    }
+
+    return res.json({
+      success: true,
+      id,
+      fileName: cleanName,
+      path: `/api/receipts/file/${encodeURIComponent(id)}/${encodeURIComponent(cleanName)}`,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+app.get('/api/receipts/file/:id/:fileName', async (req, res) => {
+  try {
+    const id = String(req.params.id || '').replace(/[^a-zA-Z0-9_-]/g, '');
+    let item = sharedReceiptsCache.get(id);
+
+    if (!item && process.env.BLOB_READ_WRITE_TOKEN) {
+      try {
+        const { get } = await import('@vercel/blob');
+        const blobRes = await get(`receipt-shares/${id}.json`, {
+          access: 'private',
+          useCache: false,
+        });
+        if (blobRes && blobRes.statusCode === 200 && blobRes.stream) {
+          const txt = await new Response(blobRes.stream).text();
+          const parsed = JSON.parse(txt);
+          if (parsed?.base64) {
+            item = {
+              buffer: Buffer.from(parsed.base64, 'base64'),
+              contentType: parsed.contentType || 'application/pdf',
+              fileName: parsed.fileName || req.params.fileName || 'Fis.pdf',
+            };
+            sharedReceiptsCache.set(id, item);
+          }
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    if (!item || !item.buffer) {
+      return res.status(404).send('Fiş belgesi bulunamadı veya süresi doldu.');
+    }
+
+    res.setHeader('Content-Type', item.contentType);
+    res.setHeader(
+      'Content-Disposition',
+      `inline; filename="${String(item.fileName || 'Fis').replace(/"/g, '')}"`
+    );
+    res.setHeader('Cache-Control', 'public, max-age=86400');
+    return res.send(item.buffer);
+  } catch {
+    return res.status(500).send('Fiş belgesi okunamadı.');
+  }
+});
+
 // Termal Fiş Yazıcıya (1 Numaralı Yazıcı) Doğrudan Gönderim
 app.post('/api/print/thermal', async (req, res) => {
   if (!(await hasValidWriteAuthorization(req))) {

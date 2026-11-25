@@ -1520,5 +1520,43 @@ export const apiService = {
         message: '1 numaralı termal yazıcı servisine ulaşılamadı.',
       };
     }
-  }
+  },
+
+  // Fiş Görseli (.png) veya PDF (.pdf) Dosyasını İndirmeden Doğrudan WhatsApp ile Paylaşmak İçin Geçici Bulut Bağlantısı Oluştur
+  async uploadSharedReceiptFile(
+    config: ServerConfig | undefined,
+    params: { base64: string; contentType: 'image/png' | 'application/pdf'; fileName: string }
+  ): Promise<string | null> {
+    try {
+      const baseUrl = await resolveApiBaseUrlAsync(config);
+      const reqHeaders = {
+        'Content-Type': 'application/json',
+        ...buildSqlHeaders(config),
+      };
+      let response = await fetch('/api/receipts/share', {
+        method: 'POST',
+        headers: reqHeaders,
+        body: JSON.stringify(params),
+      }).catch(() => null);
+
+      if ((!response || !response.ok) && baseUrl !== '/api') {
+        response = await fetch(`${baseUrl}/receipts/share`, {
+          method: 'POST',
+          headers: reqHeaders,
+          body: JSON.stringify(params),
+        }).catch(() => null);
+      }
+
+      if (!response || !response.ok) return null;
+      const data = await response.json().catch(() => null);
+      if (data?.success && data?.path) {
+        const origin =
+          typeof window !== 'undefined' ? window.location.origin : 'https://plasiyer.vercel.app';
+        return `${origin}${data.path}`;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  },
 };
