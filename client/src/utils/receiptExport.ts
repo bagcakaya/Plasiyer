@@ -628,7 +628,8 @@ export function createReceiptPdfBlobSync(payload: ReceiptExportPayload): Blob {
     pushStr('\nendobj\n');
   };
 
-  pushStr('%PDF-1.4\n%\xFF\xFF\xFF\xFF\n');
+  pushStr('%PDF-1.4\n');
+  pushBytes(new Uint8Array([0x25, 0xe2, 0xe3, 0xcf, 0xd3, 0x0a]));
 
   // 1: Catalog
   startObj(1);
@@ -643,7 +644,7 @@ export function createReceiptPdfBlobSync(payload: ReceiptExportPayload): Blob {
   // 3: Page
   startObj(3);
   pushStr(
-    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pdfW} ${pdfH}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${pdfW} ${pdfH}] /Resources << /ProcSet [/PDF /ImageC] /XObject << /Im0 4 0 R >> >> /Contents 5 0 R >>`
   );
   endObj();
 
@@ -657,11 +658,12 @@ export function createReceiptPdfBlobSync(payload: ReceiptExportPayload): Blob {
   endObj();
 
   // 5: Page Content Stream
-  const contentStream = `q\n${pdfW} 0 0 ${pdfH} 0 0 cm\n/Im0 Do\nQ\n`;
+  const contentStream = `q\n${pdfW} 0 0 ${pdfH} 0 0 cm\n/Im0 Do\nQ`;
   const contentBytes = encoder.encode(contentStream);
   startObj(5);
   pushStr(`<< /Length ${contentBytes.byteLength} >>\nstream\n`);
   pushBytes(contentBytes);
+  pushStr('\nendstream');
   endObj();
 
   // XRef
