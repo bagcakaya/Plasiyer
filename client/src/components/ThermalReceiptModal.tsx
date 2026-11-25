@@ -673,18 +673,32 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
     return `Fis-${cleanDoc}`;
   };
 
+  const isMobileDevice = (): boolean =>
+    typeof navigator !== 'undefined' &&
+    /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent || '');
+
   const triggerBrowserFileDownload = (blob: Blob, fileName: string) => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
     a.download = fileName;
+    a.style.display = 'none';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 10000);
+    setTimeout(() => URL.revokeObjectURL(url), 15000);
   };
 
-  // 1. WhatsApp Görsel Gönder (Banka Dekont Paylaşımı Mimarisi: Bellekte Senkron PNG Dosyası Üretip Doğrudan İşletim Sistemi Paylaş Menüsünü Aç)
+  const openWhatsAppAppOrWeb = () => {
+    // Masaüstünde veya tarayıcıda metin mesajı yazmadan doğrudan WhatsApp uygulamasını / sekmesini öne getir
+    try {
+      window.open('https://web.whatsapp.com/', 'whatsapp_web_window');
+    } catch {
+      // ignore
+    }
+  };
+
+  // 1. WhatsApp Görsel Gönder (Mobilde Doğrudan Paylaş Menüsü, Bilgisayarda Panoya Resim Kopyala + İndir + WhatsApp'ı Aç)
   const handleShareReceiptImage = async () => {
     if (isSharingImage || isSharingPdf) return;
     setIsSharingImage(true);
@@ -692,7 +706,6 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 
     try {
       const payload = buildThermalPrintPayload();
-      // Kullanıcı tıklama yetkisini (User Gesture) kaybetmemek için %100 SENKRON olarak dosyayı oluştur
       const pngBlob = createReceiptPngBlobSync(payload);
       const fileName = `${getReceiptBaseFileName()}.png`;
       const pngFile = new File([pngBlob], fileName, {
@@ -700,8 +713,9 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         lastModified: Date.now(),
       });
 
-      // 1) Hem Mobil (Android / iOS) hem Masaüstü PWA (Windows 10/11) üzerinde işletim sisteminin yerel Dosya Paylaşım (Share Sheet) ekranını doğrudan gerçek PNG dosyasıyla aç
+      // 1) Mobilde (Android / iOS) işletim sisteminin yerel Paylaş (Share Sheet) ekranını doğrudan gerçek PNG dosyasıyla aç
       if (
+        isMobileDevice() &&
         typeof navigator !== 'undefined' &&
         typeof navigator.share === 'function' &&
         typeof navigator.canShare === 'function' &&
@@ -722,7 +736,8 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         }
       }
 
-      // 2) Tarayıcı doğrudan dosya paylaşım penceresini desteklemiyorsa panoya (Clipboard) gerçek resim olarak kopyala
+      // 2) Bilgisayarda (PC): Resmi Windows Panosuna (Clipboard) kopyala + PNG olarak indir + WhatsApp'ı aç
+      let copiedToClipboard = false;
       if (
         typeof navigator !== 'undefined' &&
         navigator.clipboard &&
@@ -731,19 +746,21 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
       ) {
         try {
           await navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob })]);
-          setCopiedAlert(
-            '✅ Fiş resmi (PNG) panoya kopyalandı! WhatsApp sohbetinde Ctrl+V (Yapıştır) tuşuna basarak resmi doğrudan gönderebilirsiniz.'
-          );
-          setTimeout(() => setCopiedAlert(null), 6000);
-          return;
+          copiedToClipboard = true;
         } catch {
           // ignore
         }
       }
 
       triggerBrowserFileDownload(pngBlob, fileName);
-      setCopiedAlert(`✅ "${fileName}" görsel dosyası hazırlandı!`);
-      setTimeout(() => setCopiedAlert(null), 5000);
+      openWhatsAppAppOrWeb();
+
+      setCopiedAlert(
+        copiedToClipboard
+          ? `✅ Fiş resmi panoya kopyalandı ve "${fileName}" indirildi! Açılan WhatsApp sohbetinde Ctrl+V (Yapıştır) yaparak doğrudan resmi gönderebilirsiniz.`
+          : `✅ "${fileName}" görsel dosyası indirildi ve WhatsApp açıldı!`
+      );
+      setTimeout(() => setCopiedAlert(null), 7000);
     } catch (err: any) {
       setCopiedAlert(err?.message || 'Fiş görseli oluşturulurken hata oluştu.');
       setTimeout(() => setCopiedAlert(null), 4000);
@@ -752,7 +769,7 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
     }
   };
 
-  // 2. PDF Paylaş (Banka Dekont Paylaşımı Mimarisi: Bellekte Senkron .PDF Dosyası Üretip Hiç İndirmeden Doğrudan Paylaş Menüsünü Aç)
+  // 2. PDF Paylaş (Mobilde Doğrudan Paylaş Menüsü, Bilgisayarda Gerçek PDF Dosyasını İndir + WhatsApp'ı Aç)
   const handleShareReceiptPdf = async () => {
     if (isSharingPdf || isSharingImage) return;
     setIsSharingPdf(true);
@@ -760,7 +777,6 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
 
     try {
       const payload = buildThermalPrintPayload();
-      // Kullanıcı tıklama yetkisini (User Gesture) kaybetmemek için %100 SENKRON olarak bellekte gerçek PDF 1.4 dosyasını oluştur
       const pdfBlob = createReceiptPdfBlobSync(payload);
       const fileName = `${getReceiptBaseFileName()}.pdf`;
       const pdfFile = new File([pdfBlob], fileName, {
@@ -768,8 +784,9 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         lastModified: Date.now(),
       });
 
-      // 1) Banka uygulamalarıyla birebir aynı yöntem: Hem Mobil (Android / iOS) hem Windows üzerinde işletim sisteminin Paylaş (Share Sheet) ekranını doğrudan gerçek .PDF dosyasıyla aç
+      // 1) Mobilde (Android / iOS) işletim sisteminin Paylaş (Share Sheet) ekranını doğrudan gerçek .PDF dosyasıyla aç (telefona indirmeden)
       if (
+        isMobileDevice() &&
         typeof navigator !== 'undefined' &&
         typeof navigator.share === 'function' &&
         typeof navigator.canShare === 'function' &&
@@ -790,14 +807,14 @@ export const ThermalReceiptModal: React.FC<ThermalReceiptModalProps> = ({
         }
       }
 
-      // 2) Eğer masaüstü tarayıcıda sistem paylaşım menüsü kapalıysa PDF'i yeni sekmede yerleşik PDF görüntüleyicide aç (indirilenler klasörünü kirletmeden)
-      const pdfUrl = URL.createObjectURL(pdfBlob);
-      const opened = window.open(pdfUrl, '_blank');
-      if (!opened) {
-        triggerBrowserFileDownload(pdfBlob, fileName);
-      }
-      setCopiedAlert(`✅ "${fileName}" PDF belgesi hazırlandı!`);
-      setTimeout(() => setCopiedAlert(null), 5000);
+      // 2) Bilgisayarda (PC): PWA penceresinde engellenen blob popup yerine gerçek .PDF dosyasını doğrudan indir ve WhatsApp'ı aç
+      triggerBrowserFileDownload(pdfBlob, fileName);
+      openWhatsAppAppOrWeb();
+
+      setCopiedAlert(
+        `✅ "${fileName}" PDF dosyası hazırlandı ve WhatsApp açıldı! İndirilen PDF dosyasını sohbete sürükleyip gönderebilirsiniz.`
+      );
+      setTimeout(() => setCopiedAlert(null), 7000);
     } catch (err: any) {
       setCopiedAlert(err?.message || 'PDF fiş oluşturulurken hata oluştu.');
       setTimeout(() => setCopiedAlert(null), 4000);
