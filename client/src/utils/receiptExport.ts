@@ -607,18 +607,18 @@ export async function generateReceiptPdfBlob(payload: ReceiptExportPayload): Pro
   const pdfH = Math.round((imgH / imgW) * pdfW);
 
   const encoder = new TextEncoder();
-  const chunks: Uint8Array[] = [];
+  const chunks: BlobPart[] = [];
   const offsets: number[] = [0];
   let byteLength = 0;
 
   const pushStr = (str: string) => {
     const arr = encoder.encode(str);
-    chunks.push(arr);
+    chunks.push(arr as unknown as BlobPart);
     byteLength += arr.byteLength;
   };
 
   const pushBytes = (arr: Uint8Array) => {
-    chunks.push(arr);
+    chunks.push(arr as unknown as BlobPart);
     byteLength += arr.byteLength;
   };
 

@@ -13,7 +13,6 @@ import { useApp } from '../context/AppContext';
 import { apiService } from '../services/apiService';
 import { 
   Printer, 
-  Share2, 
   X, 
   Building2, 
   QrCode,
