@@ -264,8 +264,8 @@ function buildMssqlConfig(cfg) {
       min: 0,
       idleTimeoutMillis: 25000,
     },
-    connectionTimeout: process.env.VERCEL ? 3500 : 10000,
-    requestTimeout: 30000,
+    connectionTimeout: process.env.VERCEL ? 3500 : 4200,
+    requestTimeout: 25000,
   };
 
   if (cfg.port) {
@@ -275,7 +275,15 @@ function buildMssqlConfig(cfg) {
   return mssqlCfg;
 }
 
+const recentUnreachableHosts = new Map();
+
 async function getDynamicPool(cfg) {
+  const hostPortKey = `${cfg.server}:${cfg.port}`;
+  const lastDead = recentUnreachableHosts.get(hostPortKey);
+  if (lastDead && Date.now() - lastDead.at < 10000) {
+    throw new Error(lastDead.msg);
+  }
+
   const key = `${cfg.server}:${cfg.port}:${cfg.database}:${cfg.user}:${cfg.password}`;
   let existing = dynamicPools.get(key);
   if (existing) {
@@ -291,6 +299,7 @@ async function getDynamicPool(cfg) {
   const connectPromise = poolInstance
     .connect()
     .then((pool) => {
+      recentUnreachableHosts.delete(hostPortKey);
       pool.on('error', (err) => {
         console.warn(`⚠️ Dinamik SQL havuz uyarısı (${cfg.server}:${cfg.port}):`, err.message);
         dynamicPools.delete(key);
@@ -299,7 +308,17 @@ async function getDynamicPool(cfg) {
     })
     .catch((err) => {
       dynamicPools.delete(key);
-      throw new Error(formatSqlError(err, cfg.server, cfg.port, cfg.database, cfg.user));
+      const formatted = formatSqlError(err, cfg.server, cfg.port, cfg.database, cfg.user);
+      const rawMsg = String(err?.message || '').toLowerCase();
+      if (
+        rawMsg.includes('failed to connect') ||
+        rawMsg.includes('timeout') ||
+        rawMsg.includes('econnrefused') ||
+        rawMsg.includes('esocket')
+      ) {
+        recentUnreachableHosts.set(hostPortKey, { at: Date.now(), msg: formatted });
+      }
+      throw new Error(formatted);
     });
 
   dynamicPools.set(key, connectPromise);

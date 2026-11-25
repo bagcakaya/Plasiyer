@@ -179,11 +179,8 @@ async function hasValidWriteAuthorization(req) {
 app.use(express.json({ limit: '12mb' }));
 app.use(express.urlencoded({ extended: true, limit: '12mb' }));
 
-// Bulut (Vercel) üzerinde canlı tünel gecikirse bekletmeden Bulut Aynası / Outbox kuyruğuna düşürmek için hızlı zaman aşımı sarmalayıcısı
-function withFastCloudTimeout(promiseFactory, timeoutMs = 6500) {
-  if (!process.env.VERCEL) {
-    return promiseFactory();
-  }
+// Canlı SQL veya Tünel gecikirse 2 dakika bekletmeden anında Bulut Aynası / Outbox kuyruğuna düşürmek için hızlı zaman aşımı sarmalayıcısı
+function withFastCloudTimeout(promiseFactory, timeoutMs = 5500) {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       reject(new Error('CLOUD_TUNNEL_FAST_FALLBACK'));
