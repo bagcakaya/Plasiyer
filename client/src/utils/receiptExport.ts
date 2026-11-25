@@ -566,18 +566,15 @@ export function renderReceiptToCanvas(payload: ReceiptExportPayload): HTMLCanvas
   return canvas;
 }
 
-export async function generateReceiptPngBlob(payload: ReceiptExportPayload): Promise<Blob> {
+export function createReceiptPngBlobSync(payload: ReceiptExportPayload): Blob {
   const canvas = renderReceiptToCanvas(payload);
-  return new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob(
-      (blob) => {
-        if (blob) resolve(blob);
-        else reject(new Error('Fiş görseli oluşturulamadı.'));
-      },
-      'image/png',
-      1.0
-    );
-  });
+  const pngDataUrl = canvas.toDataURL('image/png');
+  const pngBytes = dataUrlToUint8Array(pngDataUrl);
+  return new Blob([pngBytes as unknown as BlobPart], { type: 'image/png' });
+}
+
+export async function generateReceiptPngBlob(payload: ReceiptExportPayload): Promise<Blob> {
+  return createReceiptPngBlobSync(payload);
 }
 
 function dataUrlToUint8Array(dataUrl: string): Uint8Array {
@@ -591,10 +588,10 @@ function dataUrlToUint8Array(dataUrl: string): Uint8Array {
 }
 
 /**
- * Sıfır bağımlılıklı, tüm Türkçe karakterleri (%100 vektör/yüksek DPI) kusursuz koruyan
- * tam boy PDF 1.4 belge üreticisi.
+ * Banka dekont paylaşımı (navigator.share) için kullanıcı tıklama yetkisini (User Gesture)
+ * hiç kaybetmeden %100 SENKRON olarak bellekte gerçek PDF 1.4 dosyası üretir.
  */
-export async function generateReceiptPdfBlob(payload: ReceiptExportPayload): Promise<Blob> {
+export function createReceiptPdfBlobSync(payload: ReceiptExportPayload): Blob {
   const canvas = renderReceiptToCanvas(payload);
   const jpegDataUrl = canvas.toDataURL('image/jpeg', 0.95);
   const jpegBytes = dataUrlToUint8Array(jpegDataUrl);
@@ -665,7 +662,6 @@ export async function generateReceiptPdfBlob(payload: ReceiptExportPayload): Pro
   startObj(5);
   pushStr(`<< /Length ${contentBytes.byteLength} >>\nstream\n`);
   pushBytes(contentBytes);
-  pushStr('endstream');
   endObj();
 
   // XRef
@@ -679,6 +675,10 @@ export async function generateReceiptPdfBlob(payload: ReceiptExportPayload): Pro
   pushStr(`trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n${xrefOffset}\n%%EOF\n`);
 
   return new Blob(chunks, { type: 'application/pdf' });
+}
+
+export async function generateReceiptPdfBlob(payload: ReceiptExportPayload): Promise<Blob> {
+  return createReceiptPdfBlobSync(payload);
 }
 
 export async function blobToBase64(blob: Blob): Promise<string> {
